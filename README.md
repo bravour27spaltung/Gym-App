@@ -6,7 +6,7 @@ Trainings-App für das Fitnessstudio (Handy zuerst, Auswertung auch am PC). Nur 
 
 | Bereich | Status |
 | --- | --- |
-| Kernlogik in `src/lib` (Gewichte, Double Progression, Aufwärmsätze, Rotation, Pausentimer, Trainings-Zustand, lokaler Speicher) | fertig, 59 Tests |
+| Kernlogik in `src/lib` (Gewichte, Double Progression, Aufwärmsätze, Rotation, Pausentimer, Trainings-Zustand, lokaler Speicher) | fertig, 73 Tests |
 | Datenbankschema mit Zugriffsregeln (`supabase/migrations/0001_fit_schema.sql`, `0002_fit_last_sets.sql`) | fertig, noch nicht gegen eine echte Supabase-Instanz ausgeführt |
 | Log-Ansicht (Login, Training starten, Übungen, kompakte Satzzeilen, Vorbelegung, Aufwärmen, Pausentimer, Ausgangskorb) | im Chromium gegen eine Fake-Datenbank durchgespielt, noch nicht auf dem iPhone oder mit echtem Supabase getestet |
 | Trainingspläne (anlegen, bearbeiten, Tage/Übungen verschieben, archivieren, Start aus dem Plan mit Rotation) | wie oben |
@@ -58,3 +58,25 @@ Der Anon-Key steckt im Frontend und ist öffentlich. Geschützt sind die Daten a
 ## Offline-Verhalten
 
 Das laufende Training und der Ausgangskorb liegen im `localStorage`. Bricht die Verbindung während des Trainings ab, geht nichts verloren, und abgeschlossene Trainings werden gesendet, sobald wieder Empfang besteht. Die App selbst wird noch nicht zwischengespeichert: Ein Neuladen ohne Verbindung schlägt fehl, bis ein Service Worker ergänzt ist.
+
+## Anmeldung per E-Mail-Link und Code
+
+Die App schickt eine E-Mail mit einem Link **und** einem Code. Am Computer tippst du auf den Link. In der App vom iPhone-Home-Bildschirm gibst du den Code ein, denn der Link öffnet Safari und nicht die App. Das Passwort bleibt als Ausweg, falls das Mail-Limit von Supabase erreicht ist. Über das Formular entstehen keine neuen Konten (`shouldCreateUser: false`).
+
+Einrichtung in Supabase (die Menünamen können leicht abweichen):
+
+1. **Authentication, URL Configuration:** Als **Site URL** die Vercel-Adresse eintragen (`https://….vercel.app`) und dieselbe Adresse unter **Redirect URLs** ergänzen. Ohne das führt der Link auf eine falsche Seite.
+2. **Authentication, Emails (Templates), „Magic Link":** Den Text so ändern, dass auch der Code darin steht:
+   ```html
+   <h2>Anmeldung bei Gym-Log</h2>
+   <p><a href="{{ .ConfirmationURL }}">Hier tippen, um dich anzumelden</a></p>
+   <p>Oder gib diesen Code in der App ein: <strong>{{ .Token }}</strong></p>
+   ```
+3. Der integrierte Mailversand von Supabase ist stark begrenzt (nur wenige Mails pro Stunde, bitte die aktuellen Limits prüfen). Für eine Person reicht das, sonst hilft ein eigener SMTP-Anbieter.
+
+## Fehlersuche
+
+- **Meldung „VITE_SUPABASE_URL ist keine gültige Adresse":** Die Variable muss `https://abcdefgh.supabase.co` lauten, ohne Pfad. Anführungszeichen und Leerzeichen entfernt die App selbst. Nach einer Änderung in Vercel neu deployen.
+- **Meldung zu einem geheimen Schlüssel:** In die App gehört nur der publishable- bzw. anon-Schlüssel, nie `sb_secret_…` oder `service_role`.
+- **„Etwas ist schiefgelaufen":** Die Fehlerseite zeigt den Grund. „Laufendes Training verwerfen und neu laden" löscht nur den lokalen Entwurf, nicht die bereits gesendeten oder im Ausgangskorb wartenden Trainings.
+- **Leere Seite ohne Meldung:** In Chrome mit Cmd + Option + J die Konsole öffnen und den roten Text notieren.

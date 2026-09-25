@@ -10,9 +10,11 @@ import {
   flushOutbox,
   getSessionEmail,
   savePlanRows,
+  sendLoginLink,
   signIn,
   signOut,
   syncPayload,
+  verifyLoginCode,
 } from './lib/api';
 import {
   draftFromPlanDay,
@@ -22,6 +24,7 @@ import {
   visibleExercises,
   type Plan,
 } from './lib/plan';
+import { normalizeCode } from './lib/authErrors';
 import type { LoggedSet } from './lib/progression';
 import { nextPlanDay } from './lib/rotation';
 import { browserStore, type ExerciseListItem } from './lib/storage';
@@ -31,7 +34,7 @@ import {
   doneSetsAsLogged,
   type Draft,
 } from './lib/workout';
-import { supabase } from './supabase';
+import { configError, supabase } from './supabase';
 
 const QUICK_NAMES = ['Push', 'Pull', 'Lower', 'Freies Training'];
 
@@ -217,9 +220,8 @@ export function App() {
     return (
       <main className="screen">
         <h1>Gym-Log</h1>
-        <p className="error">
-          Supabase ist nicht konfiguriert. Lege eine <code>.env</code> nach dem Muster von{' '}
-          <code>.env.example</code> an und starte die App neu.
+        <p className="error" role="alert">
+          {configError ?? 'Supabase ist nicht konfiguriert.'}
         </p>
       </main>
     );
@@ -359,12 +361,54 @@ export function App() {
 }
 
 function Login() {
+  const [step, setStep] = useState<'email' | 'code'>('email');
   const [mail, setMail] = useState('');
+  const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [resendAt, setResendAt] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
 
-  async function submit(e: FormEvent) {
+  // Sperrzeit für "Erneut senden", damit das E-Mail-Limit von Supabase nicht ausgereizt wird.
+  useEffect(() => {
+    if (resendAt <= Date.now()) return;
+    const id = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(id);
+  }, [resendAt]);
+  const wait = Math.max(0, Math.ceil((resendAt - now) / 1000));
+
+  async function send(e?: FormEvent) {
+    e?.preventDefault();
+    setBusy(true);
+    setError(null);
+    const res = await sendLoginLink(mail.trim());
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setStep('code');
+    setCode('');
+    setNow(Date.now());
+    setResendAt(Date.now() + 60_000);
+  }
+
+  async function verify(e: FormEvent) {
+    e.preventDefault();
+    const token = normalizeCode(code);
+    if (!token) {
+      setError('Der Code besteht aus 6 bis 10 Ziffern.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const res = await verifyLoginCode(mail.trim(), token);
+    if (!res.ok) setError(res.error);
+    setBusy(false);
+  }
+
+  async function passwordLogin(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
@@ -376,34 +420,96 @@ function Login() {
   return (
     <main className="screen">
       <h1>Gym-Log</h1>
-      <form className="card" onSubmit={(e) => void submit(e)}>
-        <label>
-          E-Mail
-          <input
-            className="text"
-            type="email"
-            autoComplete="username"
-            value={mail}
-            onChange={(e) => setMail(e.target.value)}
-            required
-          />
-        </label>
-        <label>
-          Passwort
-          <input
-            className="text"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </label>
-        {error && <p className="error">{error}</p>}
-        <button type="submit" className="btn primary" disabled={busy}>
-          {busy ? 'Anmelden …' : 'Anmelden'}
-        </button>
-      </form>
+
+      {step === 'email' ? (
+        <form className="card" onSubmit={(e) => void send(e)}>
+          <label>
+            E-Mail
+            <input
+              className="text"
+              type="email"
+              autoComplete="username"
+              value={mail}
+              onChange={(e) => setMail(e.target.value)}
+              required
+            />
+          </label>
+          <button type="submit" className="btn primary" disabled={busy}>
+            {busy ? 'Sende …' : 'Anmeldelink senden'}
+          </button>
+        </form>
+      ) : (
+        <form className="card" onSubmit={(e) => void verify(e)}>
+          <p>
+            Wir haben eine E-Mail an <strong>{mail.trim()}</strong> geschickt.
+          </p>
+          <p className="muted">
+            Am Computer tippst du auf den Link in der Mail. In der App auf dem iPhone gibst du
+            stattdessen den Code aus der Mail hier ein, denn der Link öffnet Safari und nicht diese App.
+          </p>
+          <label>
+            Code aus der E-Mail
+            <input
+              className="text"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+            />
+          </label>
+          <button type="submit" className="btn primary" disabled={busy}>
+            {busy ? 'Prüfe …' : 'Code bestätigen'}
+          </button>
+          <div className="row wrap">
+            <button
+              type="button"
+              className="link"
+              disabled={busy || wait > 0}
+              onClick={() => void send()}
+            >
+              {wait > 0 ? `Erneut senden (${wait} s)` : 'Erneut senden'}
+            </button>
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                setStep('email');
+                setError(null);
+              }}
+            >
+              Andere Adresse
+            </button>
+          </div>
+        </form>
+      )}
+
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+
+      {step === 'email' && (
+        <details className="equipment">
+          <summary>Mit Passwort anmelden</summary>
+          <form onSubmit={(e) => void passwordLogin(e)}>
+            <label>
+              Passwort
+              <input
+                className="text"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </label>
+            <button type="submit" className="btn" disabled={busy || mail.trim() === '' || password === ''}>
+              Mit Passwort anmelden
+            </button>
+          </form>
+        </details>
+      )}
     </main>
   );
 }

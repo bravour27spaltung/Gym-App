@@ -1,4 +1,5 @@
 import { supabase } from '../supabase';
+import { translateAuthError } from './authErrors';
 import type { Plan, PlanDbRow, PlanRows } from './plan';
 import { plansFromRows } from './plan';
 import type { LoggedSet } from './progression';
@@ -24,7 +25,27 @@ export async function getSessionEmail(): Promise<string | null> {
 export async function signIn(email: string, password: string): Promise<Result<null>> {
   if (!supabase) return fail(NOT_CONFIGURED);
   const { error } = await supabase.auth.signInWithPassword({ email, password });
-  return error ? fail(error.message) : { ok: true, data: null };
+  return error ? fail(translateAuthError(error.message)) : { ok: true, data: null };
+}
+
+/**
+ * Schickt eine E-Mail mit Anmeldelink und Code. shouldCreateUser: false verhindert,
+ * dass über dieses Formular neue Konten entstehen.
+ */
+export async function sendLoginLink(email: string): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: false, emailRedirectTo: window.location.origin },
+  });
+  return error ? fail(translateAuthError(error.message)) : { ok: true, data: null };
+}
+
+/** Meldet mit dem Code aus der E-Mail an (nötig für die App vom iPhone-Home-Bildschirm). */
+export async function verifyLoginCode(email: string, token: string): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' });
+  return error ? fail(translateAuthError(error.message)) : { ok: true, data: null };
 }
 
 export async function signOut(): Promise<void> {
