@@ -498,3 +498,36 @@ select {
   margin-top: 6px;
   padding-top: 6px;
 }
+
+/* Muskelgruppen-Auswahl beim Anlegen einer eigenen Übung */
+.muscles {
+  border: 0;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.muscles legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.chip.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}

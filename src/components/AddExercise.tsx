@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { ExerciseListItem } from '../lib/storage';
 import { newId, type ExerciseInput } from '../lib/workout';
 import { formatKg } from '../lib/weight';
+import { MUSCLES, muscleLabel, toggleMuscle } from '../lib/muscles';
 
 interface Props {
   exercises: ExerciseListItem[];
@@ -21,6 +22,8 @@ export function AddExercise({ exercises, onPick, onClose }: Props) {
   const [repMax, setRepMax] = useState(12);
   const [sets, setSets] = useState(3);
   const [increment, setIncrement] = useState(2.5);
+  const [primary, setPrimary] = useState<string[]>([]);
+  const [secondary, setSecondary] = useState<string[]>([]);
 
   const q = normalize(query);
   const matches = useMemo(
@@ -109,6 +112,9 @@ export function AddExercise({ exercises, onPick, onClose }: Props) {
               >
                 {x.name}
                 <span className="muted"> · Schritt {formatKg(x.incrementKg)}</span>
+                {x.primaryMuscles && x.primaryMuscles.length > 0 && (
+                  <span className="muted"> · {x.primaryMuscles.map(muscleLabel).join(', ')}</span>
+                )}
               </button>
             </li>
           ))}
@@ -133,10 +139,31 @@ export function AddExercise({ exercises, onPick, onClose }: Props) {
                 ))}
               </select>
             </label>
+            <MusclePicker
+              legend="Hauptmuskel (mindestens einer)"
+              selected={primary}
+              onToggle={(key) => {
+                const r = toggleMuscle(primary, secondary, key);
+                setPrimary(r.list);
+                setSecondary(r.other);
+              }}
+            />
+            <MusclePicker
+              legend="Hilfsmuskeln (optional)"
+              selected={secondary}
+              onToggle={(key) => {
+                const r = toggleMuscle(secondary, primary, key);
+                setSecondary(r.list);
+                setPrimary(r.other);
+              }}
+            />
+            {primary.length === 0 && (
+              <p className="muted">Wähle mindestens einen Hauptmuskel, damit die Übung später zugeordnet werden kann.</p>
+            )}
             <button
               type="button"
               className="btn primary"
-              disabled={!rangeOk}
+              disabled={!rangeOk || primary.length === 0}
               onClick={() =>
                 onPick({
                   ...base,
@@ -145,6 +172,8 @@ export function AddExercise({ exercises, onPick, onClose }: Props) {
                   isNew: true,
                   incrementKg: increment,
                   equipmentKg: null,
+                  primaryMuscles: primary,
+                  secondaryMuscles: secondary,
                 })
               }
             >
@@ -154,5 +183,36 @@ export function AddExercise({ exercises, onPick, onClose }: Props) {
         )}
       </div>
     </div>
+  );
+}
+
+interface MusclePickerProps {
+  legend: string;
+  selected: string[];
+  onToggle: (key: string) => void;
+}
+
+/** Auswahl per Tippen auf Schilder; Mehrfachauswahl. */
+function MusclePicker({ legend, selected, onToggle }: MusclePickerProps) {
+  return (
+    <fieldset className="muscles">
+      <legend>{legend}</legend>
+      <div className="chips">
+        {MUSCLES.map((m) => {
+          const on = selected.includes(m.key);
+          return (
+            <button
+              key={m.key}
+              type="button"
+              className={on ? 'chip on' : 'chip'}
+              aria-pressed={on}
+              onClick={() => onToggle(m.key)}
+            >
+              {m.label}
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 }

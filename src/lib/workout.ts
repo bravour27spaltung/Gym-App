@@ -27,6 +27,9 @@ export interface DraftExercise {
   repMax: number;
   incrementKg: number;
   equipmentKg: number | null;
+  /** Nur für eigene Übungen (isNew) nötig; ältere Entwürfe haben die Felder nicht. */
+  primaryMuscles?: string[];
+  secondaryMuscles?: string[];
   plannedSets: number;
   /** Ziel-RIR aus dem Plan (nur Anzeige); null = keine Vorgabe. */
   targetRir: number | null;
@@ -55,6 +58,8 @@ export interface ExerciseInput {
   repMax?: number;
   incrementKg?: number;
   equipmentKg?: number | null;
+  primaryMuscles?: string[];
+  secondaryMuscles?: string[];
   plannedSets?: number;
   targetRir?: number | null;
   restSeconds?: number;
@@ -105,6 +110,8 @@ export function addExercise(draft: Draft, input: ExerciseInput): Draft {
     repMax,
     incrementKg,
     equipmentKg: input.equipmentKg ?? null,
+    primaryMuscles: input.primaryMuscles ?? [],
+    secondaryMuscles: input.secondaryMuscles ?? [],
     plannedSets,
     targetRir: input.targetRir ?? null,
     restSeconds: input.restSeconds ?? 120,
@@ -249,6 +256,8 @@ export interface NewExerciseRow {
   name_de: string;
   increment_kg: number;
   equipment_kg: number | null;
+  primary_muscles: string[];
+  secondary_muscles: string[];
 }
 
 export interface WorkoutPayload {
@@ -317,6 +326,8 @@ export function buildPayload(draft: Draft, finishedAt: Date): WorkoutPayload | n
         name_de: e.name,
         increment_kg: e.incrementKg,
         equipment_kg: e.equipmentKg,
+        primary_muscles: e.primaryMuscles ?? [],
+        secondary_muscles: e.secondaryMuscles ?? [],
       });
     }
     payload.workoutExercises.push({

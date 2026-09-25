@@ -185,11 +185,21 @@ describe('Speichern', () => {
         isNew: true,
         incrementKg: 1.25,
         equipmentKg: 10,
+        primaryMuscles: ['chest'],
+        secondaryMuscles: ['triceps'],
       });
     }
     const rows = planToRows(p, now);
     expect(rows.newExercises).toEqual([
-      { id: 'mine', source: 'custom', name_de: 'Meine Übung', increment_kg: 1.25, equipment_kg: 10 },
+      {
+        id: 'mine',
+        source: 'custom',
+        name_de: 'Meine Übung',
+        increment_kg: 1.25,
+        equipment_kg: 10,
+        primary_muscles: ['chest'],
+        secondary_muscles: ['triceps'],
+      },
     ]);
     expect(rows.exercises).toHaveLength(2);
 

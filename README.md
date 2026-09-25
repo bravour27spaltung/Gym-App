@@ -11,7 +11,28 @@ Trainings-App für das Fitnessstudio (Handy zuerst, Auswertung auch am PC). Nur 
 | Log-Ansicht (Login, Training starten, Übungen, kompakte Satzzeilen, Vorbelegung, Aufwärmen, Pausentimer, Ausgangskorb) | im Chromium gegen eine Fake-Datenbank durchgespielt, noch nicht auf dem iPhone oder mit echtem Supabase getestet |
 | Trainingspläne (anlegen, bearbeiten, Tage/Übungen verschieben, archivieren, Start aus dem Plan mit Rotation) | wie oben |
 | Projekt-Build mit `npm run build` (Vite) | noch nicht ausgeführt, hier ist npm gesperrt; der Code wurde mit Bun gebündelt |
-| Service Worker (App offline neu öffnen), Export/Import, Backup, Übungsimport, Auswertung, Fußball | offen |
+| Eigene Übungen mit Haupt- und Hilfsmuskeln (Auswahl im Formular, wird in `fit_exercises` gespeichert) | fertig, Tests grün (Bun); mit echter Datenbank noch nicht ausprobiert |
+| Übungskatalog: Import-Skript `tools/build-seed.mjs` (free-exercise-db, deutsche Namen per Glossar) | Skript fertig und mit Beispieldaten getestet, mit dem echten Katalog noch nicht gelaufen |
+| Übungsanleitungen auf Deutsch, Service Worker (App offline neu öffnen), Export/Import, Backup, Auswertung, Fußball | offen |
+
+## Datenbank einrichten und Übungskatalog einspielen
+
+Reihenfolge im SQL-Editor von Supabase (jeweils Inhalt der Datei einfügen und ausführen):
+
+1. `supabase/migrations/0001_fit_schema.sql`
+2. `supabase/migrations/0002_fit_last_sets.sql`
+3. Nutzer anlegen (Authentication, Users), danach die Registrierung neuer Nutzer abschalten.
+4. Übungskatalog: Auf deinem Rechner (Node 18 oder neuer) im Projektordner
+   ```bash
+   node tools/build-seed.mjs
+   ```
+   Das lädt die Übungsliste [free-exercise-db](https://github.com/yuhonas/free-exercise-db) herunter (gemeinfrei) und schreibt `supabase/seed/0003_seed_exercises.sql`. Diese Datei im SQL-Editor ausführen. Ist sie dem Editor zu groß, mit `node tools/build-seed.mjs --per-file=250` in mehrere Dateien aufteilen und der Reihe nach ausführen. Das Einspielen ist wiederholbar: vorhandene Übungen werden übersprungen.
+
+Die Übungen gehören dem ersten Nutzer in `auth.users`, deshalb muss Schritt 3 vor Schritt 4 stehen.
+
+**Deutsche Namen:** Sie entstehen maschinell aus einem Wort-Glossar (`tools/glossary-de.mjs`), die Wortstellung bleibt englisch ("Langhantel Bankdrücken - mittlerer Griff"). Das ist eine Ersttranslation, keine geprüfte Übersetzung. Das Skript nennt am Ende die häufigsten noch englischen Wörter. Einzelne Namen lassen sich in `tools/names_de.json` überschreiben (`{ "<Übungs-ID>": "Neuer Name" }`), danach das Skript erneut ausführen und die Datei einspielen (bereits eingespielte Namen ändert das Einspielen nicht, dafür in Supabase `delete from fit_exercises where source = 'free-exercise-db'` und neu einspielen, solange noch keine Trainings darauf verweisen). Die Anleitungen bleiben zunächst englisch (`instructions_en`).
+
+**Muskelgruppen:** Übungen speichern `primary_muscles` und `secondary_muscles` als Liste mit den englischen Schlüsseln des Katalogs (z. B. `lats`, `middle back`). Die deutschen Anzeigenamen stehen in `src/lib/muscles.ts`. Beim Anlegen einer eigenen Übung ist mindestens ein Hauptmuskel Pflicht.
 
 ## Auf GitHub und Vercel bringen
 

@@ -282,6 +282,8 @@ export function PlanEditor({ initial, exercises, onSave, onCancel }: Props) {
                 isNew: input.isNew,
                 incrementKg: input.incrementKg,
                 equipmentKg: input.equipmentKg,
+                primaryMuscles: input.primaryMuscles,
+                secondaryMuscles: input.secondaryMuscles,
                 sets: input.plannedSets,
                 repMin: input.repMin,
                 repMax: input.repMax,

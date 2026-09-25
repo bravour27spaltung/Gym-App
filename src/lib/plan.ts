@@ -27,7 +27,12 @@ export interface PlanExercise {
   targetRir: number | null;
   restSeconds: number;
   /** Nur bei eigenen Übungen, die beim Speichern des Plans erst angelegt werden. */
-  newExercise: { incrementKg: number; equipmentKg: number | null } | null;
+  newExercise: {
+    incrementKg: number;
+    equipmentKg: number | null;
+    primaryMuscles: string[];
+    secondaryMuscles: string[];
+  } | null;
   archived: boolean;
   /** true = noch nie gespeichert, kann beim Entfernen komplett verworfen werden. */
   isNew: boolean;
@@ -55,6 +60,8 @@ export interface PlanExerciseInput {
   isNew: boolean;
   incrementKg?: number;
   equipmentKg?: number | null;
+  primaryMuscles?: string[];
+  secondaryMuscles?: string[];
   sets?: number;
   repMin?: number;
   repMax?: number;
@@ -125,7 +132,12 @@ export function addPlanExercise(plan: Plan, dayId: string, input: PlanExerciseIn
     targetRir: input.targetRir ?? null,
     restSeconds: input.restSeconds ?? 120,
     newExercise: input.isNew
-      ? { incrementKg: input.incrementKg ?? 2.5, equipmentKg: input.equipmentKg ?? null }
+      ? {
+          incrementKg: input.incrementKg ?? 2.5,
+          equipmentKg: input.equipmentKg ?? null,
+          primaryMuscles: input.primaryMuscles ?? [],
+          secondaryMuscles: input.secondaryMuscles ?? [],
+        }
       : null,
     archived: false,
     isNew: true,
@@ -251,6 +263,8 @@ export function planToRows(plan: Plan, now: Date): PlanRows {
           name_de: ex.name,
           increment_kg: ex.newExercise.incrementKg,
           equipment_kg: ex.newExercise.equipmentKg,
+          primary_muscles: ex.newExercise.primaryMuscles,
+          secondary_muscles: ex.newExercise.secondaryMuscles,
         });
       }
       rows.exercises.push({

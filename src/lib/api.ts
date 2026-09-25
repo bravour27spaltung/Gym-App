@@ -57,13 +57,15 @@ interface ExerciseRow {
   name_de: string;
   increment_kg: number;
   equipment_kg: number | null;
+  primary_muscles: string[] | null;
+  secondary_muscles: string[] | null;
 }
 
 export async function fetchExercises(): Promise<Result<ExerciseListItem[]>> {
   if (!supabase) return fail(NOT_CONFIGURED);
   const { data, error } = await supabase
     .from('fit_exercises')
-    .select('id, name_de, increment_kg, equipment_kg')
+    .select('id, name_de, increment_kg, equipment_kg, primary_muscles, secondary_muscles')
     .is('archived_at', null)
     .order('name_de');
   if (error) return fail(error.message);
@@ -75,6 +77,8 @@ export async function fetchExercises(): Promise<Result<ExerciseListItem[]>> {
       name: r.name_de,
       incrementKg: Number(r.increment_kg),
       equipmentKg: r.equipment_kg === null ? null : Number(r.equipment_kg),
+      primaryMuscles: r.primary_muscles ?? [],
+      secondaryMuscles: r.secondary_muscles ?? [],
     })),
   };
 }

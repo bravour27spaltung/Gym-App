@@ -209,6 +209,33 @@ describe('Abschluss', () => {
     expect(p.newExercises[0]).toMatchObject({ id: 'new-1', name_de: 'Meine Übung', increment_kg: 1.25 });
   });
 
+  it('übernimmt Haupt- und Hilfsmuskeln einer eigenen Übung in die Datenbankzeile', () => {
+    let d = createDraft('Freies Training', null, now);
+    d = addExercise(d, {
+      exerciseId: 'new-2',
+      name: 'Klimmzug breit',
+      isNew: true,
+      primaryMuscles: ['lats'],
+      secondaryMuscles: ['biceps', 'middle back'],
+    });
+    d = toggleDone(d, d.exercises[0].id, d.exercises[0].sets[0].id);
+    const p = buildPayload(d, later)!;
+    expect(p.newExercises[0]).toMatchObject({
+      primary_muscles: ['lats'],
+      secondary_muscles: ['biceps', 'middle back'],
+    });
+  });
+
+  it('kommt mit alten Entwürfen ohne Muskelfelder zurecht', () => {
+    let d = createDraft('Freies Training', null, now);
+    d = addExercise(d, { exerciseId: 'old-1', name: 'Alt', isNew: true });
+    delete d.exercises[0].primaryMuscles;
+    delete d.exercises[0].secondaryMuscles;
+    d = toggleDone(d, d.exercises[0].id, d.exercises[0].sets[0].id);
+    const p = buildPayload(d, later)!;
+    expect(p.newExercises[0]).toMatchObject({ primary_muscles: [], secondary_muscles: [] });
+  });
+
   it('gibt abgehakte Sätze als Grundlage der nächsten Vorbelegung zurück', () => {
     let d = draftWithBench();
     const e = d.exercises[0];

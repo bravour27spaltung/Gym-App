@@ -25,6 +25,9 @@ export interface ExerciseListItem {
   name: string;
   incrementKg: number;
   equipmentKg: number | null;
+  /** Optional, weil ältere Zwischenspeicher-Stände diese Felder nicht haben. */
+  primaryMuscles?: string[];
+  secondaryMuscles?: string[];
 }
 
 const KEYS = {
