@@ -23,8 +23,8 @@ export interface KeyValueStorage {
 export interface ExerciseListItem {
   id: string;
   name: string;
-  incrementKg: number;
-  equipmentKg: number | null;
+  /** Geräteart, z. B. 'barbell' (Schlüssel siehe equipment.ts). */
+  equipment?: string | null;
   /** Optional, weil ältere Zwischenspeicher-Stände diese Felder nicht haben. */
   primaryMuscles?: string[];
   secondaryMuscles?: string[];

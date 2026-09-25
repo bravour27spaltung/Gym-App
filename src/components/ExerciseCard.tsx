@@ -41,16 +41,18 @@ export function ExerciseCard(props: Props) {
 
       <p className="muted">
         Ziel: {e.repMin}–{e.repMax} Wiederholungen
-        {e.targetRir != null ? ` · Ziel-RIR ${e.targetRir}` : ''} · Schritt {formatKg(e.incrementKg)}
+        {e.targetRir != null ? ` · Ziel-RIR ${e.targetRir}` : ''}
       </p>
       <p className="muted">{last ? `Letztes Mal: ${last}` : 'Noch kein Training mit dieser Übung.'}</p>
 
       {s.action !== 'no-data' && (
         <p className={`hint ${s.action}`}>
           <strong>
-            {s.action === 'increase' ? 'Steigern' : 'Halten'}
-            {s.weightKg !== null ? `: ${formatKg(s.weightKg)}` : ''}
-            {s.targetReps !== null ? ` × ${s.targetReps}` : ''}
+            {s.action === 'increase'
+              ? `Steigern${s.targetReps !== null ? `, ab ${s.targetReps} Wdh.` : ''}`
+              : `Halten${s.weightKg !== null ? `: ${formatKg(s.weightKg)}` : ''}${
+                  s.targetReps !== null ? ` × ${s.targetReps}` : ''
+                }`}
           </strong>
           <br />
           {s.reason}

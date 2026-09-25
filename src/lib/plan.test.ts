@@ -183,8 +183,7 @@ describe('Speichern', () => {
         exerciseId: 'mine',
         name: 'Meine Übung',
         isNew: true,
-        incrementKg: 1.25,
-        equipmentKg: 10,
+        equipment: 'barbell',
         primaryMuscles: ['chest'],
         secondaryMuscles: ['triceps'],
       });
@@ -195,8 +194,7 @@ describe('Speichern', () => {
         id: 'mine',
         source: 'custom',
         name_de: 'Meine Übung',
-        increment_kg: 1.25,
-        equipment_kg: 10,
+        equipment: 'barbell',
         primary_muscles: ['chest'],
         secondary_muscles: ['triceps'],
       },
@@ -261,7 +259,7 @@ describe('Laden', () => {
 
 describe('Training aus Plantag', () => {
   const list = {
-    bench: { id: 'bench', name: 'Bankdrücken (Langhantel)', incrementKg: 2.5, equipmentKg: 20 },
+    bench: { id: 'bench', name: 'Bankdrücken (Langhantel)', equipment: 'barbell' },
   };
 
   it('übernimmt Planwerte, Übungsdaten und Vorschläge in den Entwurf', () => {
@@ -292,15 +290,14 @@ describe('Training aus Plantag', () => {
 
     const bench = d.exercises[0];
     expect(bench.name).toBe('Bankdrücken (Langhantel)');
-    expect(bench).toMatchObject({ plannedSets: 4, targetRir: 1, restSeconds: 180, equipmentKg: 20 });
+    expect(bench).toMatchObject({ plannedSets: 4, targetRir: 1, restSeconds: 180 });
     expect(bench.sets).toHaveLength(4);
     expect(bench.suggestion.action).toBe('increase');
-    expect(bench.sets[0].weightKg).toBe(52.5);
+    expect(bench.sets[0].weightKg).toBe(50);
     expect(bench.sets[0].reps).toBe(8);
 
     const ohp = d.exercises[1];
     expect(ohp.suggestion.action).toBe('no-data');
-    expect(ohp.incrementKg).toBe(2.5);
   });
 
   it('lässt archivierte Übungen weg', () => {
@@ -317,9 +314,9 @@ describe('Training aus Plantag', () => {
       exerciseId: 'mine',
       name: 'Eigene',
       isNew: true,
-      incrementKg: 1.25,
+      equipment: 'machine',
     });
     const d = draftFromPlanDay(p.days[0], {}, {}, now);
-    expect(d.exercises[0]).toMatchObject({ isNew: true, incrementKg: 1.25 });
+    expect(d.exercises[0]).toMatchObject({ isNew: true, equipment: 'machine' });
   });
 });

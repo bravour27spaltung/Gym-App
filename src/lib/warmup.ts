@@ -13,14 +13,17 @@ export interface WarmupOptions {
    * Gesamtlast; vorgeschlagen wird das einzugebende Gewicht ohne Eigengewicht.
    */
   equipmentKg?: number | null;
-  /** Kleinste sinnvolle Stufe der Übung, Vielfaches von 0,25 kg. */
-  stepKg: number;
+  /** Rundung der vorgeschlagenen Gewichte, Vielfaches von 0,25 kg (Standard 2,5 kg). */
+  stepKg?: number;
   /**
    * 'full' für die erste schwere Grundübung der Einheit,
    * 'short' für spätere Übungen, bei denen die Muskulatur schon warm ist.
    */
   level?: 'full' | 'short';
 }
+
+/** Nur zum Runden der Vorschläge, kein Gewichtssprung der Übung. */
+const DEFAULT_STEP_KG = 2.5;
 
 const RAMPS = {
   full: [
@@ -37,7 +40,7 @@ const RAMPS = {
  * den du im Training anpassen kannst.
  */
 export function suggestWarmup(opts: WarmupOptions): WarmupSet[] {
-  const { workingWeightKg, stepKg, level = 'full' } = opts;
+  const { workingWeightKg, stepKg = DEFAULT_STEP_KG, level = 'full' } = opts;
   if (workingWeightKg <= 0) return [];
   const equipment = opts.equipmentKg ?? 0;
   const totalWork = workingWeightKg + equipment;

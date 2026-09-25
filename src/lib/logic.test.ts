@@ -48,7 +48,7 @@ describe('weight', () => {
 });
 
 describe('Double Progression', () => {
-  const base = { repMin: 6, repMax: 8, incrementKg: 2.5 };
+  const base = { repMin: 6, repMax: 8 };
 
   it('steigert, wenn mehr als ein Satz die Obergrenze erreicht', () => {
     const r = suggestProgression({
@@ -56,7 +56,7 @@ describe('Double Progression', () => {
       sets: [work(60, 8, 0), work(60, 8, 0), work(60, 7, 0)],
     });
     expect(r.action).toBe('increase');
-    expect(r.weightKg).toBe(62.5);
+    expect(r.weightKg).toBe(60); // bisheriges Arbeitsgewicht, das neue wählst du selbst
     expect(r.targetReps).toBe(6);
   });
 
@@ -64,11 +64,10 @@ describe('Double Progression', () => {
     const r = suggestProgression({
       repMin: 8,
       repMax: 12,
-      incrementKg: 2.5,
       sets: [work(50, 12, 0), work(50, 12, 0), work(50, 11, 0)],
     });
     expect(r.action).toBe('increase');
-    expect(r.weightKg).toBe(52.5);
+    expect(r.weightKg).toBe(50);
     expect(r.targetReps).toBe(8);
   });
 
@@ -107,7 +106,12 @@ describe('Double Progression', () => {
       ],
     });
     expect(r.action).toBe('increase');
-    expect(r.weightKg).toBe(62.5);
+    expect(r.weightKg).toBe(60);
+  });
+
+  it('macht keinen Vorschlag für ein bestimmtes neues Gewicht', () => {
+    const r = suggestProgression({ ...base, sets: [work(60, 8, 0), work(60, 8, 0)] });
+    expect(r.reason).toContain('du wählst');
   });
 
   it('meldet fehlende Daten', () => {

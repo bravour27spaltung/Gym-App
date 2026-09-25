@@ -32,19 +32,18 @@ function draftWithBench(lastSets: LoggedSet[] = lastTime) {
     isNew: false,
     repMin: 8,
     repMax: 12,
-    incrementKg: 2.5,
     plannedSets: 3,
     lastSets,
   });
 }
 
 describe('Vorbelegung', () => {
-  it('belegt nach erreichter Obergrenze mit erhöhtem Gewicht und unterer Grenze vor', () => {
+  it('belegt nach erreichter Obergrenze mit dem bisherigen Gewicht und unterer Grenze vor (neues Gewicht wählst du)', () => {
     const e = draftWithBench().exercises[0];
     expect(e.suggestion.action).toBe('increase');
     expect(e.sets).toHaveLength(3);
     for (const s of e.sets) {
-      expect(s.weightKg).toBe(52.5);
+      expect(s.weightKg).toBe(50);
       expect(s.reps).toBe(8);
       expect(s.done).toBe(false);
     }
@@ -75,7 +74,7 @@ describe('Sätze bearbeiten', () => {
 
     const d1 = updateSet(d0, exId, setId, { weightKg: 55.25, reps: 9, rir: 0 });
     expect(d1.exercises[0].sets[0]).toMatchObject({ weightKg: 55.25, reps: 9, rir: 0 });
-    expect(d0.exercises[0].sets[0].weightKg).toBe(52.5);
+    expect(d0.exercises[0].sets[0].weightKg).toBe(50);
 
     const d2 = toggleDone(d1, exId, setId);
     expect(d2.exercises[0].sets[0].done).toBe(true);
@@ -83,7 +82,7 @@ describe('Sätze bearbeiten', () => {
 
     const d3 = addSet(d2, exId);
     expect(d3.exercises[0].sets).toHaveLength(4);
-    expect(d3.exercises[0].sets[3].weightKg).toBe(52.5);
+    expect(d3.exercises[0].sets[3].weightKg).toBe(50);
 
     const d4 = removeSet(d3, exId, d3.exercises[0].sets[3].id);
     expect(d4.exercises[0].sets).toHaveLength(3);
@@ -201,12 +200,12 @@ describe('Abschluss', () => {
 
   it('legt neue eigene Übungen genau einmal an', () => {
     let d = createDraft('Freies Training', null, now);
-    d = addExercise(d, { exerciseId: 'new-1', name: 'Meine Übung', isNew: true, incrementKg: 1.25 });
-    d = addExercise(d, { exerciseId: 'new-1', name: 'Meine Übung', isNew: true, incrementKg: 1.25 });
+    d = addExercise(d, { exerciseId: 'new-1', name: 'Meine Übung', isNew: true, equipment: 'barbell' });
+    d = addExercise(d, { exerciseId: 'new-1', name: 'Meine Übung', isNew: true, equipment: 'barbell' });
     for (const e of d.exercises) d = toggleDone(d, e.id, e.sets[0].id);
     const p = buildPayload(d, later)!;
     expect(p.newExercises).toHaveLength(1);
-    expect(p.newExercises[0]).toMatchObject({ id: 'new-1', name_de: 'Meine Übung', increment_kg: 1.25 });
+    expect(p.newExercises[0]).toMatchObject({ id: 'new-1', name_de: 'Meine Übung', equipment: 'barbell' });
   });
 
   it('übernimmt Haupt- und Hilfsmuskeln einer eigenen Übung in die Datenbankzeile', () => {
@@ -224,6 +223,18 @@ describe('Abschluss', () => {
       primary_muscles: ['lats'],
       secondary_muscles: ['biceps', 'middle back'],
     });
+  });
+
+  it('schreibt keine Gewichte in den Übungskatalog', () => {
+    let d = createDraft('Freies Training', null, now);
+    d = addExercise(d, { exerciseId: 'new-3', name: 'X', isNew: true, primaryMuscles: ['chest'], equipmentKg: 20 });
+    d = toggleDone(d, d.exercises[0].id, d.exercises[0].sets[0].id);
+    const p = buildPayload(d, later)!;
+    expect(Object.keys(p.newExercises[0]).sort()).toEqual(
+      ['equipment', 'id', 'name_de', 'primary_muscles', 'secondary_muscles', 'source'],
+    );
+    // Das Stangengewicht gehört zum Training, nicht zur Übung.
+    expect(p.workoutExercises[0].equipment_kg).toBe(20);
   });
 
   it('kommt mit alten Entwürfen ohne Muskelfelder zurecht', () => {

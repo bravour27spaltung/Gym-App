@@ -1,21 +1,25 @@
 #!/usr/bin/env node
 /**
  * Erzeugt aus der offenen Übungsdatenbank free-exercise-db (gemeinfrei, Unlicense)
- * eine SQL-Datei zum Einspielen in Supabase.
+ * SQL-Dateien zum Einspielen in Supabase.
  *
  * Aufruf (auf deinem Rechner, Node 18 oder neuer):
  *   node tools/build-seed.mjs                 # lädt den Katalog selbst herunter
  *   node tools/build-seed.mjs exercises.json  # oder aus einer lokalen Datei
  *
- * Ergebnis: supabase/seed/0003_seed_exercises.sql
- * Ist die Datei für den Supabase-SQL-Editor zu groß, teile sie auf:
- *   node tools/build-seed.mjs --per-file=250
- * Das ergibt 0003_seed_exercises_1.sql, _2.sql, ... (der Reihe nach ausführen).
+ * Ergebnis: supabase/seed/exercises_seed_1.sql, _2.sql, ... mit je 200 Übungen, damit der
+ * Supabase-SQL-Editor nicht ins Stocken gerät (der Reihe nach ausführen). Die Größe stellst du
+ * mit --per-file=N ein, mit --per-file=0 entsteht eine einzige Datei exercises_seed.sql.
  *
- * Deutsche Namen: Wort-für-Wort-Glossar (tools/glossary-de.mjs) plus optionale
- * Einzelkorrekturen in tools/names_de.json ({ "<id der Übung>": "Deutscher Name" }).
- * Das ist eine maschinelle Ersttranslation, keine geprüfte Übersetzung. Die
- * Anleitungen bleiben zunächst englisch (instructions_en); instructions_de ist leer.
+ * Der Katalog enthält nur Details (Muskelgruppen, Gerät, Anleitung), keine Gewichte.
+ *
+ * Deutsche Namen, in dieser Reihenfolge:
+ *   1. tools/names_de.json  { "<Übungs-ID>": "Deutscher Name" }  (Einzelkorrekturen)
+ *   2. tools/names_de.txt   eine Zeile je Übung: "Englischer Name => Deutscher Name"
+ *   3. Glossar-Ersatz (tools/glossary-de.mjs), nur für Übungen ohne Eintrag oben
+ * Die Übersetzungen in names_de.txt sind von Hand erstellt, aber nicht von einer
+ * Fachperson geprüft. Die Anleitungen bleiben zunächst englisch (instructions_en);
+ * instructions_de ist leer.
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -25,8 +29,9 @@ import { translateName } from './glossary-de.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const SOURCE_URL =
   'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
-const OUT = join(here, '..', 'supabase', 'seed', '0003_seed_exercises.sql');
+const OUT = join(here, '..', 'supabase', 'seed', 'exercises_seed.sql');
 const OVERRIDES = join(here, 'names_de.json');
+const NAMES_TXT = join(here, 'names_de.txt');
 
 // Nur Krafttraining; Dehnen, Cardio und Plyometrie sind für diese App nicht gedacht.
 const CATEGORIES = new Set([
@@ -42,25 +47,15 @@ const MUSCLES = new Set([
   'shoulders', 'traps', 'triceps',
 ]);
 
-/** Gewichtsschritt je Geräteart (nur Startwert, in der App änderbar). */
-function defaultIncrement(equipment) {
-  switch (equipment) {
-    case 'body only': return 1;
-    case 'dumbbell': return 2;
-    case 'kettlebells': return 2;
-    case 'machine':
-    case 'cable': return 5;
-    default: return 2.5;
-  }
-}
-
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
 const arr = (list) =>
   list.length === 0 ? `'{}'::text[]` : `array[${list.map(q).join(', ')}]::text[]`;
 
 const args = process.argv.slice(2);
 const perFileArg = args.find((a) => a.startsWith('--per-file='));
-const perFile = perFileArg ? Math.max(1, parseInt(perFileArg.split('=')[1], 10) || 0) : 0;
+// Standard: Dateien mit je 200 Übungen, damit der Supabase-SQL-Editor nicht ins Stocken gerät.
+// --per-file=0 schreibt eine einzige Datei.
+const perFile = perFileArg ? Math.max(0, parseInt(perFileArg.split('=')[1], 10) || 0) : 200;
 const fileArg = args.find((a) => !a.startsWith('--'));
 
 async function loadCatalog() {
@@ -75,6 +70,14 @@ const catalog = await loadCatalog();
 if (!Array.isArray(catalog)) throw new Error('Unerwartetes Format: Liste von Übungen erwartet.');
 
 const overrides = existsSync(OVERRIDES) ? JSON.parse(readFileSync(OVERRIDES, 'utf8')) : {};
+const byEnglishName = new Map();
+if (existsSync(NAMES_TXT)) {
+  for (const line of readFileSync(NAMES_TXT, 'utf8').split('\n')) {
+    const i = line.indexOf(' => ');
+    if (i > 0) byEnglishName.set(line.slice(0, i).trim(), line.slice(i + 4).trim());
+  }
+}
+let fromGlossary = 0;
 const unknownMuscles = new Set();
 const unknownWords = new Map();
 const rows = [];
@@ -87,14 +90,18 @@ for (const ex of catalog) {
   const secondary = (ex.secondaryMuscles ?? []).filter((m) => (MUSCLES.has(m) ? true : (unknownMuscles.add(m), false)));
   if (primary.length === 0) continue; // ohne Hauptmuskel unbrauchbar für die Zuordnung
 
-  const t = translateName(ex.name);
-  for (const w of t.unknown) unknownWords.set(w, (unknownWords.get(w) ?? 0) + 1);
-  const nameDe = overrides[ex.id] ?? t.text;
+  let nameDe = overrides[ex.id] ?? byEnglishName.get(ex.name);
+  if (!nameDe) {
+    const t = translateName(ex.name);
+    nameDe = t.text;
+    fromGlossary += 1;
+    for (const w of t.unknown) unknownWords.set(w, (unknownWords.get(w) ?? 0) + 1);
+  }
   const equipment = ex.equipment ?? null;
 
   rows.push(
     `(${q(ex.id)}, ${q(ex.name)}, ${q(nameDe)}, ${arr(primary)}, ${arr(secondary)}, ` +
-      `${equipment ? q(equipment) : 'null'}, ${arr(ex.instructions ?? [])}, ${defaultIncrement(equipment)})`,
+      `${equipment ? q(equipment) : 'null'}, ${arr(ex.instructions ?? [])})`,
   );
 }
 
@@ -106,8 +113,10 @@ function buildSql(list, note) {
   return `-- Übungskatalog aus free-exercise-db (gemeinfrei). Erzeugt von tools/build-seed.mjs.
 -- ${list.length} Übungen${note}. Deutsche Namen sind maschinell erzeugt und dürfen angepasst werden.
 --
--- Das Skript ist wiederholbar: bereits vorhandene Übungen (source + source_id) werden
--- übersprungen, deine eigenen Übungen und Änderungen bleiben unberührt.
+-- Das Skript ist wiederholbar: bereits vorhandene Katalogübungen (source + source_id)
+-- werden aktualisiert (Namen, Muskelgruppen, Gerät, englische Anleitung). Ihre IDs bleiben
+-- gleich, Pläne und Trainings bleiben also verknüpft. Deine eigenen Übungen und deine
+-- deutschen Anleitungen (instructions_de) bleiben unberührt.
 -- Die Übungen gehören dem ersten (einzigen) Nutzer in auth.users. Lege dein Konto
 -- deshalb an, bevor du dieses Skript ausführst.
 
@@ -122,12 +131,18 @@ begin
 ${chunks
   .map(
     (c) => `  insert into fit_exercises
-    (user_id, source, source_id, name_en, name_de, primary_muscles, secondary_muscles, equipment, instructions_en, increment_kg)
-  select uid, 'free-exercise-db', v.source_id, v.name_en, v.name_de, v.primary_muscles, v.secondary_muscles, v.equipment, v.instructions_en, v.increment_kg
+    (user_id, source, source_id, name_en, name_de, primary_muscles, secondary_muscles, equipment, instructions_en)
+  select uid, 'free-exercise-db', v.source_id, v.name_en, v.name_de, v.primary_muscles, v.secondary_muscles, v.equipment, v.instructions_en
   from (values
     ${c.join(',\n    ')}
-  ) as v(source_id, name_en, name_de, primary_muscles, secondary_muscles, equipment, instructions_en, increment_kg)
-  on conflict (user_id, source, source_id) do nothing;
+  ) as v(source_id, name_en, name_de, primary_muscles, secondary_muscles, equipment, instructions_en)
+  on conflict (user_id, source, source_id) do update set
+    name_en = excluded.name_en,
+    name_de = excluded.name_de,
+    primary_muscles = excluded.primary_muscles,
+    secondary_muscles = excluded.secondary_muscles,
+    equipment = excluded.equipment,
+    instructions_en = excluded.instructions_en;
 `,
   )
   .join('\n')}end
@@ -151,8 +166,9 @@ if (perFile > 0 && rows.length > perFile) {
 
 console.log(`${rows.length} Übungen geschrieben:\n  ${written.join('\n  ')}`);
 if (unknownMuscles.size) console.log('Unbekannte Muskelbezeichnungen (übersprungen):', [...unknownMuscles].join(', '));
+console.log(`${rows.length - fromGlossary} Namen aus names_de.txt/names_de.json, ${fromGlossary} per Glossar-Ersatz.`);
 const top = [...unknownWords.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25);
 if (top.length) {
-  console.log('Häufigste noch englische Wörter in den deutschen Namen (Glossar erweitern oder names_de.json nutzen):');
+  console.log('Häufigste noch englische Wörter in glossar-übersetzten Namen (Zeile in names_de.txt ergänzen):');
   for (const [w, n] of top) console.log(`  ${w}: ${n}`);
 }

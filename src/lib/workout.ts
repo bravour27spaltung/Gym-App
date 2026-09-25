@@ -25,8 +25,10 @@ export interface DraftExercise {
   isNew: boolean;
   repMin: number;
   repMax: number;
-  incrementKg: number;
+  /** Stangen-/Maschinengewicht dieser Übung im Training (optional). */
   equipmentKg: number | null;
+  /** Geräteart (z. B. 'barbell'); nur für eigene Übungen nötig. */
+  equipment?: string | null;
   /** Nur für eigene Übungen (isNew) nötig; ältere Entwürfe haben die Felder nicht. */
   primaryMuscles?: string[];
   secondaryMuscles?: string[];
@@ -56,8 +58,8 @@ export interface ExerciseInput {
   isNew: boolean;
   repMin?: number;
   repMax?: number;
-  incrementKg?: number;
   equipmentKg?: number | null;
+  equipment?: string | null;
   primaryMuscles?: string[];
   secondaryMuscles?: string[];
   plannedSets?: number;
@@ -84,11 +86,10 @@ function mapEx(draft: Draft, exId: string, fn: (e: DraftExercise) => DraftExerci
 export function addExercise(draft: Draft, input: ExerciseInput): Draft {
   const repMin = input.repMin ?? 8;
   const repMax = input.repMax ?? 12;
-  const incrementKg = input.incrementKg ?? 2.5;
   const plannedSets = input.plannedSets ?? 3;
   const lastSets = input.lastSets ?? [];
 
-  const suggestion = suggestProgression({ sets: lastSets, repMin, repMax, incrementKg });
+  const suggestion = suggestProgression({ sets: lastSets, repMin, repMax });
   const weightKg = suggestion.weightKg ?? 0;
   const reps = suggestion.targetReps ?? repMin;
 
@@ -108,8 +109,8 @@ export function addExercise(draft: Draft, input: ExerciseInput): Draft {
     isNew: input.isNew,
     repMin,
     repMax,
-    incrementKg,
     equipmentKg: input.equipmentKg ?? null,
+    equipment: input.equipment ?? null,
     primaryMuscles: input.primaryMuscles ?? [],
     secondaryMuscles: input.secondaryMuscles ?? [],
     plannedSets,
@@ -222,7 +223,6 @@ export function addWarmups(draft: Draft, exId: string, level: 'full' | 'short'):
     const warm = suggestWarmup({
       workingWeightKg: firstWorking.weightKg,
       equipmentKg: e.equipmentKg,
-      stepKg: e.incrementKg,
       level,
     });
     const kept = e.sets.filter((s) => !(s.type === 'warmup' && !s.done));
@@ -254,8 +254,7 @@ export interface NewExerciseRow {
   id: string;
   source: 'custom';
   name_de: string;
-  increment_kg: number;
-  equipment_kg: number | null;
+  equipment: string | null;
   primary_muscles: string[];
   secondary_muscles: string[];
 }
@@ -279,7 +278,6 @@ export interface WorkoutPayload {
     rep_max: number;
     target_rir: number | null;
     equipment_kg: number | null;
-    increment_kg: number;
   }[];
   sets: {
     id: string;
@@ -324,8 +322,7 @@ export function buildPayload(draft: Draft, finishedAt: Date): WorkoutPayload | n
         id: e.exerciseId,
         source: 'custom',
         name_de: e.name,
-        increment_kg: e.incrementKg,
-        equipment_kg: e.equipmentKg,
+        equipment: e.equipment ?? null,
         primary_muscles: e.primaryMuscles ?? [],
         secondary_muscles: e.secondaryMuscles ?? [],
       });
@@ -340,7 +337,6 @@ export function buildPayload(draft: Draft, finishedAt: Date): WorkoutPayload | n
       rep_max: e.repMax,
       target_rir: e.targetRir ?? null,
       equipment_kg: e.equipmentKg,
-      increment_kg: e.incrementKg,
     });
     e.sets
       .filter((s) => s.done)

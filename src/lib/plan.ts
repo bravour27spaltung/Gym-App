@@ -28,8 +28,7 @@ export interface PlanExercise {
   restSeconds: number;
   /** Nur bei eigenen Übungen, die beim Speichern des Plans erst angelegt werden. */
   newExercise: {
-    incrementKg: number;
-    equipmentKg: number | null;
+    equipment: string | null;
     primaryMuscles: string[];
     secondaryMuscles: string[];
   } | null;
@@ -58,8 +57,7 @@ export interface PlanExerciseInput {
   exerciseId: string;
   name: string;
   isNew: boolean;
-  incrementKg?: number;
-  equipmentKg?: number | null;
+  equipment?: string | null;
   primaryMuscles?: string[];
   secondaryMuscles?: string[];
   sets?: number;
@@ -133,8 +131,7 @@ export function addPlanExercise(plan: Plan, dayId: string, input: PlanExerciseIn
     restSeconds: input.restSeconds ?? 120,
     newExercise: input.isNew
       ? {
-          incrementKg: input.incrementKg ?? 2.5,
-          equipmentKg: input.equipmentKg ?? null,
+          equipment: input.equipment ?? null,
           primaryMuscles: input.primaryMuscles ?? [],
           secondaryMuscles: input.secondaryMuscles ?? [],
         }
@@ -261,8 +258,7 @@ export function planToRows(plan: Plan, now: Date): PlanRows {
           id: ex.exerciseId,
           source: 'custom',
           name_de: ex.name,
-          increment_kg: ex.newExercise.incrementKg,
-          equipment_kg: ex.newExercise.equipmentKg,
+          equipment: ex.newExercise.equipment,
           primary_muscles: ex.newExercise.primaryMuscles,
           secondary_muscles: ex.newExercise.secondaryMuscles,
         });
@@ -394,8 +390,9 @@ export function draftFromPlanDay(
       plannedSets: e.sets,
       targetRir: e.targetRir,
       restSeconds: e.restSeconds,
-      incrementKg: known?.incrementKg ?? e.newExercise?.incrementKg ?? 2.5,
-      equipmentKg: known?.equipmentKg ?? e.newExercise?.equipmentKg ?? null,
+      equipment: e.newExercise?.equipment ?? null,
+      primaryMuscles: e.newExercise?.primaryMuscles,
+      secondaryMuscles: e.newExercise?.secondaryMuscles,
       lastSets: lastSets[e.exerciseId] ?? [],
     });
   }

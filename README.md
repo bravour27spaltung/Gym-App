@@ -6,7 +6,7 @@ Trainings-App für das Fitnessstudio (Handy zuerst, Auswertung auch am PC). Nur 
 
 | Bereich | Status |
 | --- | --- |
-| Kernlogik in `src/lib` (Gewichte, Double Progression, Aufwärmsätze, Rotation, Pausentimer, Trainings-Zustand, lokaler Speicher) | fertig, 73 Tests |
+| Kernlogik in `src/lib` (Gewichte, Double Progression, Aufwärmsätze, Rotation, Pausentimer, Trainings-Zustand, lokaler Speicher) | fertig, Tests grün |
 | Datenbankschema mit Zugriffsregeln (`supabase/migrations/0001_fit_schema.sql`, `0002_fit_last_sets.sql`) | fertig, noch nicht gegen eine echte Supabase-Instanz ausgeführt |
 | Log-Ansicht (Login, Training starten, Übungen, kompakte Satzzeilen, Vorbelegung, Aufwärmen, Pausentimer, Ausgangskorb) | im Chromium gegen eine Fake-Datenbank durchgespielt, noch nicht auf dem iPhone oder mit echtem Supabase getestet |
 | Trainingspläne (anlegen, bearbeiten, Tage/Übungen verschieben, archivieren, Start aus dem Plan mit Rotation) | wie oben |
@@ -21,16 +21,19 @@ Reihenfolge im SQL-Editor von Supabase (jeweils Inhalt der Datei einfügen und a
 
 1. `supabase/migrations/0001_fit_schema.sql`
 2. `supabase/migrations/0002_fit_last_sets.sql`
+   (Wurde 0001 schon in der alten Fassung ausgeführt: zusätzlich `0003_catalog_details_only.sql` ausführen.)
 3. Nutzer anlegen (Authentication, Users), danach die Registrierung neuer Nutzer abschalten.
 4. Übungskatalog: Auf deinem Rechner (Node 18 oder neuer) im Projektordner
    ```bash
    node tools/build-seed.mjs
    ```
-   Das lädt die Übungsliste [free-exercise-db](https://github.com/yuhonas/free-exercise-db) herunter (gemeinfrei) und schreibt `supabase/seed/0003_seed_exercises.sql`. Diese Datei im SQL-Editor ausführen. Ist sie dem Editor zu groß, mit `node tools/build-seed.mjs --per-file=250` in mehrere Dateien aufteilen und der Reihe nach ausführen. Das Einspielen ist wiederholbar: vorhandene Übungen werden übersprungen.
+   Das lädt die Übungsliste [free-exercise-db](https://github.com/yuhonas/free-exercise-db) herunter (gemeinfrei) und schreibt `supabase/seed/exercises_seed_1.sql`, `_2.sql` usw. Diese Dateien der Reihe nach im SQL-Editor ausführen. Das Einspielen ist wiederholbar: Vorhandene Katalogübungen werden aktualisiert (Namen, Muskelgruppen, Gerät), ihre IDs bleiben gleich, Pläne und Trainings bleiben also verknüpft. Eigene Übungen bleiben unberührt.
 
 Die Übungen gehören dem ersten Nutzer in `auth.users`, deshalb muss Schritt 3 vor Schritt 4 stehen.
 
-**Deutsche Namen:** Sie entstehen maschinell aus einem Wort-Glossar (`tools/glossary-de.mjs`), die Wortstellung bleibt englisch ("Langhantel Bankdrücken - mittlerer Griff"). Das ist eine Ersttranslation, keine geprüfte Übersetzung. Das Skript nennt am Ende die häufigsten noch englischen Wörter. Einzelne Namen lassen sich in `tools/names_de.json` überschreiben (`{ "<Übungs-ID>": "Neuer Name" }`), danach das Skript erneut ausführen und die Datei einspielen (bereits eingespielte Namen ändert das Einspielen nicht, dafür in Supabase `delete from fit_exercises where source = 'free-exercise-db'` und neu einspielen, solange noch keine Trainings darauf verweisen). Die Anleitungen bleiben zunächst englisch (`instructions_en`).
+**Was in der Datenbank steht:** Der Katalog (`fit_exercises`) enthält nur Details zur Übung: Name, Muskelgruppen, Gerät und Anleitung. Es gibt keine Gewichte und keine festen Gewichtsschritte. Welches Gewicht du nimmst, steht bei den Sätzen (`fit_sets`).
+
+**Deutsche Namen:** Die Namen in `tools/names_de.txt` (eine Zeile je Übung, „Englischer Name => Deutscher Name") habe ich von Hand übersetzt. Sie sind nicht von einer Fachperson geprüft. Für Übungen, die später im Katalog neu hinzukommen und dort noch fehlen, greift ein Wort-Glossar (`tools/glossary-de.mjs`) als Notlösung; das Skript meldet, wie viele Namen darüber laufen. Einzelne Namen änderst du in `names_de.txt` (oder per Übungs-ID in `tools/names_de.json`) und führst das Skript danach erneut aus. Die Anleitungen bleiben zunächst englisch (`instructions_en`).
 
 **Muskelgruppen:** Übungen speichern `primary_muscles` und `secondary_muscles` als Liste mit den englischen Schlüsseln des Katalogs (z. B. `lats`, `middle back`). Die deutschen Anzeigenamen stehen in `src/lib/muscles.ts`. Beim Anlegen einer eigenen Übung ist mindestens ein Hauptmuskel Pflicht.
 
@@ -64,8 +67,8 @@ Datenbank: Inhalt von `supabase/migrations/0001_fit_schema.sql`, danach `0002_fi
 
 ## Festlegungen
 
-- **Gewichte:** ganze Kilo plus 0 / 0,25 / 0,5 / 0,75 kg. Optional Stangen- oder Maschinengewicht pro Übung (`equipment_kg`); Gesamtlast = eingegebenes Gewicht + Eigengewicht.
-- **Double Progression:** Steigerung, sobald in mehr als einem Arbeitssatz die obere Wiederholungsgrenze erreicht wurde (Beispiel bis 12: 12 / 12 / 11 reicht). Die RIR-Angabe wird gespeichert, beeinflusst den Vorschlag aber nicht. Der Sprung entspricht `increment_kg` der Übung.
+- **Gewichte:** ganze Kilo plus 0 / 0,25 / 0,5 / 0,75 kg, gewählt im Satz. Optional Stangen- oder Maschinengewicht pro Übung im Training (`fit_workout_exercises.equipment_kg`); Gesamtlast = eingegebenes Gewicht + Eigengewicht. Der Übungskatalog enthält keine Gewichte.
+- **Double Progression:** Steigerung, sobald in mehr als einem Arbeitssatz die obere Wiederholungsgrenze erreicht wurde (Beispiel bis 12: 12 / 12 / 11 reicht). Die RIR-Angabe wird gespeichert, beeinflusst den Vorschlag aber nicht. Um wie viel du steigerst, entscheidest du selbst: Die App zeigt „Steigern" und lässt das bisherige Gewicht stehen, das neue Gewicht wählst du im Satz. Es gibt keine festen Gewichtsschritte pro Übung.
 - **Aufwärmsätze:** Vorschlag als Rampe (50 %, 70 %, 85 % der Gesamtlast inkl. Stange/Maschine, vorgeschlagen wird das einzugebende Gewicht, gerundet auf die Schrittweite). Das ist eine Praxis-Faustregel, keine belegte Norm.
 - **Pläne:** Plan → Tage (z. B. Push, Pull, Lower) → Übungen mit Sätzen, Wiederholungsbereich, Ziel-RIR und Pause. Die Startseite bietet den nächsten Tag in der Rotation an; Gewicht, Schritt und Vorschlag kommen aus dem letzten Training der Übung. Entfernte Tage und Übungen werden archiviert, nicht gelöscht.
 - **Plan und Ausführung getrennt:** Planwerte werden beim Trainingsstart in `fit_workout_exercises` kopiert.

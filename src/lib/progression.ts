@@ -1,4 +1,4 @@
-import { formatKg, fromQuarters, toQuarters } from './weight';
+import { fromQuarters, toQuarters } from './weight';
 
 /**
  * Double Progression.
@@ -7,6 +7,9 @@ import { formatKg, fromQuarters, toQuarters } from './weight';
  *  - Es gibt einen Wiederholungsbereich [min, max].
  *  - Gesteigert wird, wenn in MEHR ALS EINEM Arbeitssatz die obere Grenze
  *    erreicht wurde. Weitere Sätze darunter (z. B. 12 / 12 / 11) sind egal.
+ *  - Wie viel schwerer, entscheidest du selbst: Es gibt keinen festen
+ *    Gewichtssprung. Bei "Steigern" bleibt das bisherige Arbeitsgewicht als
+ *    Vorbelegung stehen, das neue Gewicht wählst du im Satz.
  *  - Die RIR-Angabe beeinflusst den Vorschlag nicht, wird aber gespeichert.
  *  - Sonst: Gewicht halten und mehr Wiederholungen anstreben.
  *
@@ -26,8 +29,6 @@ export interface ProgressionInput {
   sets: LoggedSet[];
   repMin: number;
   repMax: number;
-  /** Gewichtssprung in kg, Vielfaches von 0,25. */
-  incrementKg: number;
 }
 
 export type ProgressionAction = 'increase' | 'hold' | 'no-data';
@@ -40,9 +41,8 @@ export interface ProgressionSuggestion {
 }
 
 export function suggestProgression(input: ProgressionInput): ProgressionSuggestion {
-  const { repMin, repMax, incrementKg } = input;
+  const { repMin, repMax } = input;
   if (repMin > repMax) throw new Error('repMin darf nicht größer als repMax sein');
-  toQuarters(incrementKg); // validiert das 0,25er-Raster
 
   const working = input.sets.filter((s) => s.type === 'working');
   if (working.length === 0) {
@@ -64,11 +64,11 @@ export function suggestProgression(input: ProgressionInput): ProgressionSuggesti
   if (atTop.length > 1) {
     return {
       action: 'increase',
-      weightKg: workWeight + incrementKg,
+      weightKg: workWeight,
       targetReps: repMin,
       reason:
         `${atTop.length} Sätze mit ${repMax} oder mehr Wiederholungen: ` +
-        `Gewicht um ${formatKg(incrementKg)} erhöhen und wieder bei ` +
+        `Gewicht erhöhen (du wählst das neue Gewicht) und wieder bei ` +
         `${repMin} Wiederholungen beginnen.`,
     };
   }

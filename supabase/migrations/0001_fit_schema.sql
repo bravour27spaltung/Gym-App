@@ -10,6 +10,8 @@ create domain fit_kg as numeric(6,2)
   check (value >= 0 and (value * 4) = round(value * 4));
 
 -- Übungen: aus offener Datenbank importiert (source = 'free-exercise-db') oder eigene.
+-- Der Katalog enthält nur Details zur Übung (Muskelgruppen, Gerät, Anleitung), keine Gewichte.
+-- Welches Gewicht du nimmst, steht ausschließlich bei den Sätzen (fit_sets).
 create table fit_exercises (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users on delete cascade,
@@ -20,11 +22,9 @@ create table fit_exercises (
   variant_of uuid references fit_exercises(id) on delete set null,
   primary_muscles text[] not null default '{}',
   secondary_muscles text[] not null default '{}',
-  equipment text,
+  equipment text,                 -- Geräteart, z. B. 'barbell' (keine Gewichte)
   instructions_en text[],
   instructions_de text[],
-  increment_kg fit_kg not null default 2.5 check (increment_kg > 0),
-  equipment_kg fit_kg,            -- optional: Gewicht von Stange oder Maschine
   archived_at timestamptz,
   created_at timestamptz not null default now(),
   unique (user_id, source, source_id)
@@ -84,8 +84,7 @@ create table fit_workout_exercises (
   rep_min int,
   rep_max int,
   target_rir int,
-  equipment_kg fit_kg,            -- Stangen-/Maschinengewicht zum Zeitpunkt des Trainings
-  increment_kg fit_kg
+  equipment_kg fit_kg             -- Stangen-/Maschinengewicht zum Zeitpunkt des Trainings
 );
 
 create table fit_sets (

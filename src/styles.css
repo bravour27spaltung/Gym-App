@@ -531,3 +531,13 @@ select {
   border-color: var(--accent);
   color: var(--accent-text);
 }
+
+/* Gruppierte Übungsliste */
+.pick-heading {
+  margin: 16px 0 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
