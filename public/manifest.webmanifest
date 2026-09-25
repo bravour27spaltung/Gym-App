@@ -1,0 +1,9 @@
+{
+  "name": "Gym-Log",
+  "short_name": "Gym",
+  "display": "standalone",
+  "start_url": "/",
+  "background_color": "#0f0f11",
+  "theme_color": "#0f0f11",
+  "lang": "de"
+}
