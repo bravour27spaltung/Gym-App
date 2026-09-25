@@ -444,8 +444,9 @@ function Login() {
             Wir haben eine E-Mail an <strong>{mail.trim()}</strong> geschickt.
           </p>
           <p className="muted">
-            Am Computer tippst du auf den Link in der Mail. In der App auf dem iPhone gibst du
-            stattdessen den Code aus der Mail hier ein, denn der Link öffnet Safari und nicht diese App.
+            Tippe auf den Link in der Mail. Steht in der Mail zusätzlich ein Code, kannst du ihn
+            hier eingeben. Das ist nötig in der App vom iPhone-Home-Bildschirm, denn der Link
+            öffnet dort Safari und nicht diese App.
           </p>
           <label>
             Code aus der E-Mail

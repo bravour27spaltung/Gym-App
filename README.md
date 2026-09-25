@@ -72,7 +72,8 @@ Einrichtung in Supabase (die Menünamen können leicht abweichen):
    <p><a href="{{ .ConfirmationURL }}">Hier tippen, um dich anzumelden</a></p>
    <p>Oder gib diesen Code in der App ein: <strong>{{ .Token }}</strong></p>
    ```
-3. Der integrierte Mailversand von Supabase ist stark begrenzt (nur wenige Mails pro Stunde, bitte die aktuellen Limits prüfen). Für eine Person reicht das, sonst hilft ein eigener SMTP-Anbieter.
+3. **Die Vorlage lässt sich nur bearbeiten, wenn ein eigener SMTP-Server eingerichtet ist** (Authentication, SMTP Settings). Ohne ihn verschickt Supabase die Standardmail, die nur den Link enthält und keinen Code. Dann gilt: Am Computer den Link benutzen, in der App vom iPhone-Home-Bildschirm das Passwort. Der Standardversand geht außerdem nur an Adressen von Projekt-Teammitgliedern.
+4. Der integrierte Mailversand von Supabase ist stark begrenzt (nur wenige Mails pro Stunde, bitte die aktuellen Limits prüfen). Für eine Person reicht das, sonst hilft ein eigener SMTP-Anbieter.
 
 ## Fehlersuche
 
