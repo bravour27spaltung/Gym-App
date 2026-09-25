@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { muscleLabel } from '../lib/muscles';
 import { summarizePlanExercise, type PlanExercise, type updatePlanExercise } from '../lib/plan';
-import type { ExerciseListItem } from '../lib/storage';
+import type { ExerciseListItem, LastInfo } from '../lib/storage';
 import { formatClock } from '../lib/timer';
-import type { ExerciseInput } from '../lib/workout';
+import { describeLastSets, type ExerciseInput } from '../lib/workout';
+import { lastWorkingWeightKg } from '../lib/progression';
+import { formatKg } from '../lib/weight';
 import { AddExercise } from './AddExercise';
-import { Icon, IconButton, Stepper, Switch } from './ui';
+import { EquipmentField, Icon, IconButton, NumberInput, Stepper, Switch } from './ui';
 
 type Patch = Parameters<typeof updatePlanExercise>[3];
 
@@ -16,6 +18,8 @@ interface Props {
   onMove: (exId: string, dir: -1 | 1) => void;
   onRemove: (exId: string) => void;
   onAdd: (inputs: ExerciseInput[]) => void;
+  /** Lädt, was du beim letzten Training dieser Übung gemacht hast. */
+  loadLast: (exerciseId: string, isNew: boolean) => Promise<LastInfo>;
 }
 
 const REST_OPTIONS = [60, 90, 120, 180, 240];
@@ -25,9 +29,24 @@ const REST_OPTIONS = [60, 90, 120, 180, 240];
  * zum Bearbeiten aufklappen (Sätze, Wiederholungsbereich, Ziel-RIR, Pause,
  * Aufwärmen, Notiz).
  */
-export function DayEditor({ exercises, catalog, onUpdate, onMove, onRemove, onAdd }: Props) {
+export function DayEditor({ exercises, catalog, onUpdate, onMove, onRemove, onAdd, loadLast }: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // Letztes Training je Übung, geladen beim Aufklappen einer Karte.
+  const [lastById, setLastById] = useState<Record<string, LastInfo>>({});
+
+  useEffect(() => {
+    const open = exercises.find((x) => x.id === openId);
+    if (!open || lastById[open.exerciseId]) return;
+    let cancelled = false;
+    void loadLast(open.exerciseId, open.newExercise !== null).then((info) => {
+      if (!cancelled) setLastById((cur) => ({ ...cur, [open.exerciseId]: info }));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId, exercises]);
 
   const byId = new Map(catalog.map((c) => [c.id, c]));
   const musclesOf = (e: PlanExercise): string[] =>
@@ -75,6 +94,57 @@ export function DayEditor({ exercises, catalog, onUpdate, onMove, onRemove, onAd
 
               {open && (
                 <div className="exercard-edit">
+                  <div className="field stack">
+                    <span>Gewicht (Arbeitsgewicht)</span>
+                    <div className="weightline">
+                      <NumberInput
+                        kind="kg"
+                        blankZero
+                        placeholder="0"
+                        label={`${e.name}: Gewicht in kg`}
+                        value={e.weightKg ?? 0}
+                        onCommit={(kg) => onUpdate(e.id, { weightKg: kg > 0 ? kg : null })}
+                      />
+                      <span className="unit">kg</span>
+                      {(() => {
+                        const last = lastById[e.exerciseId];
+                        const w = last ? lastWorkingWeightKg(last.sets) : null;
+                        if (w === null || !last) return null;
+                        if (e.weightKg === w && e.equipmentKg === last.equipmentKg) return null;
+                        return (
+                          <button
+                            type="button"
+                            className="btn compact"
+                            onClick={() => onUpdate(e.id, { weightKg: w, equipmentKg: last.equipmentKg })}
+                          >
+                            Letztes Mal: {formatKg(w)} übernehmen
+                          </button>
+                        );
+                      })()}
+                    </div>
+                    {(() => {
+                      const last = lastById[e.exerciseId];
+                      if (!last) return null;
+                      const text = describeLastSets(last.sets);
+                      return (
+                        <p className="lasttime">
+                          <span>Letztes Mal</span>
+                          {text
+                            ? `${text}${last.equipmentKg ? ` · Stange ${formatKg(last.equipmentKg)}` : ''}`
+                            : 'noch kein Training mit dieser Übung'}
+                        </p>
+                      );
+                    })()}
+                  </div>
+
+                  <div className="field stack">
+                    <EquipmentField
+                      name={e.name}
+                      value={e.equipmentKg}
+                      onChange={(kg) => onUpdate(e.id, { equipmentKg: kg })}
+                    />
+                  </div>
+
                   <div className="field">
                     <span>Sätze</span>
                     <Stepper

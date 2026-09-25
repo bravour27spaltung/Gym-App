@@ -63,6 +63,8 @@ create table fit_plan_exercises (
   rest_seconds int check (rest_seconds > 0),
   warmup boolean not null default false,   -- Aufwärmsätze im Training vorschlagen
   note text,                               -- z. B. Sitzeinstellung
+  weight_kg fit_kg,                        -- geplantes Arbeitsgewicht (optional)
+  equipment_kg fit_kg,                     -- Stangen-/Maschinengewicht (optional)
   archived_at timestamptz
 );
 

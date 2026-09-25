@@ -120,16 +120,29 @@ export async function fetchPlans(
   namesById: Record<string, string | undefined>,
 ): Promise<Result<Plan[]>> {
   if (!supabase) return fail(NOT_CONFIGURED);
-  const { data, error } = await supabase
-    .from('fit_plans')
-    .select(
-      'id, kind, name, archived_at, fit_plan_days(id, name, position, archived_at, ' +
-        'fit_plan_exercises(id, exercise_id, position, sets, rep_min, rep_max, target_rir, rest_seconds, warmup, note, archived_at))',
-    )
-    .is('archived_at', null)
-    .order('created_at');
-  if (error) return fail(error.message);
-  return { ok: true, data: plansFromRows((data ?? []) as unknown as PlanDbRow[], namesById) };
+  // Neueste Spalten zuerst. Fehlt eine Migration, wird mit dem älteren Spaltensatz geladen,
+  // damit die Pläne trotzdem erscheinen (Speichern meldet dann klar, was fehlt).
+  const variants = [
+    ['kind, ', ', warmup, note, weight_kg, equipment_kg'],
+    ['kind, ', ', warmup, note'],
+    ['', ''],
+  ] as const;
+  let lastError = '';
+  for (const [planCols, exCols] of variants) {
+    const { data, error } = await supabase
+      .from('fit_plans')
+      .select(
+        `id, ${planCols}name, archived_at, fit_plan_days(id, name, position, archived_at, ` +
+          `fit_plan_exercises(id, exercise_id, position, sets, rep_min, rep_max, target_rir, rest_seconds${exCols}, archived_at))`,
+      )
+      .is('archived_at', null)
+      .order('created_at');
+    if (!error) {
+      return { ok: true, data: plansFromRows((data ?? []) as unknown as PlanDbRow[], namesById) };
+    }
+    lastError = error.message;
+  }
+  return fail(lastError);
 }
 
 /** Schreibt einen Plan: neue Übungen, Plan, Tage, Übungen (Upsert über die Client-IDs). */

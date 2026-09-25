@@ -289,6 +289,7 @@ export function App() {
           onArchive={handleArchivePlan}
           onStart={(plan, dayId) => void startFromPlan(plan, dayId)}
           onEditingChange={setEditorOpen}
+          loadLast={loadLast}
         />
         {tabs}
       </main>

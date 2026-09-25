@@ -7,7 +7,7 @@ import {
   visibleExercises,
   type Plan,
 } from '../lib/plan';
-import type { ExerciseListItem } from '../lib/storage';
+import type { ExerciseListItem, LastInfo } from '../lib/storage';
 import { PlanEditor, musclesOfDay } from './PlanEditor';
 import { Icon, IconButton } from './ui';
 
@@ -21,9 +21,18 @@ interface Props {
   onStart: (plan: Plan, dayId: string) => void;
   /** Meldet, ob gerade ein Editor offen ist (dann blendet die App die untere Leiste aus). */
   onEditingChange: (open: boolean) => void;
+  loadLast: (exerciseId: string, isNew: boolean) => Promise<LastInfo>;
 }
 
-export function PlansScreen({ plans, exercises, onSave, onArchive, onStart, onEditingChange }: Props) {
+export function PlansScreen({
+  plans,
+  exercises,
+  onSave,
+  onArchive,
+  onStart,
+  onEditingChange,
+  loadLast,
+}: Props) {
   const [editing, setEditing] = useState<Plan | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState<string | null>(null);
@@ -45,6 +54,7 @@ export function PlansScreen({ plans, exercises, onSave, onArchive, onStart, onEd
         initial={editing}
         exercises={exercises}
         templates={templates}
+        loadLast={loadLast}
         onCancel={() => setEditing(null)}
         onSave={async (plan) => {
           const err = await onSave(plan);

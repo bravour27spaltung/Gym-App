@@ -4,7 +4,7 @@ import { formatClock } from '../lib/timer';
 import { formatKg } from '../lib/weight';
 import { describeLastSets, type DraftExercise, type DraftSet } from '../lib/workout';
 import { SetRow } from './SetRow';
-import { Icon, IconButton, NumberInput } from './ui';
+import { EquipmentField, Icon, IconButton } from './ui';
 
 interface Props {
   exercise: DraftExercise;
@@ -20,7 +20,6 @@ interface Props {
 }
 
 const REST_OPTIONS = [60, 90, 120, 180, 240];
-const EQUIPMENT_QUICK = [10, 15, 20];
 
 export function ExerciseCard(props: Props) {
   const { exercise: e } = props;
@@ -83,8 +82,8 @@ export function ExerciseCard(props: Props) {
         <p className={`hint ${s.action}`}>
           <strong>
             {s.action === 'increase'
-              ? `Steigern, ab ${s.targetReps ?? e.repMin} Wdh.`
-              : `Halten${s.weightKg !== null ? `: ${formatKg(s.weightKg)}` : ''}${
+              ? `Empfehlung: Steigern, ab ${s.targetReps ?? e.repMin} Wdh.`
+              : `Empfehlung: Halten${s.weightKg !== null ? `: ${formatKg(s.weightKg)}` : ''}${
                   s.targetReps !== null ? ` × ${s.targetReps}` : ''
                 }`}
           </strong>
@@ -93,36 +92,7 @@ export function ExerciseCard(props: Props) {
         </p>
       )}
 
-      <div className="equiprow">
-        <span className="equip-label">
-          Stange / Maschine
-          <small>Eigengewicht, das zum Gewicht dazukommt</small>
-        </span>
-        <div className="equip-input">
-          <NumberInput
-            kind="kg"
-            blankZero
-            placeholder="0"
-            label={`${e.name}: Stangen- oder Maschinengewicht in kg`}
-            value={e.equipmentKg ?? 0}
-            onCommit={(kg) => props.onEquipment(kg > 0 ? kg : null)}
-          />
-          <span className="unit">kg</span>
-        </div>
-      </div>
-      <div className="chips sm equipchips" role="group" aria-label="Häufige Stangen- und Maschinengewichte">
-        {EQUIPMENT_QUICK.map((kg) => (
-          <button
-            key={kg}
-            type="button"
-            className={e.equipmentKg === kg ? 'chip on' : 'chip'}
-            aria-pressed={e.equipmentKg === kg}
-            onClick={() => props.onEquipment(e.equipmentKg === kg ? null : kg)}
-          >
-            {kg} kg
-          </button>
-        ))}
-      </div>
+      <EquipmentField name={e.name} value={e.equipmentKg} onChange={props.onEquipment} />
 
       <div className="setgrid sethead" aria-hidden="true">
         <span>Satz</span>

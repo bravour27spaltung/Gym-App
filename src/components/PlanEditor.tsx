@@ -18,7 +18,8 @@ import {
   type Plan,
   type PlanDay,
 } from '../lib/plan';
-import type { ExerciseListItem } from '../lib/storage';
+import { lastWorkingSetCount, lastWorkingWeightKg } from '../lib/progression';
+import type { ExerciseListItem, LastInfo } from '../lib/storage';
 import type { ExerciseInput } from '../lib/workout';
 import { DayEditor } from './DayEditor';
 import { AppBar, Icon, IconButton } from './ui';
@@ -31,6 +32,8 @@ interface Props {
   /** Gibt eine Fehlermeldung zurück oder null bei Erfolg. */
   onSave: (plan: Plan) => Promise<string | null>;
   onCancel: () => void;
+  /** Lädt, was du beim letzten Training einer Übung gemacht hast (Gewicht, Sätze, Stange). */
+  loadLast: (exerciseId: string, isNew: boolean) => Promise<LastInfo>;
 }
 
 /** Übersicht der Hauptmuskeln eines Tags, z. B. "Brust, Schultern, Trizeps". */
@@ -48,7 +51,7 @@ export function musclesOfDay(day: PlanDay, catalog: ExerciseListItem[]): string 
     .join(', ');
 }
 
-export function PlanEditor({ initial, exercises, templates, onSave, onCancel }: Props) {
+export function PlanEditor({ initial, exercises, templates, onSave, onCancel, loadLast }: Props) {
   const [plan, setPlan] = useState<Plan>(initial);
   const [editingDayId, setEditingDayId] = useState<string | null>(null);
   const [pickTemplate, setPickTemplate] = useState(false);
@@ -75,23 +78,33 @@ export function PlanEditor({ initial, exercises, templates, onSave, onCancel }: 
     if (err) setErrors([err]);
   }
 
-  function addToDay(dayId: string, inputs: ExerciseInput[]) {
+  /**
+   * Fügt Übungen hinzu und übernimmt dabei, was du beim letzten Mal gemacht hast:
+   * Arbeitsgewicht, Anzahl der Arbeitssätze und Stangen-/Maschinengewicht.
+   * Ohne bisheriges Training bleiben die Standardwerte.
+   */
+  async function addToDay(dayId: string, inputs: ExerciseInput[]) {
+    const lasts = await Promise.all(
+      inputs.map((i) => (i.isNew ? Promise.resolve(null) : loadLast(i.exerciseId, false))),
+    );
     setPlan((p) =>
-      inputs.reduce(
-        (acc, input) =>
-          addPlanExercise(acc, dayId, {
-            exerciseId: input.exerciseId,
-            name: input.name,
-            isNew: input.isNew,
-            equipment: input.equipment,
-            primaryMuscles: input.primaryMuscles,
-            secondaryMuscles: input.secondaryMuscles,
-            sets: input.plannedSets,
-            repMin: input.repMin,
-            repMax: input.repMax,
-          }),
-        p,
-      ),
+      inputs.reduce((acc, input, idx) => {
+        const last = lasts[idx];
+        const count = last ? lastWorkingSetCount(last.sets) : 0;
+        return addPlanExercise(acc, dayId, {
+          exerciseId: input.exerciseId,
+          name: input.name,
+          isNew: input.isNew,
+          equipment: input.equipment,
+          primaryMuscles: input.primaryMuscles,
+          secondaryMuscles: input.secondaryMuscles,
+          sets: count > 0 ? Math.min(10, count) : input.plannedSets,
+          repMin: input.repMin,
+          repMax: input.repMax,
+          weightKg: last ? lastWorkingWeightKg(last.sets) : null,
+          equipmentKg: last ? last.equipmentKg : null,
+        });
+      }, p),
     );
   }
 
@@ -103,7 +116,8 @@ export function PlanEditor({ initial, exercises, templates, onSave, onCancel }: 
         onUpdate={(exId, patch) => setPlan((p) => updatePlanExercise(p, day.id, exId, patch))}
         onMove={(exId, dir) => setPlan((p) => movePlanExercise(p, day.id, exId, dir))}
         onRemove={(exId) => setPlan((p) => removePlanExercise(p, day.id, exId))}
-        onAdd={(inputs) => addToDay(day.id, inputs)}
+        onAdd={(inputs) => void addToDay(day.id, inputs)}
+        loadLast={loadLast}
       />
     );
   }

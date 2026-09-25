@@ -1704,3 +1704,23 @@ button.tile:disabled {
 .excard-actions .addtile.small {
   flex: 1;
 }
+
+/* Gewicht im Plan-Editor */
+.weightline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.weightline .cellinput {
+  width: 96px;
+}
+
+.exercard-edit .lasttime {
+  margin: 4px 0 0;
+}
+
+.exercard-edit .equiprow {
+  margin-top: 0;
+}

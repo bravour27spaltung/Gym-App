@@ -61,6 +61,8 @@ export interface ExerciseInput {
   repMin?: number;
   repMax?: number;
   equipmentKg?: number | null;
+  /** Arbeitsgewicht aus dem Plan; hat Vorrang vor dem Wert vom letzten Training. */
+  weightKg?: number | null;
   equipment?: string | null;
   note?: string;
   primaryMuscles?: string[];
@@ -93,7 +95,7 @@ export function addExercise(draft: Draft, input: ExerciseInput): Draft {
   const lastSets = input.lastSets ?? [];
 
   const suggestion = suggestProgression({ sets: lastSets, repMin, repMax });
-  const weightKg = suggestion.weightKg ?? 0;
+  const weightKg = input.weightKg ?? suggestion.weightKg ?? 0;
   const reps = suggestion.targetReps ?? repMin;
 
   const sets: DraftSet[] = Array.from({ length: plannedSets }, () => ({

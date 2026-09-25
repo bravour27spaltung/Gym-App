@@ -27,6 +27,10 @@ export interface PlanExercise {
   repMax: number;
   targetRir: number | null;
   restSeconds: number;
+  /** Geplantes Arbeitsgewicht in kg (ohne Stange/Maschine); null = nicht festgelegt. */
+  weightKg: number | null;
+  /** Stangen-/Maschinengewicht, das zum Gewicht dazukommt; null = keins. */
+  equipmentKg: number | null;
   /** true = im Training werden vor den Arbeitssätzen Aufwärmsätze vorgeschlagen. */
   warmup: boolean;
   /** Freitext, z. B. Sitzeinstellung der Maschine; leer = keine Notiz. */
@@ -80,6 +84,8 @@ export interface PlanExerciseInput {
   restSeconds?: number;
   warmup?: boolean;
   note?: string;
+  weightKg?: number | null;
+  equipmentKg?: number | null;
 }
 
 export const visibleDays = (plan: Plan): PlanDay[] => plan.days.filter((d) => !d.archived);
@@ -127,6 +133,10 @@ export function addDayFromTemplate(plan: Plan, template: Plan): Plan {
 /** Kurztext für eine Übung im Plan, z. B. "3 × 8–12 · RIR 2 · 2:00 min". */
 export function summarizePlanExercise(e: PlanExercise): string {
   const parts = [`${e.sets} × ${e.repMin === e.repMax ? e.repMin : `${e.repMin}–${e.repMax}`}`];
+  if (e.weightKg !== null && e.weightKg > 0) {
+    const w = String(e.weightKg).replace('.', ',');
+    parts.push(e.equipmentKg ? `${w} kg (+${String(e.equipmentKg).replace('.', ',')})` : `${w} kg`);
+  }
   const m = Math.floor(e.restSeconds / 60);
   const s = e.restSeconds % 60;
   parts.push(`${m}:${String(s).padStart(2, '0')} min`);
@@ -190,6 +200,8 @@ export function addPlanExercise(plan: Plan, dayId: string, input: PlanExerciseIn
     restSeconds: input.restSeconds ?? 120,
     warmup: input.warmup ?? false,
     note: input.note ?? '',
+    weightKg: input.weightKg ?? null,
+    equipmentKg: input.equipmentKg ?? null,
     newExercise: input.isNew
       ? {
           equipment: input.equipment ?? null,
@@ -208,7 +220,10 @@ export function updatePlanExercise(
   dayId: string,
   exId: string,
   patch: Partial<
-    Pick<PlanExercise, 'sets' | 'repMin' | 'repMax' | 'targetRir' | 'restSeconds' | 'warmup' | 'note'>
+    Pick<
+      PlanExercise,
+      'sets' | 'repMin' | 'repMax' | 'targetRir' | 'restSeconds' | 'warmup' | 'note' | 'weightKg' | 'equipmentKg'
+    >
   >,
 ): Plan {
   return mapDay(plan, dayId, (d) => ({
@@ -272,6 +287,10 @@ export function validatePlan(plan: Plan): string[] {
         errors.push(`${label}, ${e.name}: Ziel-RIR muss zwischen 0 und 5 liegen.`);
       if (!Number.isInteger(e.restSeconds) || e.restSeconds < 1)
         errors.push(`${label}, ${e.name}: Pause muss größer als 0 sein.`);
+      for (const [what, v] of [['Gewicht', e.weightKg], ['Stangen-/Maschinengewicht', e.equipmentKg]] as const) {
+        if (v !== null && (!Number.isFinite(v) || v < 0 || v > 999 || Math.abs(v * 4 - Math.round(v * 4)) > 1e-9))
+          errors.push(`${label}, ${e.name}: ${what} muss zwischen 0 und 999 kg liegen (in 0,25-kg-Schritten).`);
+      }
     }
   });
   return errors;
@@ -296,6 +315,8 @@ export interface PlanRows {
     rest_seconds: number;
     warmup: boolean;
     note: string | null;
+    weight_kg: number | null;
+    equipment_kg: number | null;
     archived_at: string | null;
   }[];
 }
@@ -349,6 +370,8 @@ export function planToRows(plan: Plan, now: Date): PlanRows {
         rest_seconds: ex.restSeconds,
         warmup: ex.warmup,
         note: ex.note.trim() === '' ? null : ex.note.trim(),
+        weight_kg: ex.weightKg,
+        equipment_kg: ex.equipmentKg,
         archived_at: ex.archived ? ts : null,
       });
     });
@@ -381,6 +404,8 @@ export interface PlanDbRow {
       rest_seconds: number | null;
       warmup?: boolean | null;
       note?: string | null;
+      weight_kg?: number | string | null;
+      equipment_kg?: number | string | null;
       archived_at: string | null;
     }[];
   }[];
@@ -422,6 +447,8 @@ export function plansFromRows(rows: PlanDbRow[], namesById: Record<string, strin
               restSeconds: e.rest_seconds ?? 120,
               warmup: e.warmup ?? false,
               note: e.note ?? '',
+              weightKg: e.weight_kg == null ? null : Number(e.weight_kg),
+              equipmentKg: e.equipment_kg == null ? null : Number(e.equipment_kg),
               newExercise: null,
               archived: false,
               isNew: false,
@@ -477,7 +504,8 @@ export function draftFromPlanDay(
       targetRir: e.targetRir,
       restSeconds: e.restSeconds,
       equipment: e.newExercise?.equipment ?? null,
-      equipmentKg: lastEquipment[e.exerciseId] ?? null,
+      weightKg: e.weightKg,
+      equipmentKg: e.equipmentKg ?? lastEquipment[e.exerciseId] ?? null,
       primaryMuscles: known?.primaryMuscles ?? e.newExercise?.primaryMuscles,
       secondaryMuscles: known?.secondaryMuscles ?? e.newExercise?.secondaryMuscles,
       lastSets: lastSets[e.exerciseId] ?? [],

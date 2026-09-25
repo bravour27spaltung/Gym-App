@@ -276,3 +276,47 @@ export function NumberInput(props: {
     />
   );
 }
+
+const EQUIPMENT_QUICK = [10, 15, 20];
+
+/** Stangen-/Maschinengewicht: Eingabefeld plus Schnellwahl. Gleich im Plan und im Training. */
+export function EquipmentField(props: {
+  name: string;
+  value: number | null;
+  onChange: (kg: number | null) => void;
+}) {
+  return (
+    <>
+      <div className="equiprow">
+        <span className="equip-label">
+          Stange / Maschine
+          <small>Eigengewicht, das zum Gewicht dazukommt</small>
+        </span>
+        <div className="equip-input">
+          <NumberInput
+            kind="kg"
+            blankZero
+            placeholder="0"
+            label={`${props.name}: Stangen- oder Maschinengewicht in kg`}
+            value={props.value ?? 0}
+            onCommit={(kg) => props.onChange(kg > 0 ? kg : null)}
+          />
+          <span className="unit">kg</span>
+        </div>
+      </div>
+      <div className="chips sm equipchips" role="group" aria-label="Häufige Stangen- und Maschinengewichte">
+        {EQUIPMENT_QUICK.map((kg) => (
+          <button
+            key={kg}
+            type="button"
+            className={props.value === kg ? 'chip on' : 'chip'}
+            aria-pressed={props.value === kg}
+            onClick={() => props.onChange(props.value === kg ? null : kg)}
+          >
+            {kg} kg
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}

@@ -21,7 +21,7 @@ Reihenfolge im SQL-Editor von Supabase (jeweils Inhalt der Datei einfügen und a
 
 1. `supabase/migrations/0001_fit_schema.sql`
 2. `supabase/migrations/0002_fit_last_sets.sql`
-   (Wurde 0001 schon in einer älteren Fassung ausgeführt: zusätzlich `0003_catalog_details_only.sql`, `0004_plan_templates.sql` und `0005_last_sets_equipment.sql` ausführen. Alle sind wiederholbar.)
+   (Wurde 0001 schon in einer älteren Fassung ausgeführt: zusätzlich `0003_catalog_details_only.sql`, `0004_plan_templates.sql`, `0005_last_sets_equipment.sql` und `0006_plan_weights.sql` ausführen. Alle sind wiederholbar.)
 3. Nutzer anlegen (Authentication, Users), danach die Registrierung neuer Nutzer abschalten.
 4. Übungskatalog: Auf deinem Rechner (Node 18 oder neuer) im Projektordner
    ```bash
@@ -47,6 +47,12 @@ Zwei Wege, ein Training zu planen (Reiter „Pläne"):
 Pro Übung stellst du Sätze, Wiederholungsbereich, Ziel-RIR, Pause, Aufwärmen und eine Notiz ein. Mit „Aufwärmen" plant die App vor den Arbeitssätzen eine Rampe ein, sobald ein Gewicht vom letzten Training bekannt ist. Die Notiz erscheint im Training bei der Übung. Die Übungsauswahl ist eine Mehrfachauswahl mit Suche sowie Filtern nach Muskelgruppe und Gerät.
 
 **Design:** Dunkel zuerst mit hellem Ausweichmodus (folgt der Systemeinstellung). Alle Farben stehen als Variablen am Anfang von `src/styles.css`.
+
+## Gewicht im Plan
+
+Pro Übung trägst du im Plan bzw. in der Vorlage das **Arbeitsgewicht** und das **Stangen-/Maschinengewicht** ein (beides optional). Beim Hinzufügen einer Übung übernimmt die App, was du beim letzten Mal gemacht hast: das höchste Arbeitsgewicht, die Zahl der Arbeitssätze und das Stangengewicht. Aufgeklappt zeigt die Karte „Letztes Mal" (z. B. 80 kg × 10, 10, 9 · Stange 20 kg) und einen Knopf „Letztes Mal übernehmen", falls dein Plan davon abweicht.
+
+Im Training gilt: **Plan-Gewicht vor dem Wert vom letzten Training**. Ist im Plan nichts eingetragen, nimmt die App das letzte Training. Wenn du im Training steigerst, ändert sich der Plan nicht von selbst. Trag die Steigerung im Plan nach, sonst startet das nächste Training wieder mit dem alten Plan-Gewicht. Die Empfehlung („Halten" oder „Steigern") in der Übungskarte richtet sich immer nach dem letzten Training.
 
 ## Gewicht im Training
 

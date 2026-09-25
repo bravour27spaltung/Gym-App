@@ -87,3 +87,14 @@ export function suggestProgression(input: ProgressionInput): ProgressionSuggesti
 
   return { action: 'hold', weightKg: workWeight, targetReps: target, reason };
 }
+
+/** Höchstes Gewicht der Arbeitssätze (das Arbeitsgewicht des letzten Trainings); null ohne Daten. */
+export function lastWorkingWeightKg(sets: LoggedSet[]): number | null {
+  const working = sets.filter((s) => s.type === 'working');
+  if (working.length === 0) return null;
+  return Math.max(...working.map((s) => s.weightKg));
+}
+
+export function lastWorkingSetCount(sets: LoggedSet[]): number {
+  return sets.filter((s) => s.type === 'working').length;
+}
