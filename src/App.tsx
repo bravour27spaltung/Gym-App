@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { musclesOfDay } from './components/PlanEditor';
 import { PlansScreen } from './components/PlansScreen';
+import { Icon, TabBar } from './components/ui';
 import { WorkoutScreen } from './components/WorkoutScreen';
 import {
   archivePlan,
@@ -20,6 +22,7 @@ import {
   draftFromPlanDay,
   markSaved,
   planToRows,
+  templateDay,
   visibleDays,
   visibleExercises,
   type Plan,
@@ -36,7 +39,6 @@ import {
 } from './lib/workout';
 import { configError, supabase } from './supabase';
 
-const QUICK_NAMES = ['Push', 'Pull', 'Lower', 'Freies Training'];
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
   return Promise.race([p, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
@@ -49,8 +51,11 @@ export function App() {
   const [draft, setDraft] = useState<Draft | null>(() => store.loadDraft());
   const [exercises, setExercises] = useState<ExerciseListItem[]>(() => store.loadExercises());
   const [plans, setPlans] = useState<Plan[]>(() => store.loadPlans());
+  // Erst nach dem ersten Laden (oder mit Zwischenspeicher) "noch kein Plan" anzeigen.
+  const [plansReady, setPlansReady] = useState(() => store.loadPlans().length > 0);
   const [lastPlanDayId, setLastPlanDayId] = useState<string | null>(() => store.getLastPlanDayId());
   const [screen, setScreen] = useState<'home' | 'plans'>('home');
+  const [editorOpen, setEditorOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [pending, setPending] = useState(() => store.loadOutbox().length);
   const [notice, setNotice] = useState<string | null>(null);
@@ -75,6 +80,7 @@ export function App() {
         setPlans(res.data);
         store.savePlans(res.data);
       }
+      setPlansReady(true);
       return res;
     },
     [store],
@@ -183,6 +189,7 @@ export function App() {
       ids.map(async (id) => [id, await loadLastSets(id, false)] as const),
     );
     setDraft(draftFromPlanDay(day, exercisesById, Object.fromEntries(entries), new Date()));
+    setScreen('home');
     setStarting(false);
   }
 
@@ -258,6 +265,8 @@ export function App() {
     );
   }
 
+  const tabs = editorOpen ? null : <TabBar active={screen} onChange={setScreen} />;
+
   if (screen === 'plans') {
     return (
       <main>
@@ -266,96 +275,154 @@ export function App() {
           exercises={exercises}
           onSave={handleSavePlan}
           onArchive={handleArchivePlan}
-          onBack={() => setScreen('home')}
+          onStart={(plan, dayId) => void startFromPlan(plan, dayId)}
+          onEditingChange={setEditorOpen}
         />
+        {tabs}
       </main>
     );
   }
 
-  return (
-    <main className="screen">
-      <h1>Gym-Log</h1>
-      {notice && (
-        <p className="notice" role="status">
-          {notice}
-        </p>
-      )}
-      {pending > 0 && (
-        <p className="notice" role="status">
-          {pending} Training(s) noch nicht gespeichert. Sie werden gesendet, sobald eine Verbindung
-          besteht.{' '}
-          <button type="button" className="link" onClick={() => void sync()}>
-            Jetzt versuchen
-          </button>
-        </p>
-      )}
+  const fullPlans = plans.filter((p) => p.kind === 'plan');
+  const templates = plans.filter((p) => p.kind === 'template');
 
-      {plans.map((plan) => {
-        const days = visibleDays(plan);
-        const next = nextPlanDay(
-          days.map((d, i) => ({ id: d.id, position: i })),
-          lastPlanDayId,
-        );
-        const nextDay = days.find((d) => d.id === next?.id);
-        return (
-          <section className="card" key={plan.id}>
-            <h2>{plan.name}</h2>
-            {nextDay && (
+  return (
+    <main>
+      <div className="screen">
+        <header className="pagehead">
+          <div>
+            <p className="eyebrow">
+              {new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </p>
+            <h1>Training</h1>
+          </div>
+        </header>
+
+        {notice && (
+          <p className="notice" role="status">
+            {notice}
+          </p>
+        )}
+        {pending > 0 && (
+          <p className="notice" role="status">
+            {pending} Training(s) noch nicht gespeichert. Sie werden gesendet, sobald eine
+            Verbindung besteht.{' '}
+            <button type="button" className="link" onClick={() => void sync()}>
+              Jetzt versuchen
+            </button>
+          </p>
+        )}
+
+        {fullPlans.map((plan) => {
+          const days = visibleDays(plan);
+          const next = nextPlanDay(
+            days.map((d, i) => ({ id: d.id, position: i })),
+            lastPlanDayId,
+          );
+          const nextDay = days.find((d) => d.id === next?.id);
+          if (!nextDay) return null;
+          const n = visibleExercises(nextDay).length;
+          const muscles = musclesOfDay(nextDay, exercises);
+          return (
+            <section className="hero" key={plan.id}>
+              <p className="eyebrow">{plan.name} · als Nächstes</p>
+              <h2>{nextDay.name}</h2>
+              <p className="hero-sub">
+                {n} {n === 1 ? 'Übung' : 'Übungen'}
+                {muscles && ` · ${muscles}`}
+              </p>
               <button
                 type="button"
-                className="btn primary"
+                className="btn primary block"
                 disabled={starting}
                 onClick={() => void startFromPlan(plan, nextDay.id)}
               >
-                {starting ? 'Lade …' : `Nächstes: ${nextDay.name}`}
+                <Icon name="play" size={18} /> {starting ? 'Lade …' : 'Training starten'}
               </button>
-            )}
-            <div className="row wrap">
-              {days
-                .filter((d) => d.id !== nextDay?.id)
-                .map((d) => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    className="btn small"
-                    disabled={starting}
-                    onClick={() => void startFromPlan(plan, d.id)}
-                  >
-                    {d.name}
-                  </button>
-                ))}
-            </div>
-          </section>
-        );
-      })}
+              {days.length > 1 && (
+                <div className="chips scroll">
+                  {days
+                    .filter((d) => d.id !== nextDay.id)
+                    .map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        className="chip"
+                        disabled={starting}
+                        onClick={() => void startFromPlan(plan, d.id)}
+                      >
+                        {d.name}
+                      </button>
+                    ))}
+                </div>
+              )}
+            </section>
+          );
+        })}
 
-      <section className="card">
-        <h2>{plans.length === 0 ? 'Training starten' : 'Ohne Plan'}</h2>
-        <div className="row wrap">
-          {(plans.length === 0 ? QUICK_NAMES : ['Freies Training']).map((n) => (
-            <button
-              key={n}
-              type="button"
-              className="btn"
-              onClick={() => {
-                setNotice(null);
-                setDraft(createDraft(n, null, new Date()));
-              }}
-            >
-              {n}
+        {templates.length > 0 && (
+          <>
+            <h2 className="section-title">Vorlagen</h2>
+            <ul className="tiles">
+              {templates.map((t) => {
+                const day = templateDay(t);
+                if (!day) return null;
+                const n = visibleExercises(day).length;
+                const muscles = musclesOfDay(day, exercises);
+                return (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      className="tile"
+                      disabled={starting || n === 0}
+                      onClick={() => void startFromPlan(t, day.id)}
+                    >
+                      <span className="tile-title">
+                        <strong>{t.name}</strong>
+                        <small>
+                          {n} {n === 1 ? 'Übung' : 'Übungen'}
+                          {muscles && ` · ${muscles}`}
+                        </small>
+                      </span>
+                      <Icon name="play" size={20} />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+
+        {plans.length === 0 && plansReady && (
+          <div className="empty-state">
+            <Icon name="list" size={32} />
+            <p>Noch kein Plan und keine Vorlage.</p>
+            <p className="muted">Lege unter „Pläne" deine erste Vorlage an, oder starte direkt ein freies Training.</p>
+            <button type="button" className="btn compact" onClick={() => setScreen('plans')}>
+              Zu den Plänen
             </button>
-          ))}
-        </div>
-      </section>
+          </div>
+        )}
 
-      <button type="button" className="btn" onClick={() => setScreen('plans')}>
-        Pläne verwalten
-      </button>
+        <button
+          type="button"
+          className="addtile"
+          onClick={() => {
+            setNotice(null);
+            setDraft(createDraft('Freies Training', null, new Date()));
+          }}
+        >
+          <Icon name="plus" size={20} /> Freies Training
+        </button>
 
-      <p className="muted">Angemeldet als {email}</p>
-      <button type="button" className="link" onClick={() => void signOut()}>
-        Abmelden
-      </button>
+        <p className="muted footnote">
+          Angemeldet als {email} ·{' '}
+          <button type="button" className="link" onClick={() => void signOut()}>
+            Abmelden
+          </button>
+        </p>
+      </div>
+      {tabs}
     </main>
   );
 }

@@ -21,7 +21,7 @@ Reihenfolge im SQL-Editor von Supabase (jeweils Inhalt der Datei einfügen und a
 
 1. `supabase/migrations/0001_fit_schema.sql`
 2. `supabase/migrations/0002_fit_last_sets.sql`
-   (Wurde 0001 schon in der alten Fassung ausgeführt: zusätzlich `0003_catalog_details_only.sql` ausführen.)
+   (Wurde 0001 schon in einer älteren Fassung ausgeführt: zusätzlich `0003_catalog_details_only.sql` und `0004_plan_templates.sql` ausführen. Beide sind wiederholbar.)
 3. Nutzer anlegen (Authentication, Users), danach die Registrierung neuer Nutzer abschalten.
 4. Übungskatalog: Auf deinem Rechner (Node 18 oder neuer) im Projektordner
    ```bash
@@ -36,6 +36,17 @@ Die Übungen gehören dem ersten Nutzer in `auth.users`, deshalb muss Schritt 3 
 **Deutsche Namen:** Die Namen in `tools/names_de.txt` (eine Zeile je Übung, „Englischer Name => Deutscher Name") habe ich von Hand übersetzt. Sie sind nicht von einer Fachperson geprüft. Für Übungen, die später im Katalog neu hinzukommen und dort noch fehlen, greift ein Wort-Glossar (`tools/glossary-de.mjs`) als Notlösung; das Skript meldet, wie viele Namen darüber laufen. Einzelne Namen änderst du in `names_de.txt` (oder per Übungs-ID in `tools/names_de.json`) und führst das Skript danach erneut aus. Die Anleitungen bleiben zunächst englisch (`instructions_en`).
 
 **Muskelgruppen:** Übungen speichern `primary_muscles` und `secondary_muscles` als Liste mit den englischen Schlüsseln des Katalogs (z. B. `lats`, `middle back`). Die deutschen Anzeigenamen stehen in `src/lib/muscles.ts`. Beim Anlegen einer eigenen Übung ist mindestens ein Hauptmuskel Pflicht.
+
+## Pläne und Vorlagen
+
+Zwei Wege, ein Training zu planen (Reiter „Pläne"):
+
+- **Vorlage:** Eine einzelne Trainingseinheit, jederzeit startbar (wie Routinen in Strong). Intern ein Plan mit `kind = 'template'` und genau einem Tag.
+- **Plan:** Mehrere Trainingstage mit Rotation (Push / Pull / Legs). Die Startseite schlägt nach jedem Training den nächsten Tag vor. Ein Tag lässt sich neu anlegen oder aus einer Vorlage **kopieren** (spätere Änderungen an der Vorlage wirken sich nicht auf den Plan aus).
+
+Pro Übung stellst du Sätze, Wiederholungsbereich, Ziel-RIR, Pause, Aufwärmen und eine Notiz ein. Mit „Aufwärmen" plant die App vor den Arbeitssätzen eine Rampe ein, sobald ein Gewicht vom letzten Training bekannt ist. Die Notiz erscheint im Training bei der Übung. Die Übungsauswahl ist eine Mehrfachauswahl mit Suche sowie Filtern nach Muskelgruppe und Gerät.
+
+**Design:** Dunkel zuerst mit hellem Ausweichmodus (folgt der Systemeinstellung). Alle Farben stehen als Variablen am Anfang von `src/styles.css`.
 
 ## Auf GitHub und Vercel bringen
 

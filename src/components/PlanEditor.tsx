@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { formatClock } from '../lib/timer';
+import { useMemo, useState } from 'react';
+import { muscleLabel } from '../lib/muscles';
 import {
   addDay,
+  addDayFromTemplate,
   addPlanExercise,
   moveDay,
   movePlanExercise,
@@ -9,57 +10,60 @@ import {
   removePlanExercise,
   renameDay,
   setPlanName,
+  templateDay,
   updatePlanExercise,
   validatePlan,
   visibleDays,
   visibleExercises,
   type Plan,
+  type PlanDay,
 } from '../lib/plan';
 import type { ExerciseListItem } from '../lib/storage';
-import { AddExercise } from './AddExercise';
+import type { ExerciseInput } from '../lib/workout';
+import { DayEditor } from './DayEditor';
+import { AppBar, Icon, IconButton } from './ui';
 
 interface Props {
   initial: Plan;
   exercises: ExerciseListItem[];
+  /** Gespeicherte Vorlagen, aus denen sich Tage in einen Plan kopieren lassen. */
+  templates: Plan[];
   /** Gibt eine Fehlermeldung zurück oder null bei Erfolg. */
   onSave: (plan: Plan) => Promise<string | null>;
   onCancel: () => void;
 }
 
-const REST_OPTIONS = [60, 90, 120, 150, 180, 240, 300];
-const RIR_OPTIONS = [0, 1, 2, 3, 4, 5];
-
-function NumField(props: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  onChange: (n: number) => void;
-}) {
-  return (
-    <label className="numfield">
-      {props.label}
-      <input
-        className="num small"
-        type="number"
-        inputMode="numeric"
-        min={props.min}
-        max={props.max}
-        value={Number.isFinite(props.value) ? props.value : ''}
-        onFocus={(e) => e.currentTarget.select()}
-        onChange={(e) => props.onChange(parseInt(e.target.value, 10))}
-      />
-    </label>
-  );
+/** Übersicht der Hauptmuskeln eines Tags, z. B. "Brust, Schultern, Trizeps". */
+export function musclesOfDay(day: PlanDay, catalog: ExerciseListItem[]): string {
+  const byId = new Map(catalog.map((c) => [c.id, c]));
+  const counts = new Map<string, number>();
+  for (const e of visibleExercises(day)) {
+    const list = e.newExercise?.primaryMuscles ?? byId.get(e.exerciseId)?.primaryMuscles ?? [];
+    for (const m of list) counts.set(m, (counts.get(m) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([m]) => muscleLabel(m))
+    .join(', ');
 }
 
-export function PlanEditor({ initial, exercises, onSave, onCancel }: Props) {
+export function PlanEditor({ initial, exercises, templates, onSave, onCancel }: Props) {
   const [plan, setPlan] = useState<Plan>(initial);
-  const [pickForDay, setPickForDay] = useState<string | null>(null);
+  const [editingDayId, setEditingDayId] = useState<string | null>(null);
+  const [pickTemplate, setPickTemplate] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
 
+  const isTemplate = plan.kind === 'template';
   const days = visibleDays(plan);
+  const dirty = useMemo(() => JSON.stringify(plan) !== JSON.stringify(initial), [plan, initial]);
+
+  function leave() {
+    if (dirty) setConfirmLeave(true);
+    else onCancel();
+  }
 
   async function save() {
     const problems = validatePlan(plan);
@@ -71,225 +75,272 @@ export function PlanEditor({ initial, exercises, onSave, onCancel }: Props) {
     if (err) setErrors([err]);
   }
 
-  return (
-    <div className="screen">
-      <header className="top">
-        <h1>{initial.isNew ? 'Neuer Plan' : 'Plan bearbeiten'}</h1>
-      </header>
+  function addToDay(dayId: string, inputs: ExerciseInput[]) {
+    setPlan((p) =>
+      inputs.reduce(
+        (acc, input) =>
+          addPlanExercise(acc, dayId, {
+            exerciseId: input.exerciseId,
+            name: input.name,
+            isNew: input.isNew,
+            equipment: input.equipment,
+            primaryMuscles: input.primaryMuscles,
+            secondaryMuscles: input.secondaryMuscles,
+            sets: input.plannedSets,
+            repMin: input.repMin,
+            repMax: input.repMax,
+          }),
+        p,
+      ),
+    );
+  }
 
-      <label>
-        Name des Plans
+  function renderDay(day: PlanDay) {
+    return (
+      <DayEditor
+        exercises={visibleExercises(day)}
+        catalog={exercises}
+        onUpdate={(exId, patch) => setPlan((p) => updatePlanExercise(p, day.id, exId, patch))}
+        onMove={(exId, dir) => setPlan((p) => movePlanExercise(p, day.id, exId, dir))}
+        onRemove={(exId) => setPlan((p) => removePlanExercise(p, day.id, exId))}
+        onAdd={(inputs) => addToDay(day.id, inputs)}
+      />
+    );
+  }
+
+  const errorBox =
+    errors.length > 0 ? (
+      <ul className="errorbox" role="alert">
+        {errors.map((m) => (
+          <li key={m}>{m}</li>
+        ))}
+      </ul>
+    ) : null;
+
+  const leaveBox = confirmLeave ? (
+    <div className="banner" role="alertdialog" aria-label="Änderungen verwerfen">
+      <p>Nicht gespeicherte Änderungen gehen verloren.</p>
+      <div className="row">
+        <button type="button" className="btn danger compact" onClick={onCancel}>
+          Verwerfen
+        </button>
+        <button type="button" className="btn compact" onClick={() => setConfirmLeave(false)}>
+          Weiter bearbeiten
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  const saveAction = {
+    label: saving ? 'Speichere …' : 'Speichern',
+    onClick: () => void save(),
+    disabled: saving,
+  };
+
+  // ---- Vorlage: ein Bildschirm ------------------------------------------------
+  if (isTemplate) {
+    const day = templateDay(plan);
+    return (
+      <div className="editor">
+        <AppBar
+          title={initial.isNew ? 'Neue Vorlage' : 'Vorlage'}
+          backIcon="x"
+          backLabel="Schließen"
+          onBack={leave}
+          action={saveAction}
+        />
+        <div className="screen">
+          {leaveBox}
+          <input
+            className="title-input"
+            type="text"
+            placeholder="Name, z. B. Oberkörper A"
+            aria-label="Name der Vorlage"
+            value={plan.name}
+            onChange={(e) => setPlan((p) => setPlanName(p, e.target.value))}
+          />
+          {day && renderDay(day)}
+          {errorBox}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Plan: Tag bearbeiten ---------------------------------------------------
+  const editingDay = days.find((d) => d.id === editingDayId) ?? null;
+  if (editingDay) {
+    const idx = days.findIndex((d) => d.id === editingDay.id);
+    return (
+      <div className="editor">
+        <AppBar
+          title={editingDay.name.trim() || `Tag ${idx + 1}`}
+          backLabel="Zurück zum Plan"
+          onBack={() => setEditingDayId(null)}
+          action={{ label: 'Fertig', onClick: () => setEditingDayId(null) }}
+        />
+        <div className="screen">
+          <input
+            className="title-input"
+            type="text"
+            placeholder="Name des Tages, z. B. Push"
+            aria-label={`Name von Tag ${idx + 1}`}
+            value={editingDay.name}
+            onChange={(e) => setPlan((p) => renameDay(p, editingDay.id, e.target.value))}
+          />
+          {renderDay(editingDay)}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Plan: Übersicht --------------------------------------------------------
+  return (
+    <div className="editor">
+      <AppBar
+        title={initial.isNew ? 'Neuer Plan' : 'Plan'}
+        backIcon="x"
+        backLabel="Schließen"
+        onBack={leave}
+        action={saveAction}
+      />
+      <div className="screen">
+        {leaveBox}
         <input
-          className="text"
+          className="title-input"
           type="text"
-          placeholder="z. B. Push / Pull / Lower"
+          placeholder="Name, z. B. Push / Pull / Legs"
+          aria-label="Name des Plans"
           value={plan.name}
           onChange={(e) => setPlan((p) => setPlanName(p, e.target.value))}
         />
-      </label>
 
-      {days.map((day, di) => {
-        const exs = visibleExercises(day);
-        return (
-          <section className="card" key={day.id}>
-            <header className="card-head">
-              <h2>Tag {di + 1}</h2>
-              <div className="row">
+        <h2 className="section-title">Trainingstage</h2>
+        <p className="muted">
+          Nach jedem Training schlägt die App den nächsten Tag der Reihe nach vor.
+        </p>
+
+        {days.length === 0 && (
+          <div className="empty-state">
+            <Icon name="list" size={32} />
+            <p>Noch kein Trainingstag.</p>
+          </div>
+        )}
+
+        <ol className="daycards">
+          {days.map((day, i) => {
+            const n = visibleExercises(day).length;
+            const muscles = musclesOfDay(day, exercises);
+            const label = day.name.trim() || `Tag ${i + 1}`;
+            return (
+              <li key={day.id} className="daycard">
                 <button
                   type="button"
-                  className="step"
-                  aria-label={`Tag ${di + 1} nach oben`}
-                  disabled={di === 0}
-                  onClick={() => setPlan((p) => moveDay(p, day.id, -1))}
+                  className="daycard-main"
+                  onClick={() => setEditingDayId(day.id)}
+                  aria-label={`${label} bearbeiten`}
                 >
-                  ↑
+                  <span className="index">{i + 1}</span>
+                  <span className="daycard-title">
+                    <strong>{label}</strong>
+                    <small>
+                      {n === 0 ? 'Noch keine Übung' : `${n} ${n === 1 ? 'Übung' : 'Übungen'}`}
+                      {muscles && ` · ${muscles}`}
+                    </small>
+                  </span>
+                  <Icon name="forward" size={20} />
                 </button>
-                <button
-                  type="button"
-                  className="step"
-                  aria-label={`Tag ${di + 1} nach unten`}
-                  disabled={di === days.length - 1}
-                  onClick={() => setPlan((p) => moveDay(p, day.id, 1))}
-                >
-                  ↓
-                </button>
-              </div>
-            </header>
+                <div className="daycard-actions">
+                  <IconButton
+                    icon="arrow-up"
+                    label={`${label} nach oben`}
+                    disabled={i === 0}
+                    onClick={() => setPlan((p) => moveDay(p, day.id, -1))}
+                    size={18}
+                  />
+                  <IconButton
+                    icon="arrow-down"
+                    label={`${label} nach unten`}
+                    disabled={i === days.length - 1}
+                    onClick={() => setPlan((p) => moveDay(p, day.id, 1))}
+                    size={18}
+                  />
+                  <IconButton
+                    icon="trash"
+                    tone="danger"
+                    label={`${label} entfernen`}
+                    onClick={() => setPlan((p) => removeDay(p, day.id))}
+                    size={18}
+                  />
+                </div>
+              </li>
+            );
+          })}
+        </ol>
 
-            <input
-              className="text"
-              type="text"
-              placeholder="Name, z. B. Push"
-              aria-label={`Name von Tag ${di + 1}`}
-              value={day.name}
-              onChange={(e) => setPlan((p) => renameDay(p, day.id, e.target.value))}
-            />
+        <div className="addrow">
+          <button
+            type="button"
+            className="addtile"
+            onClick={() => {
+              const next = addDay(plan, '');
+              setPlan(next);
+              setEditingDayId(next.days[next.days.length - 1].id);
+            }}
+          >
+            <Icon name="plus" size={20} /> Neuer Tag
+          </button>
+          {templates.length > 0 && (
+            <button type="button" className="addtile" onClick={() => setPickTemplate(true)}>
+              <Icon name="copy" size={20} /> Aus Vorlage
+            </button>
+          )}
+        </div>
 
-            <ul className="plan-exercises">
-              {exs.map((ex, ei) => (
-                <li className="plan-ex" key={ex.id}>
-                  <div className="card-head">
-                    <strong>{ex.name}</strong>
-                    <div className="row">
-                      <button
-                        type="button"
-                        className="step"
-                        aria-label={`${ex.name} nach oben`}
-                        disabled={ei === 0}
-                        onClick={() => setPlan((p) => movePlanExercise(p, day.id, ex.id, -1))}
-                      >
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        className="step"
-                        aria-label={`${ex.name} nach unten`}
-                        disabled={ei === exs.length - 1}
-                        onClick={() => setPlan((p) => movePlanExercise(p, day.id, ex.id, 1))}
-                      >
-                        ↓
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="row wrap">
-                    <NumField
-                      label="Sätze"
-                      value={ex.sets}
-                      min={1}
-                      max={10}
-                      onChange={(n) => setPlan((p) => updatePlanExercise(p, day.id, ex.id, { sets: n }))}
-                    />
-                    <NumField
-                      label="Wdh. von"
-                      value={ex.repMin}
-                      min={1}
-                      max={100}
-                      onChange={(n) => setPlan((p) => updatePlanExercise(p, day.id, ex.id, { repMin: n }))}
-                    />
-                    <NumField
-                      label="bis"
-                      value={ex.repMax}
-                      min={1}
-                      max={100}
-                      onChange={(n) => setPlan((p) => updatePlanExercise(p, day.id, ex.id, { repMax: n }))}
-                    />
-                  </div>
-
-                  <div className="row wrap">
-                    <label>
-                      Ziel-RIR
-                      <select
-                        value={ex.targetRir === null ? '' : String(ex.targetRir)}
-                        onChange={(e) =>
-                          setPlan((p) =>
-                            updatePlanExercise(p, day.id, ex.id, {
-                              targetRir: e.target.value === '' ? null : parseInt(e.target.value, 10),
-                            }),
-                          )
-                        }
-                      >
-                        <option value="">keine</option>
-                        {RIR_OPTIONS.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Pause
-                      <select
-                        value={ex.restSeconds}
-                        onChange={(e) =>
-                          setPlan((p) =>
-                            updatePlanExercise(p, day.id, ex.id, {
-                              restSeconds: parseInt(e.target.value, 10),
-                            }),
-                          )
-                        }
-                      >
-                        {[...new Set([...REST_OPTIONS, ex.restSeconds])]
-                          .sort((a, b) => a - b)
-                          .map((s) => (
-                            <option key={s} value={s}>
-                              {formatClock(s)} min
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      className="link"
-                      onClick={() => setPlan((p) => removePlanExercise(p, day.id, ex.id))}
-                    >
-                      Übung entfernen
-                    </button>
-                  </div>
-                </li>
-              ))}
-              {exs.length === 0 && <li className="muted">Noch keine Übung an diesem Tag.</li>}
-            </ul>
-
-            <div className="row wrap">
-              <button type="button" className="btn" onClick={() => setPickForDay(day.id)}>
-                + Übung hinzufügen
-              </button>
-              <button
-                type="button"
-                className="link"
-                onClick={() => setPlan((p) => removeDay(p, day.id))}
-              >
-                Tag entfernen
-              </button>
-            </div>
-          </section>
-        );
-      })}
-
-      <button type="button" className="btn" onClick={() => setPlan((p) => addDay(p, ''))}>
-        + Trainingstag hinzufügen
-      </button>
-
-      {errors.length > 0 && (
-        <ul className="error" role="alert">
-          {errors.map((m) => (
-            <li key={m}>{m}</li>
-          ))}
-        </ul>
-      )}
-
-      <div className="finish">
-        <button type="button" className="btn primary" disabled={saving} onClick={() => void save()}>
-          {saving ? 'Speichere …' : 'Plan speichern'}
-        </button>
-        <button type="button" className="btn" disabled={saving} onClick={onCancel}>
-          Abbrechen
-        </button>
+        {errorBox}
       </div>
 
-      {pickForDay !== null && (
-        <AddExercise
-          exercises={exercises}
-          onClose={() => setPickForDay(null)}
-          onPick={(input) => {
-            const dayId = pickForDay;
-            setPickForDay(null);
-            setPlan((p) =>
-              addPlanExercise(p, dayId, {
-                exerciseId: input.exerciseId,
-                name: input.name,
-                isNew: input.isNew,
-                equipment: input.equipment,
-                primaryMuscles: input.primaryMuscles,
-                secondaryMuscles: input.secondaryMuscles,
-                sets: input.plannedSets,
-                repMin: input.repMin,
-                repMax: input.repMax,
-              }),
-            );
-          }}
-        />
+      {pickTemplate && (
+        <div className="sheet" role="dialog" aria-modal="true" aria-label="Vorlage übernehmen">
+          <header className="sheet-head">
+            <IconButton icon="x" label="Schließen" onClick={() => setPickTemplate(false)} />
+            <h2>Vorlage übernehmen</h2>
+            <span className="appbar-spacer" />
+          </header>
+          <div className="sheet-scroll">
+            <p className="muted pad">
+              Die Vorlage wird als neuer Tag kopiert. Spätere Änderungen an der Vorlage wirken sich
+              nicht auf den Plan aus.
+            </p>
+            <ul className="tiles">
+              {templates.map((t) => {
+                const d = templateDay(t);
+                const n = d ? visibleExercises(d).length : 0;
+                const muscles = d ? musclesOfDay(d, exercises) : '';
+                return (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      className="tile"
+                      onClick={() => {
+                        setPlan((p) => addDayFromTemplate(p, t));
+                        setPickTemplate(false);
+                      }}
+                    >
+                      <span className="tile-title">
+                        <strong>{t.name}</strong>
+                        <small>
+                          {n} {n === 1 ? 'Übung' : 'Übungen'}
+                          {muscles && ` · ${muscles}`}
+                        </small>
+                      </span>
+                      <Icon name="plus" size={20} />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
       )}
     </div>
   );

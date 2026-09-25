@@ -2,6 +2,7 @@ import type { LoggedSet } from './progression';
 import type { ExerciseListItem } from './storage';
 import {
   addExercise,
+  addWarmups,
   createDraft,
   newId,
   type Draft,
@@ -26,6 +27,10 @@ export interface PlanExercise {
   repMax: number;
   targetRir: number | null;
   restSeconds: number;
+  /** true = im Training werden vor den Arbeitssätzen Aufwärmsätze vorgeschlagen. */
+  warmup: boolean;
+  /** Freitext, z. B. Sitzeinstellung der Maschine; leer = keine Notiz. */
+  note: string;
   /** Nur bei eigenen Übungen, die beim Speichern des Plans erst angelegt werden. */
   newExercise: {
     equipment: string | null;
@@ -45,8 +50,16 @@ export interface PlanDay {
   isNew: boolean;
 }
 
+/**
+ * 'plan' = Plan mit mehreren Trainingstagen und Rotation (Push -> Pull -> Lower).
+ * 'template' = einzelne Vorlage: ein Plan mit genau einem Tag, der Name der Vorlage
+ * ist zugleich der Name des Tages.
+ */
+export type PlanKind = 'plan' | 'template';
+
 export interface Plan {
   id: string;
+  kind: PlanKind;
   name: string;
   days: PlanDay[];
   archived: boolean;
@@ -65,6 +78,8 @@ export interface PlanExerciseInput {
   repMax?: number;
   targetRir?: number | null;
   restSeconds?: number;
+  warmup?: boolean;
+  note?: string;
 }
 
 export const visibleDays = (plan: Plan): PlanDay[] => plan.days.filter((d) => !d.archived);
@@ -72,7 +87,52 @@ export const visibleExercises = (day: PlanDay): PlanExercise[] =>
   day.exercises.filter((e) => !e.archived);
 
 export function newPlan(name = ''): Plan {
-  return { id: newId(), name, days: [], archived: false, isNew: true };
+  return { id: newId(), kind: 'plan', name, days: [], archived: false, isNew: true };
+}
+
+/** Neue einzelne Vorlage: ein Plan mit einem (noch leeren) Tag. */
+export function newTemplate(name = ''): Plan {
+  const day: PlanDay = { id: newId(), name, exercises: [], archived: false, isNew: true };
+  return { id: newId(), kind: 'template', name, days: [day], archived: false, isNew: true };
+}
+
+/** Der einzige sichtbare Tag einer Vorlage (bei Plänen der erste Tag). */
+export function templateDay(plan: Plan): PlanDay | null {
+  return visibleDays(plan)[0] ?? null;
+}
+
+/**
+ * Übernimmt eine Vorlage als neuen Tag in einen Plan. Es ist eine Kopie: Spätere
+ * Änderungen an der Vorlage ändern den Plan nicht und umgekehrt.
+ */
+export function addDayFromTemplate(plan: Plan, template: Plan): Plan {
+  const src = templateDay(template);
+  if (!src) return plan;
+  const day: PlanDay = {
+    id: newId(),
+    name: template.name,
+    archived: false,
+    isNew: true,
+    exercises: visibleExercises(src).map((e) => ({
+      ...e,
+      id: newId(),
+      newExercise: null,
+      archived: false,
+      isNew: true,
+    })),
+  };
+  return { ...plan, days: [...plan.days, day] };
+}
+
+/** Kurztext für eine Übung im Plan, z. B. "3 × 8–12 · RIR 2 · 2:00 min". */
+export function summarizePlanExercise(e: PlanExercise): string {
+  const parts = [`${e.sets} × ${e.repMin === e.repMax ? e.repMin : `${e.repMin}–${e.repMax}`}`];
+  if (e.targetRir !== null) parts.push(`RIR ${e.targetRir}`);
+  const m = Math.floor(e.restSeconds / 60);
+  const s = e.restSeconds % 60;
+  parts.push(`${m}:${String(s).padStart(2, '0')} min`);
+  if (e.warmup) parts.push('Aufwärmen');
+  return parts.join(' · ');
 }
 
 export function setPlanName(plan: Plan, name: string): Plan {
@@ -129,6 +189,8 @@ export function addPlanExercise(plan: Plan, dayId: string, input: PlanExerciseIn
     repMax: input.repMax ?? 12,
     targetRir: input.targetRir ?? null,
     restSeconds: input.restSeconds ?? 120,
+    warmup: input.warmup ?? false,
+    note: input.note ?? '',
     newExercise: input.isNew
       ? {
           equipment: input.equipment ?? null,
@@ -146,7 +208,9 @@ export function updatePlanExercise(
   plan: Plan,
   dayId: string,
   exId: string,
-  patch: Partial<Pick<PlanExercise, 'sets' | 'repMin' | 'repMax' | 'targetRir' | 'restSeconds'>>,
+  patch: Partial<
+    Pick<PlanExercise, 'sets' | 'repMin' | 'repMax' | 'targetRir' | 'restSeconds' | 'warmup' | 'note'>
+  >,
 ): Plan {
   return mapDay(plan, dayId, (d) => ({
     ...d,
@@ -180,15 +244,24 @@ export function movePlanExercise(plan: Plan, dayId: string, exId: string, dir: -
 /** Liefert verständliche Fehlermeldungen; leere Liste = Plan ist speicherbar. */
 export function validatePlan(plan: Plan): string[] {
   const errors: string[] = [];
-  if (plan.name.trim() === '') errors.push('Der Plan braucht einen Namen.');
+  const isTemplate = plan.kind === 'template';
+  if (plan.name.trim() === '') {
+    errors.push(isTemplate ? 'Die Vorlage braucht einen Namen.' : 'Der Plan braucht einen Namen.');
+  }
   const days = visibleDays(plan);
   if (days.length === 0) errors.push('Der Plan braucht mindestens einen Trainingstag.');
 
   days.forEach((day, i) => {
-    const label = day.name.trim() === '' ? `Tag ${i + 1}` : `„${day.name.trim()}"`;
-    if (day.name.trim() === '') errors.push(`Tag ${i + 1} braucht einen Namen.`);
+    // Bei einer Vorlage ist der Name der Vorlage zugleich der Tagesname.
+    const label = isTemplate
+      ? `„${plan.name.trim()}"`
+      : day.name.trim() === ''
+        ? `Tag ${i + 1}`
+        : `„${day.name.trim()}"`;
+    if (!isTemplate && day.name.trim() === '') errors.push(`Tag ${i + 1} braucht einen Namen.`);
     const exs = visibleExercises(day);
     if (exs.length === 0) errors.push(`${label} hat noch keine Übung.`);
+    if (isTemplate && days.length > 1) errors.push('Eine Vorlage hat genau einen Tag.');
     for (const e of exs) {
       if (!Number.isInteger(e.sets) || e.sets < 1 || e.sets > 10)
         errors.push(`${label}, ${e.name}: Sätze müssen zwischen 1 und 10 liegen.`);
@@ -210,7 +283,7 @@ export function validatePlan(plan: Plan): string[] {
 
 export interface PlanRows {
   newExercises: NewExerciseRow[];
-  plan: { id: string; name: string; archived_at: string | null };
+  plan: { id: string; name: string; kind: PlanKind; archived_at: string | null };
   days: { id: string; plan_id: string; name: string; position: number; archived_at: string | null }[];
   exercises: {
     id: string;
@@ -222,6 +295,8 @@ export interface PlanRows {
     rep_max: number;
     target_rir: number | null;
     rest_seconds: number;
+    warmup: boolean;
+    note: string | null;
     archived_at: string | null;
   }[];
 }
@@ -235,7 +310,7 @@ export function planToRows(plan: Plan, now: Date): PlanRows {
   const ts = now.toISOString();
   const rows: PlanRows = {
     newExercises: [],
-    plan: { id: plan.id, name: plan.name.trim(), archived_at: plan.archived ? ts : null },
+    plan: { id: plan.id, name: plan.name.trim(), kind: plan.kind, archived_at: plan.archived ? ts : null },
     days: [],
     exercises: [],
   };
@@ -246,7 +321,7 @@ export function planToRows(plan: Plan, now: Date): PlanRows {
     rows.days.push({
       id: day.id,
       plan_id: plan.id,
-      name: day.name.trim(),
+      name: plan.kind === 'template' ? plan.name.trim() : day.name.trim(),
       position: di + 1,
       archived_at: day.archived ? ts : null,
     });
@@ -273,6 +348,8 @@ export function planToRows(plan: Plan, now: Date): PlanRows {
         rep_max: ex.repMax,
         target_rir: ex.targetRir,
         rest_seconds: ex.restSeconds,
+        warmup: ex.warmup,
+        note: ex.note.trim() === '' ? null : ex.note.trim(),
         archived_at: ex.archived ? ts : null,
       });
     });
@@ -285,6 +362,8 @@ export function planToRows(plan: Plan, now: Date): PlanRows {
 
 export interface PlanDbRow {
   id: string;
+  /** Fehlt in Datenbanken, die noch ohne Vorlagen angelegt wurden. */
+  kind?: PlanKind | null;
   name: string;
   archived_at: string | null;
   fit_plan_days: {
@@ -301,6 +380,8 @@ export interface PlanDbRow {
       rep_max: number;
       target_rir: number | null;
       rest_seconds: number | null;
+      warmup?: boolean | null;
+      note?: string | null;
       archived_at: string | null;
     }[];
   }[];
@@ -316,6 +397,7 @@ export function plansFromRows(rows: PlanDbRow[], namesById: Record<string, strin
     .filter((p) => p.archived_at === null)
     .map((p) => ({
       id: p.id,
+      kind: p.kind ?? 'plan',
       name: p.name,
       archived: false,
       isNew: false,
@@ -339,6 +421,8 @@ export function plansFromRows(rows: PlanDbRow[], namesById: Record<string, strin
               repMax: e.rep_max,
               targetRir: e.target_rir,
               restSeconds: e.rest_seconds ?? 120,
+              warmup: e.warmup ?? false,
+              note: e.note ?? '',
               newExercise: null,
               archived: false,
               isNew: false,
@@ -379,6 +463,7 @@ export function draftFromPlanDay(
   now: Date,
 ): Draft {
   let draft = createDraft(day.name.trim(), day.id, now);
+  let first = true;
   for (const e of visibleExercises(day)) {
     const known = exercisesById[e.exerciseId];
     draft = addExercise(draft, {
@@ -391,10 +476,17 @@ export function draftFromPlanDay(
       targetRir: e.targetRir,
       restSeconds: e.restSeconds,
       equipment: e.newExercise?.equipment ?? null,
-      primaryMuscles: e.newExercise?.primaryMuscles,
-      secondaryMuscles: e.newExercise?.secondaryMuscles,
+      primaryMuscles: known?.primaryMuscles ?? e.newExercise?.primaryMuscles,
+      secondaryMuscles: known?.secondaryMuscles ?? e.newExercise?.secondaryMuscles,
       lastSets: lastSets[e.exerciseId] ?? [],
+      note: e.note.trim() === '' ? undefined : e.note.trim(),
     });
+    if (e.warmup) {
+      // Die erste Übung mit Aufwärmen bekommt die volle Rampe, spätere einen kurzen Satz.
+      const added = draft.exercises[draft.exercises.length - 1];
+      draft = addWarmups(draft, added.id, first ? 'full' : 'short');
+      first = false;
+    }
   }
   return draft;
 }

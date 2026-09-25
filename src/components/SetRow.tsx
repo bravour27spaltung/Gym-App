@@ -141,7 +141,7 @@ export function SetRow({
 
           <div className="row wrap">
             <button type="button" className="link" onClick={onCopyWeight}>
-              Gewicht auf folgende Sätze übernehmen
+              Gewicht für folgende Sätze
             </button>
             <button type="button" className="link" onClick={onRemove}>
               Satz entfernen

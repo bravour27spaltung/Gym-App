@@ -3,11 +3,15 @@ import type { ExerciseListItem } from '../lib/storage';
 import { newId, type ExerciseInput } from '../lib/workout';
 import { MUSCLES, muscleLabel, toggleMuscle } from '../lib/muscles';
 import { EQUIPMENT, equipmentLabel } from '../lib/equipment';
+import { Icon, IconButton, Stepper } from './ui';
 
 interface Props {
   exercises: ExerciseListItem[];
-  onPick: (input: ExerciseInput) => void;
   onClose: () => void;
+  /** Einzelauswahl (Training): Tippen wählt sofort, Sätze und Wdh. stellst du hier ein. */
+  onPick?: (input: ExerciseInput) => void;
+  /** Mehrfachauswahl (Plan): mehrere ankreuzen und gemeinsam hinzufügen. */
+  onPickMany?: (inputs: ExerciseInput[]) => void;
 }
 
 function normalize(s: string): string {
@@ -17,7 +21,9 @@ function normalize(s: string): string {
 const NO_GROUP = '_none';
 
 /** Übungen nach Hauptmuskel gruppieren, in der Reihenfolge der Muskelliste. */
-function groupByMuscle(list: ExerciseListItem[]): { key: string; label: string; items: ExerciseListItem[] }[] {
+function groupByMuscle(
+  list: ExerciseListItem[],
+): { key: string; label: string; items: ExerciseListItem[] }[] {
   const groups = new Map<string, ExerciseListItem[]>();
   for (const x of list) {
     const key = x.primaryMuscles?.[0] ?? NO_GROUP;
@@ -28,72 +34,140 @@ function groupByMuscle(list: ExerciseListItem[]): { key: string; label: string; 
     label: m.label as string,
     items: groups.get(m.key)!,
   }));
-  const rest = [...groups.keys()].filter((k) => k !== NO_GROUP && !MUSCLES.some((m) => m.key === k));
+  const rest = [...groups.keys()].filter(
+    (k) => k !== NO_GROUP && !MUSCLES.some((m) => m.key === k),
+  );
   for (const k of rest) ordered.push({ key: k, label: muscleLabel(k), items: groups.get(k)! });
-  if (groups.has(NO_GROUP)) ordered.push({ key: NO_GROUP, label: 'Ohne Zuordnung', items: groups.get(NO_GROUP)! });
+  if (groups.has(NO_GROUP)) {
+    ordered.push({ key: NO_GROUP, label: 'Ohne Zuordnung', items: groups.get(NO_GROUP)! });
+  }
   return ordered;
 }
 
-export function AddExercise({ exercises, onPick, onClose }: Props) {
+export function AddExercise({ exercises, onClose, onPick, onPickMany }: Props) {
+  const multiple = onPickMany !== undefined;
+
   const [query, setQuery] = useState('');
   const [repMin, setRepMin] = useState(8);
   const [repMax, setRepMax] = useState(12);
   const [sets, setSets] = useState(3);
   const [muscleFilter, setMuscleFilter] = useState<string | null>(null);
-  const [equipmentFilter, setEquipmentFilter] = useState('');
+  const [equipmentFilter, setEquipmentFilter] = useState<string | null>(null);
   const [primary, setPrimary] = useState<string[]>([]);
   const [secondary, setSecondary] = useState<string[]>([]);
   const [equipment, setEquipment] = useState('');
+  // Mehrfachauswahl: gewählte Übungen in der Reihenfolge des Anklickens.
+  const [selected, setSelected] = useState<ExerciseInput[]>([]);
+  // In dieser Sitzung neu angelegte eigene Übungen (erscheinen sofort in der Liste).
+  const [created, setCreated] = useState<ExerciseListItem[]>([]);
 
+  const all = useMemo(() => [...created, ...exercises], [created, exercises]);
   const q = normalize(query);
 
   // Filter nur mit Werten anbieten, zu denen es auch Übungen gibt.
   const musclesInUse = useMemo(() => {
-    const used = new Set(exercises.flatMap((x) => x.primaryMuscles ?? []));
+    const used = new Set(all.flatMap((x) => x.primaryMuscles ?? []));
     return MUSCLES.filter((m) => used.has(m.key));
-  }, [exercises]);
+  }, [all]);
   const equipmentInUse = useMemo(() => {
-    const used = new Set(exercises.map((x) => x.equipment).filter((x): x is string => !!x));
+    const used = new Set(all.map((x) => x.equipment).filter((x): x is string => !!x));
     return EQUIPMENT.filter((e) => used.has(e.key));
-  }, [exercises]);
+  }, [all]);
 
   const matches = useMemo(
     () =>
-      exercises.filter(
+      all.filter(
         (x) =>
           (q === '' || normalize(x.name).includes(q)) &&
           (muscleFilter === null || (x.primaryMuscles ?? []).includes(muscleFilter)) &&
-          (equipmentFilter === '' || x.equipment === equipmentFilter),
+          (equipmentFilter === null || x.equipment === equipmentFilter),
       ),
-    [exercises, q, muscleFilter, equipmentFilter],
+    [all, q, muscleFilter, equipmentFilter],
   );
   const groups = useMemo(() => groupByMuscle(matches), [matches]);
 
-  const exact = exercises.some((x) => normalize(x.name) === q);
+  const exact = all.some((x) => normalize(x.name) === q);
   const rangeOk = repMin >= 1 && repMax >= repMin;
-  const base = { repMin, repMax, plannedSets: sets };
+  const base = multiple
+    ? { repMin: 8, repMax: 12, plannedSets: 3 }
+    : { repMin, repMax, plannedSets: sets };
+
+  const isSelected = (id: string) => selected.some((s) => s.exerciseId === id);
+
+  function pickExisting(x: ExerciseListItem) {
+    const input: ExerciseInput = {
+      ...base,
+      exerciseId: x.id,
+      name: x.name,
+      isNew: created.some((c) => c.id === x.id),
+      equipment: x.equipment ?? null,
+      primaryMuscles: x.primaryMuscles,
+      secondaryMuscles: x.secondaryMuscles,
+    };
+    if (!multiple) {
+      onPick?.(input);
+      return;
+    }
+    setSelected((cur) =>
+      cur.some((s) => s.exerciseId === x.id)
+        ? cur.filter((s) => s.exerciseId !== x.id)
+        : [...cur, input],
+    );
+  }
+
+  function createCustom() {
+    const input: ExerciseInput = {
+      ...base,
+      exerciseId: newId(),
+      name: query.trim(),
+      isNew: true,
+      equipment: equipment === '' ? null : equipment,
+      primaryMuscles: primary,
+      secondaryMuscles: secondary,
+    };
+    if (!multiple) {
+      onPick?.(input);
+      return;
+    }
+    setCreated((cur) => [
+      {
+        id: input.exerciseId,
+        name: input.name,
+        equipment: input.equipment,
+        primaryMuscles: primary,
+        secondaryMuscles: secondary,
+      },
+      ...cur,
+    ]);
+    setSelected((cur) => [...cur, input]);
+    setQuery('');
+    setPrimary([]);
+    setSecondary([]);
+    setEquipment('');
+  }
 
   return (
-    <div className="sheet" role="dialog" aria-modal="true" aria-label="Übung hinzufügen">
-      <div className="sheet-body">
-        <header className="card-head">
-          <h2>Übung hinzufügen</h2>
-          <button type="button" className="link" onClick={onClose}>
-            Schließen
-          </button>
-        </header>
+    <div className="sheet" role="dialog" aria-modal="true" aria-label="Übungen wählen">
+      <header className="sheet-head">
+        <IconButton icon="x" label="Schließen" onClick={onClose} />
+        <h2>{multiple ? 'Übungen wählen' : 'Übung hinzufügen'}</h2>
+        <span className="appbar-spacer" />
+      </header>
 
-        <input
-          className="text"
-          type="search"
-          placeholder="Übung suchen oder neu benennen"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="Übung suchen"
-        />
+      <div className="sheet-tools">
+        <label className="searchbar">
+          <Icon name="search" size={20} />
+          <input
+            type="search"
+            placeholder="Übung suchen oder neu benennen"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Übung suchen"
+          />
+        </label>
 
         {musclesInUse.length > 0 && (
-          <div className="chips" role="group" aria-label="Nach Muskelgruppe filtern">
+          <div className="chips scroll" role="group" aria-label="Nach Muskelgruppe filtern">
             <button
               type="button"
               className={muscleFilter === null ? 'chip on' : 'chip'}
@@ -117,93 +191,101 @@ export function AddExercise({ exercises, onPick, onClose }: Props) {
         )}
 
         {equipmentInUse.length > 0 && (
-          <label>
-            Gerät
-            <select value={equipmentFilter} onChange={(e) => setEquipmentFilter(e.target.value)}>
-              <option value="">Alle Geräte</option>
-              {equipmentInUse.map((e) => (
-                <option key={e.key} value={e.key}>
-                  {e.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="chips scroll sm" role="group" aria-label="Nach Gerät filtern">
+            {equipmentInUse.map((e) => (
+              <button
+                key={e.key}
+                type="button"
+                className={equipmentFilter === e.key ? 'chip on' : 'chip'}
+                aria-pressed={equipmentFilter === e.key}
+                onClick={() => setEquipmentFilter(equipmentFilter === e.key ? null : e.key)}
+              >
+                {e.label}
+              </button>
+            ))}
+          </div>
         )}
 
-        <div className="row wrap">
-          <label>
-            Wdh. von
-            <input
-              className="num small"
-              type="number"
-              inputMode="numeric"
-              min={1}
+        {!multiple && (
+          <div className="pick-config">
+            <span>Sätze</span>
+            <Stepper label="Sätze" value={sets} min={1} max={10} onChange={setSets} />
+            <span>Wdh.</span>
+            <Stepper
+              label="Untere Wiederholungsgrenze"
               value={repMin}
-              onChange={(e) => setRepMin(parseInt(e.target.value || '0', 10))}
-            />
-          </label>
-          <label>
-            bis
-            <input
-              className="num small"
-              type="number"
-              inputMode="numeric"
               min={1}
+              max={100}
+              onChange={setRepMin}
+            />
+            <span>–</span>
+            <Stepper
+              label="Obere Wiederholungsgrenze"
               value={repMax}
-              onChange={(e) => setRepMax(parseInt(e.target.value || '0', 10))}
-            />
-          </label>
-          <label>
-            Sätze
-            <input
-              className="num small"
-              type="number"
-              inputMode="numeric"
               min={1}
-              max={10}
-              value={sets}
-              onChange={(e) => setSets(Math.max(1, Math.min(10, parseInt(e.target.value || '1', 10))))}
+              max={100}
+              onChange={setRepMax}
             />
-          </label>
-        </div>
-        {!rangeOk && <p className="error">Die Obergrenze muss mindestens so groß sein wie die Untergrenze.</p>}
+          </div>
+        )}
+        {!multiple && !rangeOk && (
+          <p className="error">Die Obergrenze muss mindestens so groß sein wie die Untergrenze.</p>
+        )}
+      </div>
 
+      <div className="sheet-scroll">
         {groups.map((g) => (
-          <section key={g.key} className="pick-group" aria-label={g.label}>
-            <h3 className="pick-heading">{g.label}</h3>
-            <ul className="pick-list">
-              {g.items.map((x) => (
-                <li key={x.id}>
-                  <button
-                    type="button"
-                    className="pick"
-                    disabled={!rangeOk}
-                    onClick={() =>
-                      onPick({
-                        ...base,
-                        exerciseId: x.id,
-                        name: x.name,
-                        isNew: false,
-                      })
-                    }
-                  >
-                    {x.name}
-                    {x.equipment && <span className="muted"> · {equipmentLabel(x.equipment)}</span>}
-                  </button>
-                </li>
-              ))}
+          <section key={g.key} aria-label={g.label}>
+            <h3 className="group-title">
+              {g.label} <span>{g.items.length}</span>
+            </h3>
+            <ul className="exlist">
+              {g.items.map((x) => {
+                const on = multiple && isSelected(x.id);
+                return (
+                  <li key={x.id}>
+                    <button
+                      type="button"
+                      className={on ? 'exrow on' : 'exrow'}
+                      aria-pressed={multiple ? on : undefined}
+                      disabled={!multiple && !rangeOk}
+                      onClick={() => pickExisting(x)}
+                    >
+                      {multiple && (
+                        <span className="exrow-check" aria-hidden="true">
+                          {on && <Icon name="check" size={16} />}
+                        </span>
+                      )}
+                      <span className="exrow-text">
+                        <strong>{x.name}</strong>
+                        <small>
+                          {[
+                            ...(x.primaryMuscles ?? []).slice(0, 2).map(muscleLabel),
+                            x.equipment ? equipmentLabel(x.equipment) : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ') || 'Ohne Zuordnung'}
+                        </small>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </section>
         ))}
-        {matches.length === 0 && (q !== '' || muscleFilter !== null || equipmentFilter !== '') && (
-          <p className="muted">Keine Übung gefunden.</p>
+
+        {matches.length === 0 && (
+          <p className="empty">
+            {q !== '' || muscleFilter !== null || equipmentFilter !== null
+              ? 'Keine Übung gefunden.'
+              : 'Noch keine Übungen im Katalog.'}
+          </p>
         )}
 
         {q !== '' && !exact && (
-          <div className="new-exercise">
-            <p>
-              Eigene Übung „<strong>{query.trim()}</strong>" anlegen
-            </p>
+          <div className="card newex">
+            <h3>Eigene Übung „{query.trim()}" anlegen</h3>
             <MusclePicker
               legend="Hauptmuskel (mindestens einer)"
               selected={primary}
@@ -222,41 +304,55 @@ export function AddExercise({ exercises, onPick, onClose }: Props) {
                 setPrimary(r.other);
               }}
             />
-            <label>
-              Gerät (optional)
-              <select value={equipment} onChange={(e) => setEquipment(e.target.value)}>
-                <option value="">Keine Angabe</option>
+            <fieldset className="muscles">
+              <legend>Gerät (optional)</legend>
+              <div className="chips">
                 {EQUIPMENT.map((e) => (
-                  <option key={e.key} value={e.key}>
+                  <button
+                    key={e.key}
+                    type="button"
+                    className={equipment === e.key ? 'chip on' : 'chip'}
+                    aria-pressed={equipment === e.key}
+                    onClick={() => setEquipment(equipment === e.key ? '' : e.key)}
+                  >
                     {e.label}
-                  </option>
+                  </button>
                 ))}
-              </select>
-            </label>
+              </div>
+            </fieldset>
             {primary.length === 0 && (
-              <p className="muted">Wähle mindestens einen Hauptmuskel, damit die Übung einsortiert werden kann.</p>
+              <p className="muted">
+                Wähle mindestens einen Hauptmuskel, damit die Übung einsortiert werden kann.
+              </p>
             )}
             <button
               type="button"
-              className="btn primary"
-              disabled={!rangeOk || primary.length === 0}
-              onClick={() =>
-                onPick({
-                  ...base,
-                  exerciseId: newId(),
-                  name: query.trim(),
-                  isNew: true,
-                  equipment: equipment === '' ? null : equipment,
-                  primaryMuscles: primary,
-                  secondaryMuscles: secondary,
-                })
-              }
+              className="btn primary block"
+              disabled={(!multiple && !rangeOk) || primary.length === 0}
+              onClick={createCustom}
             >
-              Anlegen und hinzufügen
+              {multiple ? 'Anlegen und auswählen' : 'Anlegen und hinzufügen'}
             </button>
           </div>
         )}
       </div>
+
+      {multiple && (
+        <footer className="sheet-foot">
+          <button
+            type="button"
+            className="btn primary block"
+            disabled={selected.length === 0}
+            onClick={() => onPickMany?.(selected)}
+          >
+            {selected.length === 0
+              ? 'Übungen antippen zum Auswählen'
+              : selected.length === 1
+                ? '1 Übung hinzufügen'
+                : `${selected.length} Übungen hinzufügen`}
+          </button>
+        </footer>
+      )}
     </div>
   );
 }

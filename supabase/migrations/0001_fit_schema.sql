@@ -35,6 +35,8 @@ create table fit_plans (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users on delete cascade,
   name text not null,
+  -- 'plan' = Plan mit mehreren Tagen, 'template' = einzelne Vorlage (ein Plan mit einem Tag)
+  kind text not null default 'plan' check (kind in ('plan', 'template')),
   archived_at timestamptz,
   created_at timestamptz not null default now()
 );
@@ -59,6 +61,8 @@ create table fit_plan_exercises (
   rep_max int not null check (rep_max >= rep_min),
   target_rir int check (target_rir between 0 and 5),
   rest_seconds int check (rest_seconds > 0),
+  warmup boolean not null default false,   -- Aufwärmsätze im Training vorschlagen
+  note text,                               -- z. B. Sitzeinstellung
   archived_at timestamptz
 );
 

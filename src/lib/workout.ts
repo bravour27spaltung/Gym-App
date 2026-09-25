@@ -29,6 +29,8 @@ export interface DraftExercise {
   equipmentKg: number | null;
   /** Geräteart (z. B. 'barbell'); nur für eigene Übungen nötig. */
   equipment?: string | null;
+  /** Notiz aus dem Plan, z. B. Sitzeinstellung. */
+  note?: string;
   /** Nur für eigene Übungen (isNew) nötig; ältere Entwürfe haben die Felder nicht. */
   primaryMuscles?: string[];
   secondaryMuscles?: string[];
@@ -60,6 +62,7 @@ export interface ExerciseInput {
   repMax?: number;
   equipmentKg?: number | null;
   equipment?: string | null;
+  note?: string;
   primaryMuscles?: string[];
   secondaryMuscles?: string[];
   plannedSets?: number;
@@ -111,6 +114,7 @@ export function addExercise(draft: Draft, input: ExerciseInput): Draft {
     repMax,
     equipmentKg: input.equipmentKg ?? null,
     equipment: input.equipment ?? null,
+    note: input.note,
     primaryMuscles: input.primaryMuscles ?? [],
     secondaryMuscles: input.secondaryMuscles ?? [],
     plannedSets,

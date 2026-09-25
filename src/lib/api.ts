@@ -116,8 +116,8 @@ export async function fetchPlans(
   const { data, error } = await supabase
     .from('fit_plans')
     .select(
-      'id, name, archived_at, fit_plan_days(id, name, position, archived_at, ' +
-        'fit_plan_exercises(id, exercise_id, position, sets, rep_min, rep_max, target_rir, rest_seconds, archived_at))',
+      'id, kind, name, archived_at, fit_plan_days(id, name, position, archived_at, ' +
+        'fit_plan_exercises(id, exercise_id, position, sets, rep_min, rep_max, target_rir, rest_seconds, warmup, note, archived_at))',
     )
     .is('archived_at', null)
     .order('created_at');
