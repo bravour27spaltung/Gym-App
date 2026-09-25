@@ -19,7 +19,6 @@ interface Props {
 }
 
 const REST_OPTIONS = [60, 90, 120, 180, 240];
-const RIR_OPTIONS = [0, 1, 2, 3, 4];
 
 /**
  * Übungen eines Trainingstags bzw. einer Vorlage: Karten mit Kurzfassung, die sich
@@ -119,33 +118,6 @@ export function DayEditor({ exercises, catalog, onUpdate, onMove, onRemove, onAd
                           )
                         }
                       />
-                    </div>
-                  </div>
-
-                  <div className="field stack">
-                    <span>Ziel-RIR (Wiederholungen in Reserve)</span>
-                    <div className="chips" role="radiogroup" aria-label={`${e.name}: Ziel-RIR`}>
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={e.targetRir === null}
-                        className={e.targetRir === null ? 'chip on' : 'chip'}
-                        onClick={() => onUpdate(e.id, { targetRir: null })}
-                      >
-                        Keine
-                      </button>
-                      {RIR_OPTIONS.map((r) => (
-                        <button
-                          key={r}
-                          type="button"
-                          role="radio"
-                          aria-checked={e.targetRir === r}
-                          className={e.targetRir === r ? 'chip on' : 'chip'}
-                          onClick={() => onUpdate(e.id, { targetRir: r })}
-                        >
-                          {r}
-                        </button>
-                      ))}
                     </div>
                   </div>
 

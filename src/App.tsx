@@ -28,9 +28,8 @@ import {
   type Plan,
 } from './lib/plan';
 import { normalizeCode } from './lib/authErrors';
-import type { LoggedSet } from './lib/progression';
 import { nextPlanDay } from './lib/rotation';
-import { browserStore, type ExerciseListItem } from './lib/storage';
+import { browserStore, type ExerciseListItem, type LastInfo } from './lib/storage';
 import {
   buildPayload,
   createDraft,
@@ -125,15 +124,19 @@ export function App() {
     return () => window.removeEventListener('online', onOnline);
   }, [email, sync]);
 
-  const loadLastSets = useCallback(
-    async (exerciseId: string, isNew: boolean): Promise<LoggedSet[]> => {
-      const cached = store.getLastSets(exerciseId);
+  const loadLast = useCallback(
+    async (exerciseId: string, isNew: boolean): Promise<LastInfo> => {
+      const cached: LastInfo = {
+        sets: store.getLastSets(exerciseId),
+        equipmentKg: store.getLastEquipment(exerciseId),
+      };
       if (isNew) return cached;
       // Liegen ungesendete Trainings vor, ist der lokale Stand aktueller als der Server.
-      if (!navigator.onLine || (store.loadOutbox().length > 0 && cached.length > 0)) return cached;
+      if (!navigator.onLine || (store.loadOutbox().length > 0 && cached.sets.length > 0)) return cached;
       const res = await withTimeout(fetchLastSets(exerciseId), 4000);
-      if (res && res.ok && res.data.length > 0) {
-        store.setLastSets(exerciseId, res.data);
+      if (res && res.ok && res.data.sets.length > 0) {
+        store.setLastSets(exerciseId, res.data.sets);
+        store.setLastEquipment(exerciseId, res.data.equipmentKg);
         return res.data;
       }
       return cached;
@@ -162,7 +165,10 @@ export function App() {
     }
     for (const e of draft.exercises) {
       const done = doneSetsAsLogged(e);
-      if (done.length > 0) store.setLastSets(e.exerciseId, done);
+      if (done.length > 0) {
+        store.setLastSets(e.exerciseId, done);
+        store.setLastEquipment(e.exerciseId, e.equipmentKg);
+      }
     }
     if (draft.planDayId) {
       store.setLastPlanDayId(draft.planDayId);
@@ -185,10 +191,16 @@ export function App() {
     setStarting(true);
     setNotice(null);
     const ids = [...new Set(visibleExercises(day).map((e) => e.exerciseId))];
-    const entries = await Promise.all(
-      ids.map(async (id) => [id, await loadLastSets(id, false)] as const),
+    const entries = await Promise.all(ids.map(async (id) => [id, await loadLast(id, false)] as const));
+    setDraft(
+      draftFromPlanDay(
+        day,
+        exercisesById,
+        Object.fromEntries(entries.map(([id, info]) => [id, info.sets])),
+        new Date(),
+        Object.fromEntries(entries.map(([id, info]) => [id, info.equipmentKg])),
+      ),
     );
-    setDraft(draftFromPlanDay(day, exercisesById, Object.fromEntries(entries), new Date()));
     setScreen('home');
     setStarting(false);
   }
@@ -256,7 +268,7 @@ export function App() {
           draft={draft}
           exercises={exercises}
           onUpdate={(fn) => setDraft((d) => (d ? fn(d) : d))}
-          loadLastSets={loadLastSets}
+          loadLast={loadLast}
           onFinish={() => void finish()}
           onDiscard={() => setDraft(null)}
           busy={busy}

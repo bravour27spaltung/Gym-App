@@ -211,6 +211,28 @@ export function copyWeightToLaterSets(draft: Draft, exId: string, setId: string)
   });
 }
 
+/**
+ * Setzt das Gewicht eines Satzes. Folgende, noch nicht erledigte Sätze der gleichen Art
+ * ziehen mit, solange sie bisher noch dasselbe Gewicht hatten. Bewusst anders eingestellte
+ * Sätze (z. B. Pyramide) bleiben unberührt.
+ */
+export function updateSetWeight(draft: Draft, exId: string, setId: string, kg: number): Draft {
+  return mapEx(draft, exId, (e) => {
+    const idx = e.sets.findIndex((s) => s.id === setId);
+    if (idx === -1) return e;
+    const source = e.sets[idx];
+    const old = source.weightKg;
+    return {
+      ...e,
+      sets: e.sets.map((s, i) => {
+        if (i === idx) return { ...s, weightKg: kg };
+        if (i > idx && s.type === source.type && !s.done && s.weightKg === old) return { ...s, weightKg: kg };
+        return s;
+      }),
+    };
+  });
+}
+
 export function removeSet(draft: Draft, exId: string, setId: string): Draft {
   return mapEx(draft, exId, (e) => ({ ...e, sets: e.sets.filter((s) => s.id !== setId) }));
 }

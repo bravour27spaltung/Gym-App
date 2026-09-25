@@ -1,7 +1,7 @@
--- Sätze des jeweils letzten abgeschlossenen Trainings je Übung.
--- Dient der Vorbelegung und dem Progressionsvorschlag in der App.
--- security_invoker: die Row-Level-Security der Basistabellen gilt weiter.
-create view fit_last_sets with (security_invoker = true) as
+-- Die View fit_last_sets liefert zusätzlich das Stangen-/Maschinengewicht des letzten
+-- Trainings je Übung (Spalte equipment_kg), damit die App es vorbelegen kann.
+-- Neue Spalten stehen am Ende, deshalb reicht "create or replace". Wiederholbar.
+create or replace view fit_last_sets with (security_invoker = true) as
 with latest as (
   select distinct on (we.exercise_id)
          we.exercise_id,

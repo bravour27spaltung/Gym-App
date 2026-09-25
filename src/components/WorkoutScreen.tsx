@@ -1,18 +1,17 @@
 import { useEffect, useState } from 'react';
-import type { LoggedSet } from '../lib/progression';
-import type { ExerciseListItem } from '../lib/storage';
+import type { ExerciseListItem, LastInfo } from '../lib/storage';
 import { startRest } from '../lib/timer';
 import { unlockAudio } from '../lib/sound';
 import {
   addExercise,
   addSet,
   addWarmups,
-  copyWeightToLaterSets,
   removeExercise,
   removeSet,
   toggleDone,
   updateExercise,
   updateSet,
+  updateSetWeight,
   type Draft,
   type ExerciseInput,
 } from '../lib/workout';
@@ -26,7 +25,7 @@ interface Props {
   exercises: ExerciseListItem[];
   /** Ändert den Entwurf; die Funktion bekommt immer den aktuellen Stand. */
   onUpdate: (fn: (d: Draft) => Draft) => void;
-  loadLastSets: (exerciseId: string, isNew: boolean) => Promise<LoggedSet[]>;
+  loadLast: (exerciseId: string, isNew: boolean) => Promise<LastInfo>;
   onFinish: () => void;
   onDiscard: () => void;
   busy: boolean;
@@ -75,7 +74,7 @@ export function WorkoutScreen({
   draft,
   exercises,
   onUpdate,
-  loadLastSets,
+  loadLast,
   onFinish,
   onDiscard,
   busy,
@@ -98,8 +97,8 @@ export function WorkoutScreen({
 
   async function handlePick(input: ExerciseInput) {
     setAdding(false);
-    const lastSets = await loadLastSets(input.exerciseId, input.isNew);
-    onUpdate((d) => addExercise(d, { ...input, lastSets }));
+    const last = await loadLast(input.exerciseId, input.isNew);
+    onUpdate((d) => addExercise(d, { ...input, lastSets: last.sets, equipmentKg: last.equipmentKg }));
   }
 
   function handleToggle(exId: string, setId: string) {
@@ -150,11 +149,11 @@ export function WorkoutScreen({
           <ExerciseCard
             key={e.id}
             exercise={e}
+            onSetWeight={(setId, kg) => onUpdate((d) => updateSetWeight(d, e.id, setId, kg))}
             onUpdateSet={(setId, patch) => onUpdate((d) => updateSet(d, e.id, setId, patch))}
             onToggleSet={(setId) => handleToggle(e.id, setId)}
             onAddSet={() => onUpdate((d) => addSet(d, e.id))}
             onRemoveSet={(setId) => onUpdate((d) => removeSet(d, e.id, setId))}
-            onCopyWeight={(setId) => onUpdate((d) => copyWeightToLaterSets(d, e.id, setId))}
             onWarmup={(level) => onUpdate((d) => addWarmups(d, e.id, level))}
             onRest={(seconds) => onUpdate((d) => updateExercise(d, e.id, { restSeconds: seconds }))}
             onEquipment={(kg) => onUpdate((d) => updateExercise(d, e.id, { equipmentKg: kg }))}

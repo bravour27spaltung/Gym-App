@@ -2,8 +2,7 @@ import { supabase } from '../supabase';
 import { translateAuthError } from './authErrors';
 import type { Plan, PlanDbRow, PlanRows } from './plan';
 import { plansFromRows } from './plan';
-import type { LoggedSet } from './progression';
-import type { ExerciseListItem, Store } from './storage';
+import type { ExerciseListItem, LastInfo, Store } from './storage';
 import type { WorkoutPayload } from './workout';
 
 /** Dünne Schicht um Supabase. Fehler werden zurückgegeben, nicht geworfen. */
@@ -86,26 +85,34 @@ interface LastSetRow {
   weight_kg: number;
   reps: number;
   rir: number | null;
+  equipment_kg?: number | null;
 }
 
-/** Sätze des letzten abgeschlossenen Trainings dieser Übung (View fit_last_sets). */
-export async function fetchLastSets(exerciseId: string): Promise<Result<LoggedSet[]>> {
+/**
+ * Sätze und Stangen-/Maschinengewicht des letzten abgeschlossenen Trainings dieser Übung
+ * (View fit_last_sets). Kennt die View die Spalte equipment_kg noch nicht (Migration 0005
+ * fehlt), wird ohne sie geladen, damit die Sätze trotzdem ankommen.
+ */
+export async function fetchLastSets(exerciseId: string): Promise<Result<LastInfo>> {
   if (!supabase) return fail(NOT_CONFIGURED);
-  const { data, error } = await supabase
-    .from('fit_last_sets')
-    .select('type, weight_kg, reps, rir')
-    .eq('exercise_id', exerciseId)
-    .order('set_number');
-  if (error) return fail(error.message);
-  const rows = (data ?? []) as unknown as LastSetRow[];
+  const load = (columns: string) =>
+    supabase.from('fit_last_sets').select(columns).eq('exercise_id', exerciseId).order('set_number');
+  let res = await load('type, weight_kg, reps, rir, equipment_kg');
+  if (res.error) res = await load('type, weight_kg, reps, rir');
+  if (res.error) return fail(res.error.message);
+  const rows = (res.data ?? []) as unknown as LastSetRow[];
+  const eq = rows.find((r) => r.equipment_kg !== null && r.equipment_kg !== undefined)?.equipment_kg;
   return {
     ok: true,
-    data: rows.map((r) => ({
-      type: r.type,
-      weightKg: Number(r.weight_kg),
-      reps: r.reps,
-      rir: r.rir,
-    })),
+    data: {
+      sets: rows.map((r) => ({
+        type: r.type,
+        weightKg: Number(r.weight_kg),
+        reps: r.reps,
+        rir: r.rir,
+      })),
+      equipmentKg: eq === null || eq === undefined ? null : Number(eq),
+    },
   };
 }
 

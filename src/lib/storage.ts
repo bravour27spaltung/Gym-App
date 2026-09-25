@@ -30,10 +30,17 @@ export interface ExerciseListItem {
   secondaryMuscles?: string[];
 }
 
+/** Sätze und Stangen-/Maschinengewicht des letzten Trainings einer Übung. */
+export interface LastInfo {
+  sets: LoggedSet[];
+  equipmentKg: number | null;
+}
+
 const KEYS = {
   draft: 'gym.draft.v1',
   outbox: 'gym.outbox.v1',
   lastSets: 'gym.lastSets.v1',
+  lastEquipment: 'gym.lastEquipment.v1',
   exercises: 'gym.exercises.v1',
   plans: 'gym.plans.v1',
   lastPlanDay: 'gym.lastPlanDay.v1',
@@ -89,6 +96,15 @@ export function createStore(storage: KeyValueStorage | null) {
       const all = read<Record<string, LoggedSet[]>>(KEYS.lastSets, {});
       all[exerciseId] = sets;
       return write(KEYS.lastSets, all);
+    },
+
+    getLastEquipment(exerciseId: string): number | null {
+      return read<Record<string, number | null>>(KEYS.lastEquipment, {})[exerciseId] ?? null;
+    },
+    setLastEquipment(exerciseId: string, kg: number | null): boolean {
+      const all = read<Record<string, number | null>>(KEYS.lastEquipment, {});
+      all[exerciseId] = kg;
+      return write(KEYS.lastEquipment, all);
     },
 
     loadExercises: () => read<ExerciseListItem[]>(KEYS.exercises, []),

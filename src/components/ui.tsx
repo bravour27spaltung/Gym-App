@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { kgText, parseKg, roundKg } from '../lib/weight';
 
 /** Kleine Symbole (24-px-Raster, Linien), ohne externe Bibliothek. */
 const PATHS = {
@@ -205,5 +206,73 @@ export function TabBar(props: {
         </button>
       ))}
     </nav>
+  );
+}
+
+/**
+ * Zahlenfeld zum direkten Eintippen (Gewicht in kg oder ganze Zahl). Gültige Zwischenstände
+ * werden sofort übernommen, damit ein Tipp auf den Haken direkt danach schon den neuen Wert
+ * speichert. Beim Verlassen wird auf das 0,25-kg-Raster gerundet.
+ */
+export function NumberInput(props: {
+  value: number;
+  onCommit: (n: number) => void;
+  label: string;
+  kind: 'kg' | 'int';
+  /** 0 als leeres Feld mit Platzhalter zeigen (noch nicht eingetragen). */
+  blankZero?: boolean;
+  placeholder?: string;
+  className?: string;
+}) {
+  const { value, kind } = props;
+  const show = (v: number) => (props.blankZero && v === 0 ? '' : kgText(v));
+  const [text, setText] = useState(() => show(value));
+  const [focused, setFocused] = useState(false);
+
+  // Wird der Wert von außen geändert (z. B. folgende Sätze ziehen mit), Anzeige nachführen.
+  useEffect(() => {
+    if (!focused) setText(show(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, focused]);
+
+  const parse = (t: string): number | null => {
+    if (kind === 'kg') return t.trim() === '' && props.blankZero ? 0 : parseKg(t);
+    return /^\d{1,3}$/.test(t.trim()) ? Number(t.trim()) : null;
+  };
+
+  return (
+    <input
+      className={props.className ?? 'cellinput'}
+      type="text"
+      inputMode={kind === 'kg' ? 'decimal' : 'numeric'}
+      enterKeyHint="done"
+      autoComplete="off"
+      aria-label={props.label}
+      placeholder={props.placeholder}
+      value={text}
+      onFocus={(e) => {
+        setFocused(true);
+        e.currentTarget.select();
+      }}
+      onChange={(e) => {
+        setText(e.target.value);
+        const n = parse(e.target.value);
+        if (n !== null && n !== value) props.onCommit(n);
+      }}
+      onBlur={() => {
+        setFocused(false);
+        const loose = Number(text.trim().replace(',', '.'));
+        if (text.trim() !== '' && Number.isFinite(loose)) {
+          const n = kind === 'kg' ? roundKg(loose) : Math.min(999, Math.max(0, Math.round(loose)));
+          if (n !== value) props.onCommit(n);
+          setText(show(n));
+        } else {
+          setText(show(value));
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+      }}
+    />
   );
 }

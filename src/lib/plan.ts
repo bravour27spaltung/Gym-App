@@ -127,7 +127,6 @@ export function addDayFromTemplate(plan: Plan, template: Plan): Plan {
 /** Kurztext für eine Übung im Plan, z. B. "3 × 8–12 · RIR 2 · 2:00 min". */
 export function summarizePlanExercise(e: PlanExercise): string {
   const parts = [`${e.sets} × ${e.repMin === e.repMax ? e.repMin : `${e.repMin}–${e.repMax}`}`];
-  if (e.targetRir !== null) parts.push(`RIR ${e.targetRir}`);
   const m = Math.floor(e.restSeconds / 60);
   const s = e.restSeconds % 60;
   parts.push(`${m}:${String(s).padStart(2, '0')} min`);
@@ -461,6 +460,8 @@ export function draftFromPlanDay(
   exercisesById: Record<string, ExerciseListItem | undefined>,
   lastSets: Record<string, LoggedSet[] | undefined>,
   now: Date,
+  /** Stangen-/Maschinengewicht des letzten Trainings je Übung (Vorbelegung). */
+  lastEquipment: Record<string, number | null | undefined> = {},
 ): Draft {
   let draft = createDraft(day.name.trim(), day.id, now);
   let first = true;
@@ -476,6 +477,7 @@ export function draftFromPlanDay(
       targetRir: e.targetRir,
       restSeconds: e.restSeconds,
       equipment: e.newExercise?.equipment ?? null,
+      equipmentKg: lastEquipment[e.exerciseId] ?? null,
       primaryMuscles: known?.primaryMuscles ?? e.newExercise?.primaryMuscles,
       secondaryMuscles: known?.secondaryMuscles ?? e.newExercise?.secondaryMuscles,
       lastSets: lastSets[e.exerciseId] ?? [],

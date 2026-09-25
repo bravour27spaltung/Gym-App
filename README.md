@@ -21,7 +21,7 @@ Reihenfolge im SQL-Editor von Supabase (jeweils Inhalt der Datei einfügen und a
 
 1. `supabase/migrations/0001_fit_schema.sql`
 2. `supabase/migrations/0002_fit_last_sets.sql`
-   (Wurde 0001 schon in einer älteren Fassung ausgeführt: zusätzlich `0003_catalog_details_only.sql` und `0004_plan_templates.sql` ausführen. Beide sind wiederholbar.)
+   (Wurde 0001 schon in einer älteren Fassung ausgeführt: zusätzlich `0003_catalog_details_only.sql`, `0004_plan_templates.sql` und `0005_last_sets_equipment.sql` ausführen. Alle sind wiederholbar.)
 3. Nutzer anlegen (Authentication, Users), danach die Registrierung neuer Nutzer abschalten.
 4. Übungskatalog: Auf deinem Rechner (Node 18 oder neuer) im Projektordner
    ```bash
@@ -47,6 +47,14 @@ Zwei Wege, ein Training zu planen (Reiter „Pläne"):
 Pro Übung stellst du Sätze, Wiederholungsbereich, Ziel-RIR, Pause, Aufwärmen und eine Notiz ein. Mit „Aufwärmen" plant die App vor den Arbeitssätzen eine Rampe ein, sobald ein Gewicht vom letzten Training bekannt ist. Die Notiz erscheint im Training bei der Übung. Die Übungsauswahl ist eine Mehrfachauswahl mit Suche sowie Filtern nach Muskelgruppe und Gerät.
 
 **Design:** Dunkel zuerst mit hellem Ausweichmodus (folgt der Systemeinstellung). Alle Farben stehen als Variablen am Anfang von `src/styles.css`.
+
+## Gewicht im Training
+
+Die Sätze sind eine Tabelle: **Satz | Vorher | kg | Wdh. | Haken**. Gewicht und Wiederholungen tippst du direkt in die Zeile (Komma oder Punkt, auf 0,25 kg gerundet). Ändert du das Gewicht in einem Satz, ziehen folgende, noch nicht erledigte Sätze mit demselben Gewicht mit. Bewusst andere Gewichte (Pyramide) bleiben unberührt. „Vorher" zeigt den entsprechenden Satz vom letzten Training. Ein Tipp auf die Satznummer öffnet „Als Aufwärmsatz markieren" und „Entfernen".
+
+**Stange / Maschine:** Das Eigengewicht trägst du pro Übung ein (Schnellwahl 10, 15, 20 kg). Es wird zum eingegebenen Gewicht addiert, in der Zeile steht „Σ" mit der Gesamtlast. Die App übernimmt es beim nächsten Mal vom letzten Training (View `fit_last_sets`, Spalte `equipment_kg`). Gespeichert wird es bei der Übung im Training (`fit_workout_exercises.equipment_kg`), das Gewicht bei den Sätzen (`fit_sets.weight_kg`), nie beim Katalog.
+
+**RIR:** Wird nicht mehr abgefragt und nicht angezeigt. Die Spalten `rir` und `target_rir` bleiben in der Datenbank (leer), damit bestehende Daten gültig bleiben.
 
 ## Auf GitHub und Vercel bringen
 

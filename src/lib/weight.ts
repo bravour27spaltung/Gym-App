@@ -61,3 +61,28 @@ export function formatKg(kg: number): string {
     : String(kg).replace('.', ',');
   return `${text} kg`;
 }
+
+/**
+ * Liest ein eingetipptes Gewicht ("62,5" oder "62.5"). Gibt nur dann eine Zahl zurück,
+ * wenn der Text vollständig ist und auf dem 0,25-kg-Raster liegt, sonst null.
+ * So wird beim Tippen nur ein gültiger Zwischenstand übernommen.
+ */
+export function parseKg(text: string): number | null {
+  const t = text.trim().replace(',', '.');
+  if (!/^\d{1,3}(\.\d{1,2})?$/.test(t)) return null;
+  const n = Number(t);
+  if (n > 999) return null;
+  const q = n * 4;
+  return Math.abs(q - Math.round(q)) > 1e-9 ? null : n;
+}
+
+/** Rundet auf das nächste 0,25 kg und begrenzt auf 0 bis 999 kg. */
+export function roundKg(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(999, Math.max(0, Math.round(n * 4) / 4));
+}
+
+/** Anzeige im Eingabefeld: deutsche Schreibweise ohne Einheit, z. B. "62,5". */
+export function kgText(kg: number): string {
+  return String(kg).replace('.', ',');
+}

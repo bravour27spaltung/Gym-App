@@ -158,10 +158,10 @@ describe('Vorlage in einen Plan kopieren', () => {
 });
 
 describe('Kurzfassung', () => {
-  it('zeigt Sätze, Bereich, RIR, Pause und Aufwärmen', () => {
+  it('zeigt Sätze, Bereich, Pause und Aufwärmen (ohne RIR)', () => {
     const day = templateDay(filledTemplate())!;
     expect(summarizePlanExercise(day.exercises[0])).toBe('3 × 8–12 · 2:00 min');
-    expect(summarizePlanExercise(day.exercises[1])).toBe('4 × 6–10 · RIR 2 · 2:30 min · Aufwärmen');
+    expect(summarizePlanExercise(day.exercises[1])).toBe('4 × 6–10 · 2:30 min · Aufwärmen');
   });
 
   it('zeigt bei gleicher Unter- und Obergrenze nur eine Zahl', () => {
@@ -213,5 +213,14 @@ describe('Training aus Vorlage', () => {
     );
     expect(d.exercises[0].primaryMuscles).toEqual(['chest']);
     expect(d.exercises[0].secondaryMuscles).toEqual(['triceps']);
+  });
+});
+
+describe('Gewicht im Training', () => {
+  it('nimmt das Stangengewicht vom letzten Training als Vorbelegung', () => {
+    const t = markSaved(filledTemplate());
+    const d = draftFromPlanDay(templateDay(t)!, {}, {}, now, { bench: 20, row: null });
+    expect(d.exercises[0].equipmentKg).toBe(20);
+    expect(d.exercises[1].equipmentKg).toBeNull();
   });
 });

@@ -4,19 +4,15 @@ import { formatClock } from '../lib/timer';
 import { formatKg } from '../lib/weight';
 import { describeLastSets, type DraftExercise, type DraftSet } from '../lib/workout';
 import { SetRow } from './SetRow';
-import { Icon, IconButton } from './ui';
-import { WeightPicker } from './WeightPicker';
+import { Icon, IconButton, NumberInput } from './ui';
 
 interface Props {
   exercise: DraftExercise;
-  onUpdateSet: (
-    setId: string,
-    patch: Partial<Pick<DraftSet, 'weightKg' | 'reps' | 'rir'>>,
-  ) => void;
+  onSetWeight: (setId: string, kg: number) => void;
+  onUpdateSet: (setId: string, patch: Partial<Pick<DraftSet, 'reps' | 'type'>>) => void;
   onToggleSet: (setId: string) => void;
   onAddSet: () => void;
   onRemoveSet: (setId: string) => void;
-  onCopyWeight: (setId: string) => void;
   onWarmup: (level: 'full' | 'short') => void;
   onRest: (seconds: number) => void;
   onEquipment: (kg: number | null) => void;
@@ -24,6 +20,7 @@ interface Props {
 }
 
 const REST_OPTIONS = [60, 90, 120, 180, 240];
+const EQUIPMENT_QUICK = [10, 15, 20];
 
 export function ExerciseCard(props: Props) {
   const { exercise: e } = props;
@@ -33,6 +30,10 @@ export function ExerciseCard(props: Props) {
   const muscles = (e.primaryMuscles ?? []).slice(0, 2).map(muscleLabel).join(', ');
   const doneCount = e.sets.filter((x) => x.done && x.type === 'working').length;
   const workingCount = e.sets.filter((x) => x.type === 'working').length;
+  const previousByType = {
+    warmup: e.lastSets.filter((x) => x.type === 'warmup'),
+    working: e.lastSets.filter((x) => x.type === 'working'),
+  };
 
   let workingIndex = 0;
   let warmupIndex = 0;
@@ -43,9 +44,7 @@ export function ExerciseCard(props: Props) {
         <div className="excard-name">
           <h2>{e.name}</h2>
           <p className="excard-sub">
-            {[muscles, `${e.repMin}–${e.repMax} Wdh.`, e.targetRir != null ? `RIR ${e.targetRir}` : null]
-              .filter(Boolean)
-              .join(' · ')}
+            {[muscles, `${e.repMin}–${e.repMax} Wdh.`].filter(Boolean).join(' · ')}
           </p>
         </div>
         <span className="excard-progress" aria-label={`${doneCount} von ${workingCount} Sätzen erledigt`}>
@@ -80,15 +79,11 @@ export function ExerciseCard(props: Props) {
         </p>
       )}
 
-      <p className="lasttime">
-        <span>Letztes Mal</span> {last || 'noch kein Training mit dieser Übung'}
-      </p>
-
       {s.action !== 'no-data' && (
         <p className={`hint ${s.action}`}>
           <strong>
             {s.action === 'increase'
-              ? `Steigern${s.targetReps !== null ? `, ab ${s.targetReps} Wdh.` : ''}`
+              ? `Steigern, ab ${s.targetReps ?? e.repMin} Wdh.`
               : `Halten${s.weightKg !== null ? `: ${formatKg(s.weightKg)}` : ''}${
                   s.targetReps !== null ? ` × ${s.targetReps}` : ''
                 }`}
@@ -98,15 +93,44 @@ export function ExerciseCard(props: Props) {
         </p>
       )}
 
-      <div className="chips sm warmchips">
-        <button type="button" className="chip" onClick={() => props.onWarmup('full')}>
-          <Icon name="flame" size={14} /> Aufwärmen
-        </button>
-        <button type="button" className="chip" onClick={() => props.onWarmup('short')}>
-          <Icon name="flame" size={14} /> Kurz aufwärmen
-        </button>
+      <div className="equiprow">
+        <span className="equip-label">
+          Stange / Maschine
+          <small>Eigengewicht, das zum Gewicht dazukommt</small>
+        </span>
+        <div className="equip-input">
+          <NumberInput
+            kind="kg"
+            blankZero
+            placeholder="0"
+            label={`${e.name}: Stangen- oder Maschinengewicht in kg`}
+            value={e.equipmentKg ?? 0}
+            onCommit={(kg) => props.onEquipment(kg > 0 ? kg : null)}
+          />
+          <span className="unit">kg</span>
+        </div>
+      </div>
+      <div className="chips sm equipchips" role="group" aria-label="Häufige Stangen- und Maschinengewichte">
+        {EQUIPMENT_QUICK.map((kg) => (
+          <button
+            key={kg}
+            type="button"
+            className={e.equipmentKg === kg ? 'chip on' : 'chip'}
+            aria-pressed={e.equipmentKg === kg}
+            onClick={() => props.onEquipment(e.equipmentKg === kg ? null : kg)}
+          >
+            {kg} kg
+          </button>
+        ))}
       </div>
 
+      <div className="setgrid sethead" aria-hidden="true">
+        <span>Satz</span>
+        <span>Vorher</span>
+        <span>kg</span>
+        <span>Wdh.</span>
+        <span />
+      </div>
       <ul className="sets">
         {e.sets.map((set) => {
           const idx = set.type === 'warmup' ? ++warmupIndex : ++workingIndex;
@@ -115,27 +139,38 @@ export function ExerciseCard(props: Props) {
               key={set.id}
               index={idx}
               set={set}
+              previous={previousByType[set.type][idx - 1] ?? null}
               equipmentKg={e.equipmentKg}
-              onChange={(patch) => props.onUpdateSet(set.id, patch)}
+              onWeight={(kg) => props.onSetWeight(set.id, kg)}
+              onReps={(reps) => props.onUpdateSet(set.id, { reps })}
               onToggle={() => props.onToggleSet(set.id)}
+              onToggleType={() =>
+                props.onUpdateSet(set.id, { type: set.type === 'warmup' ? 'working' : 'warmup' })
+              }
               onRemove={() => props.onRemoveSet(set.id)}
-              onCopyWeight={() => props.onCopyWeight(set.id)}
             />
           );
         })}
       </ul>
 
-      <button type="button" className="addtile small" onClick={props.onAddSet}>
-        <Icon name="plus" size={18} /> Satz hinzufügen
-      </button>
+      <div className="excard-actions">
+        <button type="button" className="addtile small" onClick={props.onAddSet}>
+          <Icon name="plus" size={18} /> Satz
+        </button>
+        <button type="button" className="addtile small" onClick={() => props.onWarmup('full')}>
+          <Icon name="flame" size={16} /> Aufwärmen
+        </button>
+      </div>
+
+      <p className="lasttime">
+        <span>Letztes Mal</span> {last || 'noch kein Training mit dieser Übung'}
+      </p>
 
       <details className="equipment">
         <summary>
           <Icon name="clock" size={16} /> Pause {formatClock(e.restSeconds)}
-          {e.equipmentKg !== null && ` · Stange ${formatKg(e.equipmentKg)}`}
         </summary>
         <div className="rest-setting">
-          <span className="unit">Pause</span>
           <div className="chips" role="radiogroup" aria-label={`Pause für ${e.name}`}>
             {[...new Set([...REST_OPTIONS, e.restSeconds])]
               .sort((a, b) => a - b)
@@ -153,19 +188,6 @@ export function ExerciseCard(props: Props) {
               ))}
           </div>
         </div>
-        <p className="unit equip-title">
-          Stangen-/Maschinengewicht {e.equipmentKg !== null ? `(${formatKg(e.equipmentKg)})` : '(optional)'}
-        </p>
-        <WeightPicker
-          label="Stangen- oder Maschinengewicht"
-          value={e.equipmentKg ?? 0}
-          onChange={(kg) => props.onEquipment(kg)}
-        />
-        {e.equipmentKg !== null && (
-          <button type="button" className="link" onClick={() => props.onEquipment(null)}>
-            Angabe entfernen
-          </button>
-        )}
       </details>
     </section>
   );
