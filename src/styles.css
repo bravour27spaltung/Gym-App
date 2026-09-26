@@ -2090,3 +2090,298 @@ button.tile:disabled {
   font-size: 0.75rem;
   color: var(--muted);
 }
+
+/* ---------- Trainings-Fokus: eine Übung, ein aktiver Satz ---------- */
+
+.fx-strip {
+  margin: 0 -16px 12px;
+}
+
+.fx-ex {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 190px;
+  padding: 0 12px 0 8px;
+}
+
+.fx-ex-no {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  font-size: 0.75rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.fx-ex.on .fx-ex-no {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.fx-ex.done:not(.on) .fx-ex-no {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.fx-ex-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fx-ex-add {
+  padding: 0 12px;
+  color: var(--accent);
+}
+
+.fx-sets {
+  margin: 12px 0 4px;
+}
+
+.fx-sets > li {
+  margin: 6px 0;
+}
+
+/* Schmale Satz-Zeile (nur lesen); Tipp = Bearbeiten */
+.fx-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 12px 6px 8px;
+  border: 1.5px solid transparent;
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+}
+
+.fx-line.warm {
+  border-style: dashed;
+  border-color: var(--surface-3);
+  background: none;
+}
+
+.fx-line.done {
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+.fx-line.warm.done {
+  border-color: var(--surface-3);
+}
+
+.fx-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.fx-val {
+  flex: 1;
+  min-width: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.fx-prev {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.fx-state {
+  display: inline-flex;
+  flex: none;
+  color: var(--muted);
+}
+
+.fx-state.on {
+  color: var(--accent);
+}
+
+/* Aktiver Satz: hervorgehobene Karte mit großen Feldern */
+.fx-editor {
+  margin: 8px 0;
+  padding: 14px 14px 10px;
+  border: 2px solid var(--accent);
+  border-radius: 20px;
+  background: var(--surface-2);
+}
+
+.fx-editor.warm {
+  border-style: dashed;
+}
+
+.fx-editor-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.fx-editor-head strong {
+  font-size: 1rem;
+}
+
+.fx-field {
+  margin-bottom: 12px;
+}
+
+.fx-flabel {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.fx-stepper {
+  display: grid;
+  grid-template-columns: 64px 1fr 64px;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.fx-stepper > button {
+  height: 64px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--surface-3);
+  color: var(--accent);
+  font-size: 1.8rem;
+  font-weight: 600;
+}
+
+.fx-stepper > button:disabled {
+  opacity: 0.35;
+}
+
+.fx-stepper > button:active {
+  background: var(--accent-soft);
+}
+
+.fx-input {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.fx-input .unit {
+  position: absolute;
+  right: 14px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.bigin {
+  width: 100%;
+  min-width: 0;
+  height: 64px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--surface-3);
+  color: var(--text);
+  text-align: center;
+  font-size: 2rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.bigin::placeholder {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.bigin:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+.fx-fractions {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.fx-fractions .chip {
+  min-width: 0;
+  height: 36px;
+  padding: 0 4px;
+  background: var(--surface-3);
+  font-size: 0.85rem;
+}
+
+.fx-fractions .chip.on {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.fx-total {
+  display: block;
+  margin-top: 6px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.fx-go {
+  min-height: 60px;
+  font-size: 1.1rem;
+}
+
+.fx-editor .btn.block {
+  margin-top: 8px;
+}
+
+.fx-editor-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 4px;
+}
+
+/* Seltenes bleibt klein */
+.fx-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 6px;
+}
+
+.fx-more {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.fx-more > .equiprow {
+  margin-top: 10px;
+}
+
+.fx-more .rest-setting {
+  margin-top: 12px;
+}
+
+.fx-reason {
+  margin: 12px 0 4px;
+  font-size: 0.85rem;
+}
