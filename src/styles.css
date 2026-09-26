@@ -2385,3 +2385,84 @@ button.tile:disabled {
   margin: 12px 0 4px;
   font-size: 0.85rem;
 }
+
+/* ---------- Muskelfigur ---------- */
+
+.bm {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+}
+
+.bm svg {
+  display: block;
+  width: auto;
+  height: var(--bm-h, 88px);
+}
+
+.bm-base {
+  fill: var(--surface-3);
+  opacity: 0.55;
+}
+
+.bm-part {
+  fill: var(--surface-3);
+  stroke: var(--bm-gap, var(--surface));
+  stroke-width: 0.8;
+  stroke-linejoin: round;
+}
+
+.bm-part.primary {
+  fill: var(--accent);
+}
+
+.bm-part.secondary {
+  fill: var(--accent);
+  fill-opacity: 0.4;
+}
+
+.exrow .bm {
+  --bm-gap: var(--surface);
+}
+
+.excard-muscles {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.excard-muscles .bm-legend {
+  flex-direction: column;
+  margin: 0;
+}
+
+.bm-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.bm-legend span {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.bm-dot {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.bm-dot.secondary {
+  opacity: 0.4;
+}

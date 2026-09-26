@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { muscleLabel } from '../lib/muscles';
 import { formatClock } from '../lib/timer';
 import { formatKg } from '../lib/weight';
 import { describeLastSets, type DraftExercise, type DraftSet } from '../lib/workout';
 import { SetEditor, SetLine } from './SetRow';
+import { MuscleFigure, MuscleLegend } from './MuscleFigure';
 import { EquipmentField, Icon } from './ui';
 
 interface Props {
@@ -37,7 +37,8 @@ export function ExerciseCard(props: Props) {
   const [showWarm, setShowWarm] = useState(false);
   const last = describeLastSets(e.lastSets);
   const s = e.suggestion;
-  const muscles = (e.primaryMuscles ?? []).slice(0, 2).map(muscleLabel).join(', ');
+  const primary = e.primaryMuscles ?? [];
+  const secondary = e.secondaryMuscles ?? [];
   const doneCount = e.sets.filter((x) => x.done && x.type === 'working').length;
   const workingCount = e.sets.filter((x) => x.type === 'working').length;
   const previousByType = {
@@ -111,10 +112,10 @@ export function ExerciseCard(props: Props) {
       <header className="excard-head">
         <div className="excard-name">
           <h2>{e.name}</h2>
-          <p className="excard-sub">
-            {[muscles, `${e.repMin}–${e.repMax} Wdh.`].filter(Boolean).join(' · ')}
-          </p>
+          <p className="excard-sub">{e.repMin}–{e.repMax} Wdh.</p>
+          <MuscleLegend primary={primary} secondary={secondary} />
         </div>
+        <MuscleFigure primary={primary} secondary={secondary} height={88} />
         <span className="excard-progress" aria-label={`${doneCount} von ${workingCount} Sätzen erledigt`}>
           {doneCount}/{workingCount}
         </span>

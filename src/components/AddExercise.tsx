@@ -3,6 +3,7 @@ import type { ExerciseListItem } from '../lib/storage';
 import { newId, type ExerciseInput } from '../lib/workout';
 import { MUSCLES, muscleLabel, toggleMuscle } from '../lib/muscles';
 import { EQUIPMENT, equipmentLabel } from '../lib/equipment';
+import { MuscleFigure } from './MuscleFigure';
 import { Icon, IconButton, Stepper } from './ui';
 
 interface Props {
@@ -267,6 +268,12 @@ export function AddExercise({ exercises, onClose, onPick, onPickMany }: Props) {
                             .join(' · ') || 'Ohne Zuordnung'}
                         </small>
                       </span>
+                      <MuscleFigure
+                        primary={x.primaryMuscles ?? []}
+                        secondary={x.secondaryMuscles ?? []}
+                        view="auto"
+                        height={44}
+                      />
                     </button>
                   </li>
                 );
