@@ -35,7 +35,7 @@ Die Übungen gehören dem ersten Nutzer in `auth.users`, deshalb muss Schritt 3 
 
 **Deutsche Namen:** Die Namen in `tools/names_de.txt` (eine Zeile je Übung, „Englischer Name => Deutscher Name") habe ich von Hand übersetzt. Sie sind nicht von einer Fachperson geprüft. Für Übungen, die später im Katalog neu hinzukommen und dort noch fehlen, greift ein Wort-Glossar (`tools/glossary-de.mjs`) als Notlösung; das Skript meldet, wie viele Namen darüber laufen. Einzelne Namen änderst du in `names_de.txt` (oder per Übungs-ID in `tools/names_de.json`) und führst das Skript danach erneut aus. Die Anleitungen bleiben zunächst englisch (`instructions_en`).
 
-**Muskelgruppen:** Übungen speichern `primary_muscles` und `secondary_muscles` als Liste mit den englischen Schlüsseln des Katalogs (z. B. `lats`, `middle back`). Die deutschen Anzeigenamen stehen in `src/lib/muscles.ts`. Beim Anlegen einer eigenen Übung ist mindestens ein Hauptmuskel Pflicht.
+**Muskelgruppen:** Übungen speichern `primary_muscles` und `secondary_muscles` als Liste mit den englischen Schlüsseln des Katalogs (z. B. `lats`, `middle back`). Die deutschen Anzeigenamen stehen in `src/lib/muscles.ts`. Beim Anlegen einer eigenen Übung ist mindestens ein Hauptmuskel Pflicht. Die App schlägt die Muskeln aus dem Namen vor (einfache Stichwortzuordnung in `src/lib/muscleGuess.ts`, keine gemessene Größe, bitte prüfen); geändert wird direkt am Körper (Tippen: Hauptmuskel, Hilfsmuskel, aus) oder alternativ per Liste. Die Filter der Übungsauswahl sind unter "Filter" eingeklappt.
 
 ## Pläne und Vorlagen
 

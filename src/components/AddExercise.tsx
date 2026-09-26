@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react';
 import type { ExerciseListItem } from '../lib/storage';
 import { newId, type ExerciseInput } from '../lib/workout';
 import { MUSCLES, muscleLabel, toggleMuscle } from '../lib/muscles';
+import { guessMuscles } from '../lib/muscleGuess';
 import { EQUIPMENT, equipmentLabel } from '../lib/equipment';
-import { MuscleFigure } from './MuscleFigure';
+import { MuscleFigure, MuscleLegend } from './MuscleFigure';
+import { MuscleSelector } from './MuscleSelector';
 import { Icon, IconButton, Stepper } from './ui';
 
 interface Props {
@@ -45,6 +47,11 @@ function groupByMuscle(
   return ordered;
 }
 
+interface Picked {
+  primary: string[];
+  secondary: string[];
+}
+
 export function AddExercise({ exercises, onClose, onPick, onPickMany }: Props) {
   const multiple = onPickMany !== undefined;
 
@@ -52,10 +59,11 @@ export function AddExercise({ exercises, onClose, onPick, onPickMany }: Props) {
   const [repMin, setRepMin] = useState(8);
   const [repMax, setRepMax] = useState(12);
   const [sets, setSets] = useState(3);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [muscleFilter, setMuscleFilter] = useState<string | null>(null);
   const [equipmentFilter, setEquipmentFilter] = useState<string | null>(null);
-  const [primary, setPrimary] = useState<string[]>([]);
-  const [secondary, setSecondary] = useState<string[]>([]);
+  // Muskeln der neuen eigenen Übung: null = noch nicht angefasst, dann gilt der Vorschlag aus dem Namen.
+  const [custom, setCustom] = useState<Picked | null>(null);
   const [equipment, setEquipment] = useState('');
   // Mehrfachauswahl: gewählte Übungen in der Reihenfolge des Anklickens.
   const [selected, setSelected] = useState<ExerciseInput[]>([]);
@@ -64,6 +72,11 @@ export function AddExercise({ exercises, onClose, onPick, onPickMany }: Props) {
 
   const all = useMemo(() => [...created, ...exercises], [created, exercises]);
   const q = normalize(query);
+
+  const guess = useMemo(() => guessMuscles(query), [query]);
+  const primary = custom?.primary ?? guess?.primary ?? [];
+  const secondary = custom?.secondary ?? guess?.secondary ?? [];
+  const suggested = custom === null && guess !== null;
 
   // Filter nur mit Werten anbieten, zu denen es auch Übungen gibt.
   const musclesInUse = useMemo(() => {
@@ -74,6 +87,8 @@ export function AddExercise({ exercises, onClose, onPick, onPickMany }: Props) {
     const used = new Set(all.map((x) => x.equipment).filter((x): x is string => !!x));
     return EQUIPMENT.filter((e) => used.has(e.key));
   }, [all]);
+  const activeFilters = (muscleFilter !== null ? 1 : 0) + (equipmentFilter !== null ? 1 : 0);
+  const hasFilters = musclesInUse.length > 0 || equipmentInUse.length > 0;
 
   const matches = useMemo(
     () =>
@@ -142,8 +157,7 @@ export function AddExercise({ exercises, onClose, onPick, onPickMany }: Props) {
     ]);
     setSelected((cur) => [...cur, input]);
     setQuery('');
-    setPrimary([]);
-    setSecondary([]);
+    setCustom(null);
     setEquipment('');
   }
 
@@ -156,18 +170,30 @@ export function AddExercise({ exercises, onClose, onPick, onPickMany }: Props) {
       </header>
 
       <div className="sheet-tools">
-        <label className="searchbar">
-          <Icon name="search" size={20} />
-          <input
-            type="search"
-            placeholder="Übung suchen oder neu benennen"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="Übung suchen"
-          />
-        </label>
+        <div className="searchrow">
+          <label className="searchbar">
+            <Icon name="search" size={20} />
+            <input
+              type="search"
+              placeholder="Suchen oder neu anlegen"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Übung suchen"
+            />
+          </label>
+          {hasFilters && (
+            <button
+              type="button"
+              className={filtersOpen || activeFilters > 0 ? 'chip on' : 'chip'}
+              aria-expanded={filtersOpen}
+              onClick={() => setFiltersOpen((o) => !o)}
+            >
+              Filter{activeFilters > 0 ? ` · ${activeFilters}` : ''}
+            </button>
+          )}
+        </div>
 
-        {musclesInUse.length > 0 && (
+        {filtersOpen && musclesInUse.length > 0 && (
           <div className="chips scroll" role="group" aria-label="Nach Muskelgruppe filtern">
             <button
               type="button"
@@ -191,7 +217,7 @@ export function AddExercise({ exercises, onClose, onPick, onPickMany }: Props) {
           </div>
         )}
 
-        {equipmentInUse.length > 0 && (
+        {filtersOpen && equipmentInUse.length > 0 && (
           <div className="chips scroll sm" role="group" aria-label="Nach Gerät filtern">
             {equipmentInUse.map((e) => (
               <button
@@ -293,26 +319,44 @@ export function AddExercise({ exercises, onClose, onPick, onPickMany }: Props) {
         {q !== '' && !exact && (
           <div className="card newex">
             <h3>Eigene Übung „{query.trim()}" anlegen</h3>
-            <MusclePicker
-              legend="Hauptmuskel (mindestens einer)"
-              selected={primary}
-              onToggle={(key) => {
-                const r = toggleMuscle(primary, secondary, key);
-                setPrimary(r.list);
-                setSecondary(r.other);
-              }}
+            <p className="muted newex-hint">
+              {suggested
+                ? 'Vorschlag aus dem Namen. Bitte prüfen und bei Bedarf am Körper ändern.'
+                : 'Tippe auf die Muskeln, die die Übung trainiert: 1× Hauptmuskel, 2× Hilfsmuskel, 3× aus.'}
+            </p>
+
+            <MuscleSelector
+              primary={primary}
+              secondary={secondary}
+              onChange={(p, s) => setCustom({ primary: p, secondary: s })}
             />
-            <MusclePicker
-              legend="Hilfsmuskeln (optional)"
-              selected={secondary}
-              onToggle={(key) => {
-                const r = toggleMuscle(secondary, primary, key);
-                setSecondary(r.list);
-                setPrimary(r.other);
-              }}
-            />
-            <fieldset className="muscles">
-              <legend>Gerät (optional)</legend>
+            <MuscleLegend primary={primary} secondary={secondary} />
+            {primary.length === 0 && (
+              <p className="muted">Wähle mindestens einen Hauptmuskel, damit die Übung einsortiert werden kann.</p>
+            )}
+
+            <details className="equipment fx-more">
+              <summary>Als Liste wählen</summary>
+              <MusclePicker
+                legend="Hauptmuskel (mindestens einer)"
+                selected={primary}
+                onToggle={(key) => {
+                  const r = toggleMuscle(primary, secondary, key);
+                  setCustom({ primary: r.list, secondary: r.other });
+                }}
+              />
+              <MusclePicker
+                legend="Hilfsmuskeln (optional)"
+                selected={secondary}
+                onToggle={(key) => {
+                  const r = toggleMuscle(secondary, primary, key);
+                  setCustom({ primary: r.other, secondary: r.list });
+                }}
+              />
+            </details>
+
+            <details className="equipment fx-more">
+              <summary>Gerät (optional){equipment !== '' ? `: ${equipmentLabel(equipment)}` : ''}</summary>
               <div className="chips">
                 {EQUIPMENT.map((e) => (
                   <button
@@ -326,12 +370,8 @@ export function AddExercise({ exercises, onClose, onPick, onPickMany }: Props) {
                   </button>
                 ))}
               </div>
-            </fieldset>
-            {primary.length === 0 && (
-              <p className="muted">
-                Wähle mindestens einen Hauptmuskel, damit die Übung einsortiert werden kann.
-              </p>
-            )}
+            </details>
+
             <button
               type="button"
               className="btn primary block"

@@ -50,3 +50,20 @@ export function toggleMuscle(
     other: on ? [...other] : other.filter((k) => k !== key),
   };
 }
+
+/**
+ * Tippen auf einen Muskel am Körper: nicht gewählt -> Hauptmuskel -> Hilfsmuskel -> nicht gewählt.
+ */
+export function cycleMuscle(
+  primary: readonly string[],
+  secondary: readonly string[],
+  key: string,
+): { primary: string[]; secondary: string[] } {
+  if (primary.includes(key)) {
+    return { primary: primary.filter((k) => k !== key), secondary: [...secondary, key] };
+  }
+  if (secondary.includes(key)) {
+    return { primary: [...primary], secondary: secondary.filter((k) => k !== key) };
+  }
+  return { primary: [...primary, key], secondary: [...secondary] };
+}

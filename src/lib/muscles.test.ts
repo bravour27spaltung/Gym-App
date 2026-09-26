@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MUSCLES, muscleLabel, toggleMuscle } from './muscles';
+import { MUSCLES, cycleMuscle, muscleLabel, toggleMuscle } from './muscles';
 
 describe('muscles', () => {
   it('hat eindeutige Schlüssel und deutsche Namen', () => {
@@ -17,5 +17,14 @@ describe('muscles', () => {
   it('entfernt den Muskel aus der anderen Liste, wenn er eingeschaltet wird', () => {
     expect(toggleMuscle([], ['triceps'], 'triceps')).toEqual({ list: ['triceps'], other: [] });
     expect(toggleMuscle(['chest'], ['triceps'], 'chest')).toEqual({ list: [], other: ['triceps'] });
+  });
+  it('wechselt beim Tippen: Haupt, Hilfs, aus', () => {
+    const a = cycleMuscle([], [], 'chest');
+    expect(a).toEqual({ primary: ['chest'], secondary: [] });
+    const b = cycleMuscle(a.primary, a.secondary, 'chest');
+    expect(b).toEqual({ primary: [], secondary: ['chest'] });
+    const c = cycleMuscle(b.primary, b.secondary, 'chest');
+    expect(c).toEqual({ primary: [], secondary: [] });
+    expect(cycleMuscle(['chest'], ['triceps'], 'lats')).toEqual({ primary: ['chest', 'lats'], secondary: ['triceps'] });
   });
 });
