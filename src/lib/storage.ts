@@ -1,5 +1,6 @@
 import type { Plan } from './plan';
 import type { LoggedSet } from './progression';
+import type { HistWorkout } from './stats';
 import type { Draft, WorkoutPayload } from './workout';
 
 /**
@@ -41,6 +42,7 @@ const KEYS = {
   outbox: 'gym.outbox.v1',
   lastSets: 'gym.lastSets.v1',
   lastEquipment: 'gym.lastEquipment.v1',
+  history: 'gym.history.v1',
   exercises: 'gym.exercises.v1',
   plans: 'gym.plans.v1',
   lastPlanDay: 'gym.lastPlanDay.v1',
@@ -106,6 +108,9 @@ export function createStore(storage: KeyValueStorage | null) {
       all[exerciseId] = kg;
       return write(KEYS.lastEquipment, all);
     },
+
+    loadHistory: () => read<HistWorkout[]>(KEYS.history, []),
+    saveHistory: (items: HistWorkout[]) => write(KEYS.history, items),
 
     loadExercises: () => read<ExerciseListItem[]>(KEYS.exercises, []),
     saveExercises: (items: ExerciseListItem[]) => write(KEYS.exercises, items),

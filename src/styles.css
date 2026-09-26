@@ -1724,3 +1724,369 @@ button.tile:disabled {
 .exercard-edit .equiprow {
   margin-top: 0;
 }
+
+/* ---------- Kennzahlen, Auswertung, Diagramm ---------- */
+
+.stats {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.stats.c3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.stats.c2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.stat {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.hero .stat {
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+
+.stat-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Große Zahlen in proportionalen Ziffern (kein tabular-nums) */
+.stat-value {
+  white-space: nowrap;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.stats.c3 .stat-value {
+  font-size: 1.15rem;
+}
+
+.stat-sub {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.wsum .hero {
+  margin-top: 0;
+}
+
+.wsum .hero h2 {
+  font-size: 1.7rem;
+}
+
+.records h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.05rem;
+}
+
+.records h2 svg {
+  color: var(--accent);
+}
+
+.records ul {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.records li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.92rem;
+}
+
+.records li span {
+  color: var(--text);
+}
+
+.records em {
+  font-style: normal;
+  color: var(--muted);
+}
+
+.sumlist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sumex {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+}
+
+.sumex-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sumex-head h3 {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.sumex-line {
+  margin: 6px 0 0;
+  font-size: 0.9rem;
+}
+
+.sumex-line span {
+  margin-right: 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sumex-next {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.sumex-next svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.pill.accent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.pill.accent svg {
+  color: var(--accent);
+}
+
+.evidence {
+  margin: 20px 0 8px;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* Diagramm */
+.chartcard {
+  padding: 14px 12px 10px;
+}
+
+.chartcard h2 {
+  padding: 0 4px;
+  font-size: 0.95rem;
+}
+
+.chart {
+  position: relative;
+  padding-top: 4px;
+  outline-offset: 4px;
+}
+
+.chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: pan-y;
+}
+
+.chart-tip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-height: 46px;
+  padding: 4px 4px 8px;
+}
+
+.chart-tip-value {
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.chart-tip-date,
+.chart-tip-cap {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.chart-grid line {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.chart-grid text,
+.chart-axis text {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chart-area {
+  fill: var(--accent);
+  fill-opacity: 0.1;
+  stroke: none;
+}
+
+.chart-cross {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+.chart-dot {
+  fill: var(--accent);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.filterrow {
+  margin-bottom: 4px;
+}
+
+.filterrow .chips.scroll {
+  margin-top: 0;
+}
+
+.rangechips {
+  margin-top: 10px;
+}
+
+.tablebtn {
+  margin-top: 8px;
+  color: var(--accent);
+}
+
+.datatable {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.datatable th,
+.datatable td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  font-weight: 500;
+}
+
+.datatable thead th {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.datatable.sets td,
+.datatable.sets th {
+  text-align: center;
+}
+
+.datatable tr.warm {
+  color: var(--muted);
+}
+
+.datatable td.best {
+  font-weight: 800;
+}
+
+/* Sätze pro Muskel: waagerechte Balken, eine Reihe, eine Farbe */
+.musclevol ul {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.musclevol li {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.mv-label {
+  font-size: 0.85rem;
+}
+
+.mv-track {
+  position: relative;
+  display: block;
+  height: 20px;
+}
+
+.mv-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 4px;
+  background: var(--surface-3);
+  opacity: 0.55;
+}
+
+.mv-bar {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  height: 12px;
+  min-width: 2px;
+  border-radius: 0 4px 4px 0;
+  background: var(--accent);
+}
+
+.mv-value {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.mv-note {
+  margin: 12px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}

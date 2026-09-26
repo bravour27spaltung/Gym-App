@@ -62,6 +62,24 @@ Die Sätze sind eine Tabelle: **Satz | Vorher | kg | Wdh. | Haken**. Gewicht und
 
 **RIR:** Wird nicht mehr abgefragt und nicht angezeigt. Die Spalten `rir` und `target_rir` bleiben in der Datenbank (leer), damit bestehende Daten gültig bleiben.
 
+## Auswertung und Verlauf
+
+**Nach dem Training:** Direkt nach „Speichern" zeigt die App eine Auswertung: Dauer, Arbeitssätze, Wiederholungen und Volumen (Gesamtlast × Wiederholungen), neue Bestwerte, je Übung den besten Satz, den Vergleich mit dem letzten Mal und eine Empfehlung für das nächste Mal (Double Progression, nach den abgehakten Sätzen und dem Wiederholungsbereich). Dazu die Arbeitssätze pro Muskel der letzten 7 Tage. Die Auswertung funktioniert auch offline, weil sie nur lokale Daten nutzt.
+
+**Reiter „Verlauf":** Kennzahlen der letzten 7 Tage im Vergleich zu den 7 Tagen davor, Sätze pro Muskel, die Liste aller Einheiten mit Details (jeder Satz, geschätztes 1RM) und je Übung ein Verlaufsdiagramm mit Kennzahl (geschätztes 1RM, höchste Last, Volumen, Wiederholungen) und Zeitraum (3 Monate oder alle). Jedes Diagramm hat eine Tabellenansicht. Es sind die letzten 150 Trainings geladen und lokal zwischengespeichert.
+
+**Was gemessen und was geschätzt ist:**
+
+| Kennzahl | Art | Hinweis |
+| --- | --- | --- |
+| Gewicht, Wiederholungen, Sätze, Volumen | gemessen | Gesamtlast = eingegebenes Gewicht + Stange/Maschine. Nur Arbeitssätze, keine Aufwärmsätze. |
+| 1RM | geschätzt | Formel nach Epley: Last × (1 + Wiederholungen ÷ 30). Bis 12 Wiederholungen, darüber keine Schätzung. Schätzformeln sind bei wenigen Wiederholungen am genauesten. |
+| Bestwert | berechnet | Nur gegenüber früheren Einheiten derselben Übung; bei der ersten Einheit gibt es keinen. Gemeldet werden höchste Last und bestes geschätztes 1RM. |
+| Sätze pro Muskel | berechnet | Hauptmuskel zählt 1, Hilfsmuskel 0,5 je Arbeitssatz (übliche Zählweise, keine belegte Norm). |
+| Richtwert 10–20 Sätze pro Muskel und Woche | Literatur | Schoenfeld, Ogborn & Krieger 2017, *J Sports Sci* 35(11), Meta-Analyse mit Dosis-Wirkungs-Auswertung. Evidenz: mittel. Die Studien dauerten meist wenige Wochen, der Zusatznutzen nimmt bei höherem Volumen ab. Ein Richtwert, keine Vorgabe. |
+
+Die Formeln stehen in `src/lib/stats.ts`. Ein neues Datenbankschema ist dafür nicht nötig.
+
 ## Auf GitHub und Vercel bringen
 
 1. **GitHub:** Leeres, privates Repository `gym-app` anlegen (ohne README). Dann im entpackten Ordner:

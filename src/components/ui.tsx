@@ -46,6 +46,12 @@ const PATHS = {
   ),
   play: <path d="m7 4 13 8-13 8V4z" />,
   pencil: <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />,
+  chart: <path d="M4 20h16M7 20v-7M12 20V6M17 20v-10" />,
+  trophy: (
+    <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+  ),
+  trend: <path d="m22 7-8.5 8.5-5-5L2 17M16 7h6v6" />,
+  table: <path d="M3 5h18v14H3zM3 10h18M9 5v14" />,
   folder: <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />,
 } satisfies Record<string, ReactNode>;
 
@@ -182,13 +188,13 @@ export function AppBar(props: {
   );
 }
 
-/** Untere Navigation (Training / Pläne). */
-export function TabBar(props: {
-  active: 'home' | 'plans';
-  onChange: (tab: 'home' | 'plans') => void;
-}) {
-  const tabs: { key: 'home' | 'plans'; label: string; icon: IconName }[] = [
+export type Tab = 'home' | 'history' | 'plans';
+
+/** Untere Navigation (Training / Verlauf / Pläne). */
+export function TabBar(props: { active: Tab; onChange: (tab: Tab) => void }) {
+  const tabs: { key: Tab; label: string; icon: IconName }[] = [
     { key: 'home', label: 'Training', icon: 'dumbbell' },
+    { key: 'history', label: 'Verlauf', icon: 'chart' },
     { key: 'plans', label: 'Pläne', icon: 'list' },
   ];
   return (
@@ -318,5 +324,23 @@ export function EquipmentField(props: {
         ))}
       </div>
     </>
+  );
+}
+
+/** Kennzahlen-Kacheln: Beschriftung, großer Wert, optional eine Vergleichszeile. */
+export function StatGrid(props: {
+  items: { label: string; value: string; sub?: string }[];
+  columns?: 2 | 3;
+}) {
+  return (
+    <div className={`stats c${props.columns ?? 3}`}>
+      {props.items.map((it) => (
+        <div key={it.label} className="stat">
+          <span className="stat-label">{it.label}</span>
+          <span className="stat-value">{it.value}</span>
+          {it.sub && <span className="stat-sub">{it.sub}</span>}
+        </div>
+      ))}
+    </div>
   );
 }

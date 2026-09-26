@@ -2,6 +2,7 @@ import { supabase } from '../supabase';
 import { translateAuthError } from './authErrors';
 import type { Plan, PlanDbRow, PlanRows } from './plan';
 import { plansFromRows } from './plan';
+import type { HistWorkout } from './stats';
 import type { ExerciseListItem, LastInfo, Store } from './storage';
 import type { WorkoutPayload } from './workout';
 
@@ -113,6 +114,57 @@ export async function fetchLastSets(exerciseId: string): Promise<Result<LastInfo
       })),
       equipmentKg: eq === null || eq === undefined ? null : Number(eq),
     },
+  };
+}
+
+interface HistoryRow {
+  id: string;
+  name: string;
+  started_at: string;
+  finished_at: string | null;
+  fit_workout_exercises: {
+    exercise_id: string;
+    position: number;
+    equipment_kg: number | string | null;
+    fit_sets: { type: 'warmup' | 'working'; weight_kg: number | string; reps: number; set_number: number }[];
+  }[];
+}
+
+/**
+ * Abgeschlossene Trainings mit allen Übungen und Sätzen, neueste zuerst. Die Zeilen sind
+ * klein (einige Sätze je Übung); 150 Trainings reichen für gut ein Jahr bei drei Einheiten
+ * pro Woche.
+ */
+export async function fetchHistory(limit = 150): Promise<Result<HistWorkout[]>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { data, error } = await supabase
+    .from('fit_workouts')
+    .select(
+      'id, name, started_at, finished_at, ' +
+        'fit_workout_exercises(exercise_id, position, equipment_kg, fit_sets(type, weight_kg, reps, set_number))',
+    )
+    .not('finished_at', 'is', null)
+    .order('started_at', { ascending: false })
+    .limit(limit);
+  if (error) return fail(error.message);
+  const rows = (data ?? []) as unknown as HistoryRow[];
+  return {
+    ok: true,
+    data: rows.map((w) => ({
+      id: w.id,
+      name: w.name,
+      startedAt: w.started_at,
+      finishedAt: w.finished_at,
+      exercises: [...w.fit_workout_exercises]
+        .sort((a, b) => a.position - b.position)
+        .map((e) => ({
+          exerciseId: e.exercise_id,
+          equipmentKg: e.equipment_kg === null ? null : Number(e.equipment_kg),
+          sets: [...e.fit_sets]
+            .sort((a, b) => a.set_number - b.set_number)
+            .map((s) => ({ type: s.type, weightKg: Number(s.weight_kg), reps: s.reps })),
+        })),
+    })),
   };
 }
 

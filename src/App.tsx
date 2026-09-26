@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { HistoryScreen } from './components/HistoryScreen';
 import { musclesOfDay } from './components/PlanEditor';
 import { PlansScreen } from './components/PlansScreen';
-import { Icon, TabBar } from './components/ui';
+import { Icon, TabBar, type Tab } from './components/ui';
+import { WorkoutSummaryScreen } from './components/WorkoutSummary';
 import { WorkoutScreen } from './components/WorkoutScreen';
 import {
   archivePlan,
   fetchExercises,
+  fetchHistory,
   fetchLastPlanDayId,
   fetchLastSets,
   fetchPlans,
@@ -29,12 +32,21 @@ import {
 } from './lib/plan';
 import { normalizeCode } from './lib/authErrors';
 import { nextPlanDay } from './lib/rotation';
+import {
+  draftToHist,
+  mergeHistory,
+  summarizeWorkout,
+  type ExerciseMeta,
+  type HistWorkout,
+  type WorkoutSummary,
+} from './lib/stats';
 import { browserStore, type ExerciseListItem, type LastInfo } from './lib/storage';
 import {
   buildPayload,
   createDraft,
   doneSetsAsLogged,
   type Draft,
+  type DraftExercise,
 } from './lib/workout';
 import { configError, supabase } from './supabase';
 
@@ -53,7 +65,9 @@ export function App() {
   // Erst nach dem ersten Laden (oder mit Zwischenspeicher) "noch kein Plan" anzeigen.
   const [plansReady, setPlansReady] = useState(() => store.loadPlans().length > 0);
   const [lastPlanDayId, setLastPlanDayId] = useState<string | null>(() => store.getLastPlanDayId());
-  const [screen, setScreen] = useState<'home' | 'plans'>('home');
+  const [screen, setScreen] = useState<Tab>('home');
+  const [history, setHistory] = useState<HistWorkout[]>(() => store.loadHistory());
+  const [summary, setSummary] = useState<WorkoutSummary | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [pending, setPending] = useState(() => store.loadOutbox().length);
@@ -95,6 +109,11 @@ export function App() {
       store.saveExercises(list.data);
     }
     await refreshPlans(list.ok ? list.data : store.loadExercises());
+    const hist = await fetchHistory();
+    if (hist.ok) {
+      setHistory(hist.data);
+      store.saveHistory(hist.data);
+    }
     // Ungesendete Trainings sind lokal aktueller als der Server.
     if (res.pending === 0) {
       const last = await fetchLastPlanDayId();
@@ -146,7 +165,8 @@ export function App() {
 
   async function finish() {
     if (!draft) return;
-    const payload = buildPayload(draft, new Date());
+    const finishedAt = new Date();
+    const payload = buildPayload(draft, finishedAt);
     if (!payload) {
       setDraft(null);
       return;
@@ -174,11 +194,50 @@ export function App() {
       store.setLastPlanDayId(draft.planDayId);
       setLastPlanDayId(draft.planDayId);
     }
+    // Auswertung direkt nach dem Speichern, auch offline (nur lokale Daten).
+    const current = draftToHist(draft, finishedAt);
+    const byId = new Map<string, DraftExercise>(draft.exercises.map((e) => [e.exerciseId, e] as const));
+    setSummary(
+      summarizeWorkout(current, mergedHistory, {
+        nameOf: (id) => byId.get(id)?.name ?? exerciseMeta[id]?.name ?? 'Übung',
+        muscleOf: (id) => ({
+          primary: byId.get(id)?.primaryMuscles ?? exerciseMeta[id]?.primary ?? [],
+          secondary: byId.get(id)?.secondaryMuscles ?? exerciseMeta[id]?.secondary ?? [],
+        }),
+        rangeOf: (id) => {
+          const e = byId.get(id);
+          return e ? { repMin: e.repMin, repMax: e.repMax } : null;
+        },
+      }),
+    );
     setDraft(null);
     setPending(store.loadOutbox().length);
     setBusy(false);
     void sync();
   }
+
+  // Name und Muskeln je Übung: Katalog plus eigene Übungen, die noch nicht in der Datenbank sind.
+  const exerciseMeta = useMemo(() => {
+    const meta: Record<string, ExerciseMeta> = {};
+    for (const x of exercises) {
+      meta[x.id] = { name: x.name, primary: x.primaryMuscles ?? [], secondary: x.secondaryMuscles ?? [] };
+    }
+    for (const p of store.loadOutbox()) {
+      for (const n of p.newExercises) {
+        meta[n.id] = { name: n.name_de, primary: n.primary_muscles, secondary: n.secondary_muscles };
+      }
+    }
+    return meta;
+    // pending ändert sich mit dem Ausgangskorb
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exercises, pending, store]);
+
+  // Verlauf aus der Datenbank plus noch nicht gesendete Trainings.
+  const mergedHistory = useMemo(
+    () => mergeHistory(history, store.loadOutbox()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [history, pending, store],
+  );
 
   const exercisesById = useMemo(
     () => Object.fromEntries(exercises.map((x) => [x.id, x])),
@@ -277,7 +336,24 @@ export function App() {
     );
   }
 
+  if (summary) {
+    return (
+      <main>
+        <WorkoutSummaryScreen summary={summary} onDone={() => setSummary(null)} />
+      </main>
+    );
+  }
+
   const tabs = editorOpen ? null : <TabBar active={screen} onChange={setScreen} />;
+
+  if (screen === 'history') {
+    return (
+      <main>
+        <HistoryScreen workouts={mergedHistory} meta={exerciseMeta} />
+        {tabs}
+      </main>
+    );
+  }
 
   if (screen === 'plans') {
     return (
