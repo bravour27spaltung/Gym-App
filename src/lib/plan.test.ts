@@ -293,7 +293,7 @@ describe('Training aus Plantag', () => {
     expect(bench).toMatchObject({ plannedSets: 4, targetRir: 1, restSeconds: 180 });
     expect(bench.sets).toHaveLength(4);
     expect(bench.suggestion.action).toBe('increase');
-    expect(bench.sets[0].weightKg).toBe(50);
+    expect(bench.sets[0].weightKg).toBe(51.25); // kein Wiederholungs-Überschuss (12/12) -> kleiner Sprung (2,5 %)
     expect(bench.sets[0].reps).toBe(12); // Ziel ist immer die Obergrenze des Bereichs
 
     const ohp = d.exercises[1];

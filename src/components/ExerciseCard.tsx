@@ -130,7 +130,11 @@ export function ExerciseCard(props: Props) {
       <p className={`hint ${s.action}`}>
         <strong>
           {s.action === 'increase'
-            ? `Empfehlung: Steigern (du wählst das Gewicht), Ziel ${s.targetReps ?? e.repMax} Wdh.`
+            ? s.incrementKg !== null && s.weightKg !== null
+              ? `Empfehlung: Steigern auf ${formatKg(s.weightKg)} (+${formatKg(s.incrementKg)}), Ziel ${
+                  s.targetReps ?? e.repMax
+                } Wdh.`
+              : `Empfehlung: Steigern (du wählst das Gewicht), Ziel ${s.targetReps ?? e.repMax} Wdh.`
             : s.action === 'hold'
               ? `Empfehlung: Halten${s.weightKg !== null ? `: ${formatKg(s.weightKg)}` : ''} × ${
                   s.targetReps ?? e.repMax

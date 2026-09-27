@@ -50,13 +50,15 @@ describe('weight', () => {
 describe('Double Progression', () => {
   const base = { repMin: 6, repMax: 8 };
 
-  it('steigert, wenn mehr als ein Satz die Obergrenze erreicht', () => {
+  it('steigert, wenn mehr als ein Satz die Obergrenze erreicht, mit konkretem Gewichtsvorschlag', () => {
     const r = suggestProgression({
       ...base,
-      sets: [work(60, 8, 0), work(60, 8, 0), work(60, 7, 0)],
+      sets: [work(60, 8, null), work(60, 8, null), work(60, 7, null)],
     });
     expect(r.action).toBe('increase');
-    expect(r.weightKg).toBe(60); // bisheriges Arbeitsgewicht, das neue wählst du selbst
+    // Beide qualifizierenden Sätze genau auf der Obergrenze (kein Überschuss) -> kleiner Sprung (2,5 %).
+    expect(r.incrementKg).toBe(1.5);
+    expect(r.weightKg).toBe(61.5);
     expect(r.targetReps).toBe(8); // Ziel bleibt die Obergrenze des Bereichs
   });
 
@@ -64,10 +66,10 @@ describe('Double Progression', () => {
     const r = suggestProgression({
       repMin: 8,
       repMax: 12,
-      sets: [work(50, 12, 0), work(50, 12, 0), work(50, 11, 0)],
+      sets: [work(50, 12, null), work(50, 12, null), work(50, 11, null)],
     });
     expect(r.action).toBe('increase');
-    expect(r.weightKg).toBe(50);
+    expect(r.weightKg).toBe(51.25); // 2,5 % von 50 kg, kein Überschuss über die Obergrenze
     expect(r.targetReps).toBe(12); // Ziel bleibt die Obergrenze des Bereichs
   });
 
@@ -77,11 +79,29 @@ describe('Double Progression', () => {
     expect(r.weightKg).toBe(60);
   });
 
-  it('RIR beeinflusst den Vorschlag nicht: nur die Wiederholungen zählen', () => {
+  it('RIR beeinflusst weder ob noch wie stark gesteigert wird: nur die Wiederholungen zählen', () => {
     for (const rir of [0, 1, 3, null]) {
       const r = suggestProgression({ ...base, sets: [work(60, 8, rir), work(60, 8, rir)] });
       expect(r.action).toBe('increase');
+      expect(r.incrementKg).toBe(1.5); // gleicher Sprung unabhängig vom (nicht mehr erfassten) RIR
     }
+  });
+
+  it('die Sprunggröße richtet sich nach dem Wiederholungs-Überschuss über der Obergrenze', () => {
+    // Genau an der Obergrenze (kein Überschuss) -> kleiner Sprung (2,5 %).
+    const exact = suggestProgression({ ...base, sets: [work(60, 8, null), work(60, 8, null)] });
+    expect(exact.incrementKg).toBe(1.5); // 2,5 % von 60 kg, auf 0,25 kg gerundet
+    expect(exact.weightKg).toBe(61.5);
+
+    // 1–2 Wiederholungen über der Obergrenze -> mittlerer Sprung (5 %).
+    const some = suggestProgression({ ...base, sets: [work(60, 9, null), work(60, 9, null)] });
+    expect(some.incrementKg).toBe(3); // 5 % von 60 kg
+    expect(some.weightKg).toBe(63);
+
+    // 3 oder mehr Wiederholungen über der Obergrenze -> größerer Sprung (7,5 %).
+    const many = suggestProgression({ ...base, sets: [work(60, 11, null), work(60, 12, null)] });
+    expect(many.incrementKg).toBe(4.5); // 7,5 % von 60 kg
+    expect(many.weightKg).toBe(64.5);
   });
 
   it('steigert nicht, wenn die Obergrenze nur bei einem leichteren Gewicht erreicht wurde', () => {
@@ -101,18 +121,20 @@ describe('Double Progression', () => {
       ...base,
       sets: [
         { type: 'warmup', weightKg: 30, reps: 10, rir: null },
-        work(60, 8, 0),
-        work(60, 8, 0),
-        work(55, 8, 0),
+        work(60, 8, null),
+        work(60, 8, null),
+        work(55, 8, null),
       ],
     });
     expect(r.action).toBe('increase');
-    expect(r.weightKg).toBe(60);
+    expect(r.weightKg).toBe(61.5);
   });
 
-  it('macht keinen Vorschlag für ein bestimmtes neues Gewicht', () => {
-    const r = suggestProgression({ ...base, sets: [work(60, 8, 0), work(60, 8, 0)] });
-    expect(r.reason).toContain('du wählst');
+  it('macht bei "Halten" keinen Gewichtsvorschlag', () => {
+    const r = suggestProgression({ ...base, sets: [work(60, 7, null), work(60, 6, null)] });
+    expect(r.action).toBe('hold');
+    expect(r.reason).toContain('halten');
+    expect(r.incrementKg).toBeNull();
   });
 
   it('meldet fehlende Daten', () => {

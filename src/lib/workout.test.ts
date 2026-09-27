@@ -39,12 +39,13 @@ function draftWithBench(lastSets: LoggedSet[] = lastTime) {
 }
 
 describe('Vorbelegung', () => {
-  it('belegt nach erreichter Obergrenze mit dem bisherigen Gewicht vor (neues Gewicht wählst du); Ziel bleibt die Obergrenze', () => {
+  it('belegt nach erreichter Obergrenze mit dem Gewichtsvorschlag vor (änderbar); Ziel bleibt die Obergrenze', () => {
     const e = draftWithBench().exercises[0];
     expect(e.suggestion.action).toBe('increase');
+    expect(e.suggestion.incrementKg).toBe(1.25); // kein Wiederholungs-Überschuss (12/12) -> kleiner Sprung (2,5 %)
     expect(e.sets).toHaveLength(3);
     for (const s of e.sets) {
-      expect(s.weightKg).toBe(50);
+      expect(s.weightKg).toBe(51.25);
       expect(s.reps).toBe(12);
       expect(s.done).toBe(false);
     }
@@ -76,7 +77,7 @@ describe('Sätze bearbeiten', () => {
 
     const d1 = updateSet(d0, exId, setId, { weightKg: 55.25, reps: 9, rir: 0 });
     expect(d1.exercises[0].sets[0]).toMatchObject({ weightKg: 55.25, reps: 9, rir: 0 });
-    expect(d0.exercises[0].sets[0].weightKg).toBe(50);
+    expect(d0.exercises[0].sets[0].weightKg).toBe(51.25);
 
     const d2 = toggleDone(d1, exId, setId);
     expect(d2.exercises[0].sets[0].done).toBe(true);
@@ -84,7 +85,7 @@ describe('Sätze bearbeiten', () => {
 
     const d3 = addSet(d2, exId);
     expect(d3.exercises[0].sets).toHaveLength(4);
-    expect(d3.exercises[0].sets[3].weightKg).toBe(50);
+    expect(d3.exercises[0].sets[3].weightKg).toBe(51.25);
 
     const d4 = removeSet(d3, exId, d3.exercises[0].sets[3].id);
     expect(d4.exercises[0].sets).toHaveLength(3);
