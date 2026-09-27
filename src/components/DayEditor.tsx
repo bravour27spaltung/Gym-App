@@ -4,7 +4,7 @@ import { summarizePlanExercise, type PlanExercise, type updatePlanExercise } fro
 import type { ExerciseListItem, LastInfo } from '../lib/storage';
 import { formatClock } from '../lib/timer';
 import { describeLastSets, type ExerciseInput } from '../lib/workout';
-import { lastWorkingWeightKg } from '../lib/progression';
+import { lastWorkingWeightKg, suggestProgression } from '../lib/progression';
 import { formatKg } from '../lib/weight';
 import { AddExercise } from './AddExercise';
 import { EquipmentField, Icon, IconButton, NumberInput, Stepper, Switch } from './ui';
@@ -135,6 +135,24 @@ export function DayEditor({ exercises, catalog, onUpdate, onMove, onRemove, onAd
                         </p>
                       );
                     })()}
+                    {(() => {
+                      const last = lastById[e.exerciseId];
+                      if (!last) return null;
+                      const sug = suggestProgression({ sets: last.sets, repMin: e.repMin, repMax: e.repMax });
+                      return (
+                        <p className={`hint compact ${sug.action}`}>
+                          <strong>
+                            {sug.action === 'increase'
+                              ? `Vorschlag fürs nächste Training: Steigern, Ziel ${sug.targetReps} Wdh.`
+                              : sug.action === 'hold'
+                                ? `Vorschlag fürs nächste Training: Halten${
+                                    sug.weightKg !== null ? `: ${formatKg(sug.weightKg)}` : ''
+                                  } × ${sug.targetReps} Wdh.`
+                                : `Ziel fürs nächste Training: ${sug.targetReps} Wdh.`}
+                          </strong>
+                        </p>
+                      );
+                    })()}
                   </div>
 
                   <div className="field stack">
@@ -157,7 +175,10 @@ export function DayEditor({ exercises, catalog, onUpdate, onMove, onRemove, onAd
                   </div>
 
                   <div className="field stack">
-                    <span>Wiederholungen (Bereich für die Steigerung)</span>
+                    <span>
+                      Wiederholungen (Bereich für die Steigerung)
+                      <small>Ziel ist immer die Obergrenze: {e.repMax} Wdh.</small>
+                    </span>
                     <div className="range">
                       <Stepper
                         label={`${e.name}: untere Grenze`}

@@ -57,7 +57,7 @@ describe('Double Progression', () => {
     });
     expect(r.action).toBe('increase');
     expect(r.weightKg).toBe(60); // bisheriges Arbeitsgewicht, das neue wählst du selbst
-    expect(r.targetReps).toBe(6);
+    expect(r.targetReps).toBe(8); // Ziel bleibt die Obergrenze des Bereichs
   });
 
   it('Beispiel: 2 Sätze mit 12 und 1 Satz mit 11 (Bereich bis 12) führt zur Steigerung', () => {
@@ -68,7 +68,7 @@ describe('Double Progression', () => {
     });
     expect(r.action).toBe('increase');
     expect(r.weightKg).toBe(50);
-    expect(r.targetReps).toBe(8);
+    expect(r.targetReps).toBe(12); // Ziel bleibt die Obergrenze des Bereichs
   });
 
   it('steigert nicht, wenn nur ein Satz die Obergrenze erreicht', () => {
@@ -90,9 +90,10 @@ describe('Double Progression', () => {
     expect(r.weightKg).toBe(60);
   });
 
-  it('strebt eine Wiederholung mehr an, höchstens bis zur Obergrenze', () => {
+  it('das Ziel ist immer die Obergrenze des Bereichs, auch beim Halten', () => {
     const r = suggestProgression({ ...base, sets: [work(60, 6, 0), work(60, 6, 0)] });
-    expect(r.targetReps).toBe(7);
+    expect(r.action).toBe('hold');
+    expect(r.targetReps).toBe(8);
   });
 
   it('ignoriert Aufwärmsätze und leichtere Sätze', () => {

@@ -294,10 +294,37 @@ describe('Training aus Plantag', () => {
     expect(bench.sets).toHaveLength(4);
     expect(bench.suggestion.action).toBe('increase');
     expect(bench.sets[0].weightKg).toBe(50);
-    expect(bench.sets[0].reps).toBe(8);
+    expect(bench.sets[0].reps).toBe(12); // Ziel ist immer die Obergrenze des Bereichs
 
     const ohp = d.exercises[1];
     expect(ohp.suggestion.action).toBe('no-data');
+    expect(ohp.sets[0].reps).toBe(12);
+  });
+
+  it('zeigt die Steigerungsempfehlung immer anhand der echten Historie, auch wenn der Plan ein eigenes Gewicht vorgibt', () => {
+    let p = pushPullLower();
+    const day = p.days[0];
+    // Der Plan gibt bewusst ein eigenes Gewicht vor (z. B. nach einem Deload) …
+    p = updatePlanExercise(p, day.id, day.exercises[0].id, { weightKg: 40 });
+    const d = draftFromPlanDay(
+      p.days[0],
+      list,
+      {
+        // … das tatsächliche letzte Training lief aber schon mit 50 kg und hat
+        // die Obergrenze nicht erreicht.
+        bench: [
+          { type: 'working', weightKg: 50, reps: 10, rir: 0 },
+          { type: 'working', weightKg: 50, reps: 9, rir: 0 },
+        ],
+      },
+      now,
+    );
+    const bench = d.exercises[0];
+    // Die Vorbelegung folgt der bewussten Planvorgabe (40 kg) …
+    expect(bench.sets[0].weightKg).toBe(40);
+    // … aber die Empfehlung bleibt an die echte Historie gekoppelt.
+    expect(bench.suggestion.action).toBe('hold');
+    expect(bench.suggestion.weightKg).toBe(50);
   });
 
   it('lässt archivierte Übungen weg', () => {

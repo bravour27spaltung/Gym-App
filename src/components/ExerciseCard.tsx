@@ -127,17 +127,17 @@ export function ExerciseCard(props: Props) {
         </p>
       )}
 
-      {s.action !== 'no-data' && (
-        <p className={`hint ${s.action}`}>
-          <strong>
-            {s.action === 'increase'
-              ? `Empfehlung: Steigern, ab ${s.targetReps ?? e.repMin} Wdh.`
-              : `Empfehlung: Halten${s.weightKg !== null ? `: ${formatKg(s.weightKg)}` : ''}${
-                  s.targetReps !== null ? ` × ${s.targetReps}` : ''
-                }`}
-          </strong>
-        </p>
-      )}
+      <p className={`hint ${s.action}`}>
+        <strong>
+          {s.action === 'increase'
+            ? `Empfehlung: Steigern (du wählst das Gewicht), Ziel ${s.targetReps ?? e.repMax} Wdh.`
+            : s.action === 'hold'
+              ? `Empfehlung: Halten${s.weightKg !== null ? `: ${formatKg(s.weightKg)}` : ''} × ${
+                  s.targetReps ?? e.repMax
+                } Wdh.`
+              : `Ziel: ${s.targetReps ?? e.repMax} Wdh.`}
+        </strong>
+      </p>
 
       <p className="lasttime">
         <span>Letztes Mal</span> {last || 'noch kein Training mit dieser Übung'}
@@ -190,7 +190,7 @@ export function ExerciseCard(props: Props) {
           </div>
         </div>
 
-        {s.action !== 'no-data' && <p className="muted fx-reason">{s.reason}</p>}
+        <p className="muted fx-reason">{s.reason}</p>
 
         {!confirmRemove ? (
           <button type="button" className="textbtn danger" onClick={() => setConfirmRemove(true)}>

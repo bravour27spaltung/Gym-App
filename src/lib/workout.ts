@@ -95,8 +95,12 @@ export function addExercise(draft: Draft, input: ExerciseInput): Draft {
   const lastSets = input.lastSets ?? [];
 
   const suggestion = suggestProgression({ sets: lastSets, repMin, repMax });
+  // Ein im Plan explizit gesetztes Gewicht ist eine bewusste Vorgabe (z. B. nach
+  // einem Deload) und hat Vorrang; ohne Vorgabe zählt das letzte Training. Der
+  // Steigerungs-/Halten-Hinweis (suggestion) selbst folgt davon unabhängig immer
+  // der echten Historie, damit die Empfehlung nicht verloren geht.
   const weightKg = input.weightKg ?? suggestion.weightKg ?? 0;
-  const reps = suggestion.targetReps ?? repMin;
+  const reps = suggestion.targetReps ?? repMax;
 
   const sets: DraftSet[] = Array.from({ length: plannedSets }, () => ({
     id: newId(),
@@ -181,7 +185,7 @@ export function addSet(draft: Draft, exId: string): Draft {
     const lastWorking = [...e.sets].reverse().find((s) => s.type === 'working');
     const base = lastWorking ?? {
       weightKg: e.suggestion.weightKg ?? 0,
-      reps: e.suggestion.targetReps ?? e.repMin,
+      reps: e.suggestion.targetReps ?? e.repMax,
     };
     const set: DraftSet = {
       id: newId(),

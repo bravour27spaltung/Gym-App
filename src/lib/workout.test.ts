@@ -38,31 +38,32 @@ function draftWithBench(lastSets: LoggedSet[] = lastTime) {
 }
 
 describe('Vorbelegung', () => {
-  it('belegt nach erreichter Obergrenze mit dem bisherigen Gewicht und unterer Grenze vor (neues Gewicht wählst du)', () => {
+  it('belegt nach erreichter Obergrenze mit dem bisherigen Gewicht vor (neues Gewicht wählst du); Ziel bleibt die Obergrenze', () => {
     const e = draftWithBench().exercises[0];
     expect(e.suggestion.action).toBe('increase');
     expect(e.sets).toHaveLength(3);
     for (const s of e.sets) {
       expect(s.weightKg).toBe(50);
-      expect(s.reps).toBe(8);
+      expect(s.reps).toBe(12);
       expect(s.done).toBe(false);
     }
   });
 
-  it('belegt ohne Vorgeschichte mit 0 kg und unterer Grenze vor', () => {
+  it('belegt ohne Vorgeschichte mit 0 kg und der Obergrenze als Ziel vor', () => {
     const e = draftWithBench([]).exercises[0];
     expect(e.suggestion.action).toBe('no-data');
     expect(e.sets[0].weightKg).toBe(0);
-    expect(e.sets[0].reps).toBe(8);
+    expect(e.sets[0].reps).toBe(12);
   });
 
-  it('hält das Gewicht und strebt eine Wiederholung mehr an, wenn die Grenze nicht erreicht war', () => {
+  it('hält das Gewicht und zielt weiter auf die Obergrenze, wenn diese noch nicht erreicht war', () => {
     const e = draftWithBench([
       { type: 'working', weightKg: 50, reps: 10, rir: 0 },
       { type: 'working', weightKg: 50, reps: 9, rir: 0 },
     ]).exercises[0];
+    expect(e.suggestion.action).toBe('hold');
     expect(e.sets[0].weightKg).toBe(50);
-    expect(e.sets[0].reps).toBe(11);
+    expect(e.sets[0].reps).toBe(12);
   });
 });
 

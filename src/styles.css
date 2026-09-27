@@ -1267,6 +1267,12 @@ button.tile:disabled {
   border-color: var(--warn);
 }
 
+.hint.compact {
+  padding: 6px 10px;
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+}
+
 .rest-setting {
   display: flex;
   align-items: center;
