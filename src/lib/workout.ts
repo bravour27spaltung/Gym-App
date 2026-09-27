@@ -151,7 +151,7 @@ export function updateExercise(
   return mapEx(draft, exId, (e) => ({ ...e, ...patch }));
 }
 
-/** Kurztext für "Letztes Mal", z. B. "50 kg × 12, 12, 11 · 45 kg × 10". */
+/** Kurztext für "Letztes Mal", z. B. "12, 12, 11 × 50 kg · 10 × 45 kg". */
 export function describeLastSets(sets: LoggedSet[]): string {
   const working = sets.filter((s) => s.type === 'working');
   if (working.length === 0) return '';
@@ -162,7 +162,7 @@ export function describeLastSets(sets: LoggedSet[]): string {
     else groups.push({ weightKg: s.weightKg, reps: [s.reps] });
   }
   return groups
-    .map((g) => `${String(g.weightKg).replace('.', ',')} kg × ${g.reps.join(', ')}`)
+    .map((g) => `${g.reps.join(', ')} × ${String(g.weightKg).replace('.', ',')} kg`)
     .join(' · ');
 }
 

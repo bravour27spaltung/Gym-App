@@ -352,7 +352,7 @@ function ExerciseProgress(props: {
     const top = p.topSet
       ? p.topSet.loadKg === 0
         ? `${p.topSet.reps} Wdh.`
-        : `${fmtKg(p.topSet.weightKg)} × ${p.topSet.reps}`
+        : `${p.topSet.reps} × ${fmtKg(p.topSet.weightKg)}`
       : '–';
     return [{ at: p.at, value: v, caption: `Bester Satz ${top}`, sets: p.workingSets, top }];
   });
@@ -497,7 +497,7 @@ function MuscleProgress(props: {
     const top = p.topSet
       ? p.topSet.loadKg === 0
         ? `${p.topSet.reps} Wdh.`
-        : `${fmtKg(p.topSet.weightKg)} × ${p.topSet.reps}`
+        : `${p.topSet.reps} × ${fmtKg(p.topSet.weightKg)}`
       : '–';
     return [{ at: p.at, value: v, caption: `${nameOf(p.exerciseId)} · ${top}`, exerciseId: p.exerciseId, top }];
   });

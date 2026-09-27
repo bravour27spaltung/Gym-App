@@ -3,7 +3,7 @@ import { formatClock } from '../lib/timer';
 import { formatKg } from '../lib/weight';
 import { describeLastSets, type DraftExercise, type DraftSet } from '../lib/workout';
 import { SetEditor, SetLine } from './SetRow';
-import { MuscleFigure, MuscleLegend } from './MuscleFigure';
+import { MuscleLegend } from './MuscleFigure';
 import { EquipmentField, Icon } from './ui';
 
 interface Props {
@@ -115,7 +115,6 @@ export function ExerciseCard(props: Props) {
           <p className="excard-sub">{e.repMin}–{e.repMax} Wdh.</p>
           <MuscleLegend primary={primary} secondary={secondary} />
         </div>
-        <MuscleFigure primary={primary} secondary={secondary} height={88} />
         <span className="excard-progress" aria-label={`${doneCount} von ${workingCount} Sätzen erledigt`}>
           {doneCount}/{workingCount}
         </span>
@@ -127,21 +126,21 @@ export function ExerciseCard(props: Props) {
         </p>
       )}
 
-      <p className={`hint ${s.action}`}>
-        <strong>
-          {s.action === 'increase'
-            ? s.incrementKg !== null && s.weightKg !== null
-              ? `Empfehlung: Steigern auf ${formatKg(s.weightKg)} (+${formatKg(s.incrementKg)}), Ziel ${
-                  s.targetReps ?? e.repMax
-                } Wdh.`
-              : `Empfehlung: Steigern (du wählst das Gewicht), Ziel ${s.targetReps ?? e.repMax} Wdh.`
-            : s.action === 'hold'
-              ? `Empfehlung: Halten${s.weightKg !== null ? `: ${formatKg(s.weightKg)}` : ''} × ${
-                  s.targetReps ?? e.repMax
-                } Wdh.`
-              : `Ziel: ${s.targetReps ?? e.repMax} Wdh.`}
-        </strong>
-      </p>
+      {s.action !== 'no-data' && (
+        <p className={`hint ${s.action}`}>
+          <strong>
+            {s.action === 'increase'
+              ? s.incrementKg !== null && s.weightKg !== null
+                ? `Empfehlung: Steigern auf ${formatKg(s.weightKg)} (+${formatKg(s.incrementKg)}), Ziel ${
+                    s.targetReps ?? e.repMax
+                  } Wdh.`
+                : `Empfehlung: Steigern (du wählst das Gewicht), Ziel ${s.targetReps ?? e.repMax} Wdh.`
+              : `Empfehlung: Halten, ${s.targetReps ?? e.repMax} Wdh.${
+                  s.weightKg !== null ? ` × ${formatKg(s.weightKg)}` : ''
+                }`}
+          </strong>
+        </p>
+      )}
 
       <p className="lasttime">
         <span>Letztes Mal</span> {last || 'noch kein Training mit dieser Übung'}

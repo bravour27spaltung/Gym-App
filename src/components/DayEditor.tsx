@@ -145,9 +145,9 @@ export function DayEditor({ exercises, catalog, onUpdate, onMove, onRemove, onAd
                             {sug.action === 'increase'
                               ? `Vorschlag fürs nächste Training: Steigern, Ziel ${sug.targetReps} Wdh.`
                               : sug.action === 'hold'
-                                ? `Vorschlag fürs nächste Training: Halten${
-                                    sug.weightKg !== null ? `: ${formatKg(sug.weightKg)}` : ''
-                                  } × ${sug.targetReps} Wdh.`
+                                ? `Vorschlag fürs nächste Training: Halten, ${sug.targetReps} Wdh.${
+                                    sug.weightKg !== null ? ` × ${formatKg(sug.weightKg)}` : ''
+                                  }`
                                 : `Ziel fürs nächste Training: ${sug.targetReps} Wdh.`}
                           </strong>
                         </p>

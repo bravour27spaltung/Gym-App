@@ -155,14 +155,14 @@ describe('Aufwärmsätze', () => {
 
 describe('Anzeige und Übungsdaten', () => {
   it('fasst das letzte Training kurz zusammen', () => {
-    expect(describeLastSets(lastTime)).toBe('50 kg × 12, 12, 11');
+    expect(describeLastSets(lastTime)).toBe('12, 12, 11 × 50 kg');
     expect(
       describeLastSets([
         { type: 'warmup', weightKg: 20, reps: 10, rir: null },
         { type: 'working', weightKg: 52.5, reps: 8, rir: 0 },
         { type: 'working', weightKg: 50, reps: 9, rir: 0 },
       ]),
-    ).toBe('52,5 kg × 8 · 50 kg × 9');
+    ).toBe('8 × 52,5 kg · 9 × 50 kg');
     expect(describeLastSets([])).toBe('');
   });
 

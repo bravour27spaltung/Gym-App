@@ -9,7 +9,7 @@ function setLabel(set: DraftSet, index: number): string {
 }
 
 function previousText(previous: LoggedSet | null): string | null {
-  return previous ? `${kgText(previous.weightKg)} kg × ${previous.reps}` : null;
+  return previous ? `${previous.reps} × ${kgText(previous.weightKg)} kg` : null;
 }
 
 /** Ganze Kilo und Bruchteil getrennt; Werte außerhalb des 0,25-Rasters fallen auf "ganz" zurück. */
@@ -47,7 +47,7 @@ export function SetLine({ index, set, previous, onSelect }: LineProps) {
       >
         <span className="fx-badge">{warm ? `W${index}` : index}</span>
         <span className="fx-val">
-          {set.weightKg > 0 ? kgText(set.weightKg) : '–'} kg × {set.reps}
+          {set.reps} × {set.weightKg > 0 ? kgText(set.weightKg) : '–'} kg
         </span>
         {prev && !set.done && <span className="fx-prev">vorher {prev}</span>}
         <span className={set.done ? 'fx-state on' : 'fx-state'} aria-hidden="true">

@@ -12,7 +12,7 @@ function topSetText(ex: ExerciseSummary): string | null {
   const t = ex.topSet;
   if (!t) return null;
   if (t.loadKg === 0) return `${t.reps} Wdh.`;
-  const base = `${fmtKg(t.weightKg)} × ${t.reps}`;
+  const base = `${t.reps} × ${fmtKg(t.weightKg)}`;
   const total = t.loadKg !== t.weightKg ? ` (Σ ${fmtKg(t.loadKg)})` : '';
   const rm = t.oneRm !== null && t.reps > 1 ? ` · 1RM ≈ ${fmtKg(t.oneRm)}` : '';
   return `${base}${total}${rm}`;

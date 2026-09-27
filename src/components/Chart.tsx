@@ -5,7 +5,7 @@ export interface ChartPoint {
   /** Zeitpunkt in ms. */
   at: number;
   value: number;
-  /** Zusatzzeile im Tooltip, z. B. "82,5 kg × 7". */
+  /** Zusatzzeile im Tooltip, z. B. "7 × 82,5 kg". */
   caption?: string;
 }
 
