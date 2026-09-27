@@ -69,7 +69,30 @@ export function createStore(storage: KeyValueStorage | null) {
     }
   }
 
+  function removeKeys(keys: readonly string[]) {
+    for (const key of keys) {
+      try {
+        storage?.removeItem(key);
+      } catch {
+        /* ignorieren */
+      }
+    }
+  }
+
   return {
+    /** Setzt den lokalen Trainingsstand zurück; Übungsliste und Pläne bleiben. */
+    clearTrainingData: () =>
+      removeKeys([
+        KEYS.draft,
+        KEYS.outbox,
+        KEYS.lastSets,
+        KEYS.lastEquipment,
+        KEYS.history,
+        KEYS.lastPlanDay,
+      ]),
+    /** Setzt den gesamten lokalen Zwischenspeicher zurück. */
+    clearAll: () => removeKeys(Object.values(KEYS)),
+
     loadDraft: () => read<Draft | null>(KEYS.draft, null),
     saveDraft: (d: Draft) => write(KEYS.draft, d),
     clearDraft() {

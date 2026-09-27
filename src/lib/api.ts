@@ -1,6 +1,7 @@
 import { supabase } from '../supabase';
 import { translateAuthError } from './authErrors';
 import type { Plan, PlanDbRow, PlanRows } from './plan';
+import { resetSteps, type ResetScope } from './reset';
 import { plansFromRows } from './plan';
 import type { HistWorkout } from './stats';
 import type { ExerciseListItem, LastInfo, Store } from './storage';
@@ -95,9 +96,10 @@ interface LastSetRow {
  * fehlt), wird ohne sie geladen, damit die Sätze trotzdem ankommen.
  */
 export async function fetchLastSets(exerciseId: string): Promise<Result<LastInfo>> {
-  if (!supabase) return fail(NOT_CONFIGURED);
+  const client = supabase;
+  if (!client) return fail(NOT_CONFIGURED);
   const load = (columns: string) =>
-    supabase.from('fit_last_sets').select(columns).eq('exercise_id', exerciseId).order('set_number');
+    client.from('fit_last_sets').select(columns).eq('exercise_id', exerciseId).order('set_number');
   let res = await load('type, weight_kg, reps, rir, equipment_kg');
   if (res.error) res = await load('type, weight_kg, reps, rir');
   if (res.error) return fail(res.error.message);
@@ -271,4 +273,21 @@ export async function flushOutbox(store: Store): Promise<{ sent: number; pending
   }
   if (sent > 0) store.saveOutbox(remaining);
   return { sent, pending: remaining.length };
+}
+
+/**
+ * Löscht die Daten des angemeldeten Nutzers dauerhaft (zum Testen). Die Zeilen sind per
+ * Row-Level-Security ohnehin auf den Nutzer beschränkt; der Übungskatalog bleibt erhalten.
+ * Bricht beim ersten Fehler ab und nennt die Tabelle.
+ */
+export async function resetRemoteData(scope: ResetScope): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  for (const step of resetSteps(scope)) {
+    let query = supabase.from(step.table).delete();
+    // delete() verlangt einen Filter; "id ist nicht null" trifft alle eigenen Zeilen.
+    query = step.only ? query.eq(step.only.column, step.only.value) : query.not('id', 'is', null);
+    const { error } = await query;
+    if (error) return fail(`${step.table}: ${error.message}`);
+  }
+  return { ok: true, data: null };
 }

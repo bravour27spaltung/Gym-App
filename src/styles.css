@@ -2516,3 +2516,47 @@ button.tile:disabled {
   margin: 4px 0 0;
   font-size: 0.88rem;
 }
+
+/* ---------- Daten zurücksetzen ---------- */
+
+.reset-card {
+  text-align: left;
+}
+
+.reset-options {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.reset-option {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+}
+
+.reset-option.on {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.reset-option small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.reset-confirm {
+  display: block;
+  margin: 12px 0 4px;
+  font-size: 0.9rem;
+}
+
+.reset-confirm input {
+  margin-top: 6px;
+}

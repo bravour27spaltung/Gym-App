@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { HistoryScreen } from './components/HistoryScreen';
 import { musclesOfDay } from './components/PlanEditor';
 import { PlansScreen } from './components/PlansScreen';
+import { ResetData } from './components/ResetData';
 import { Icon, TabBar, type Tab } from './components/ui';
 import { WorkoutSummaryScreen } from './components/WorkoutSummary';
 import { WorkoutScreen } from './components/WorkoutScreen';
@@ -14,6 +15,7 @@ import {
   fetchPlans,
   flushOutbox,
   getSessionEmail,
+  resetRemoteData,
   savePlanRows,
   sendLoginLink,
   signIn,
@@ -32,6 +34,7 @@ import {
 } from './lib/plan';
 import { normalizeCode } from './lib/authErrors';
 import { nextPlanDay } from './lib/rotation';
+import type { ResetScope } from './lib/reset';
 import {
   draftToHist,
   mergeHistory,
@@ -73,6 +76,7 @@ export function App() {
   const [pending, setPending] = useState(() => store.loadOutbox().length);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
   const loaded = useRef(false);
 
   // Entwurf bei jeder Änderung lokal sichern.
@@ -282,6 +286,27 @@ export function App() {
       setPlans(next);
       store.savePlans(next);
     }
+    return null;
+  }
+
+  /** Löscht Testdaten in der Datenbank und lokal; lokal erst, wenn die Datenbank erfolgreich war. */
+  async function handleReset(scope: ResetScope): Promise<string | null> {
+    const res = await resetRemoteData(scope);
+    if (!res.ok) return `Zurücksetzen fehlgeschlagen: ${res.error}`;
+    if (scope === 'all') {
+      store.clearAll();
+      setPlans([]);
+      setPlansReady(false);
+    } else {
+      store.clearTrainingData();
+    }
+    setDraft(null);
+    setSummary(null);
+    setHistory([]);
+    setPending(0);
+    setLastPlanDayId(null);
+    setNotice(scope === 'all' ? 'Alles zurückgesetzt.' : 'Trainings zurückgesetzt.');
+    void sync();
     return null;
   }
 
@@ -508,9 +533,14 @@ export function App() {
           Angemeldet als {email} ·{' '}
           <button type="button" className="link" onClick={() => void signOut()}>
             Abmelden
+          </button>{' '}
+          ·{' '}
+          <button type="button" className="link" onClick={() => setResetOpen(true)}>
+            Daten zurücksetzen
           </button>
         </p>
       </div>
+      {resetOpen && <ResetData onReset={handleReset} onClose={() => setResetOpen(false)} />}
       {tabs}
     </main>
   );
