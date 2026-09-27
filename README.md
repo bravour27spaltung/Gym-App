@@ -21,7 +21,7 @@ Reihenfolge im SQL-Editor von Supabase (jeweils Inhalt der Datei einfügen und a
 
 1. `supabase/migrations/0001_fit_schema.sql`
 2. `supabase/migrations/0002_fit_last_sets.sql`
-   (Wurde 0001 schon in einer älteren Fassung ausgeführt: zusätzlich `0003_catalog_details_only.sql`, `0004_plan_templates.sql`, `0005_last_sets_equipment.sql` und `0006_plan_weights.sql` ausführen. Alle sind wiederholbar.)
+   (Wurde 0001 schon in einer älteren Fassung ausgeführt: zusätzlich `0003_catalog_details_only.sql`, `0004_plan_templates.sql`, `0005_last_sets_equipment.sql`, `0006_plan_weights.sql` und `0007_workout_feedback.sql` ausführen. Alle sind wiederholbar.)
 3. Nutzer anlegen (Authentication, Users), danach die Registrierung neuer Nutzer abschalten.
 4. Übungskatalog: Auf deinem Rechner (Node 18 oder neuer) im Projektordner
    ```bash
@@ -64,9 +64,13 @@ Die Sätze sind eine Tabelle: **Satz | Vorher | kg | Wdh. | Haken**. Gewicht und
 
 ## Auswertung und Verlauf
 
-**Nach dem Training:** Direkt nach „Speichern" zeigt die App eine Auswertung: Dauer, Arbeitssätze, Wiederholungen und Volumen (Gesamtlast × Wiederholungen), neue Bestwerte, je Übung den besten Satz, den Vergleich mit dem letzten Mal und eine Empfehlung für das nächste Mal (Double Progression, nach den abgehakten Sätzen und dem Wiederholungsbereich). Dazu die Arbeitssätze pro Muskel der letzten 7 Tage. Die Auswertung funktioniert auch offline, weil sie nur lokale Daten nutzt.
+**Beim Trainingsstart:** Ein kurzer, wegklickbarer Hinweis auf die Muskelgruppe mit den wenigsten Arbeitssätzen der letzten 7 Tage (unter dem Richtwert von 10–20 Sätzen/Woche) – sowohl beim Start aus einem Plan als auch bei „Freies Training". Ohne Auffälligkeit erscheint kein Hinweis.
 
-**Reiter „Verlauf":** Kennzahlen der letzten 7 Tage im Vergleich zu den 7 Tagen davor, Sätze pro Muskel, die Liste aller Einheiten mit Details (jeder Satz, geschätztes 1RM) und je Übung ein Verlaufsdiagramm mit Kennzahl (geschätztes 1RM, höchste Last, Volumen, Wiederholungen) und Zeitraum (3 Monate oder alle). Jedes Diagramm hat eine Tabellenansicht. Es sind die letzten 150 Trainings geladen und lokal zwischengespeichert.
+**Beim Speichern:** Im Dialog „Training speichern?" lässt sich freiwillig mit einem Tap festhalten, wie's lief (💪 Stark / 🙂 Okay / 😓 Schwer) – keine Pflicht, kein zusätzlicher Schritt danach. Erscheint später in der Einheiten-Übersicht und im Trainingsdetail.
+
+**Nach dem Training:** Direkt nach „Speichern" zeigt die App eine Auswertung: Dauer, Arbeitssätze, Wiederholungen und Volumen (Gesamtlast × Wiederholungen); ein **Highlight** (der auffälligste Bestwert, sonst die größte Volumensteigerung) und das **Verbesserungspotenzial** fürs nächste Training (die Übung mit der klarsten Steigerungschance, sonst die mit dem geringsten Fortschritt beim Halten) – beide aus den ohnehin vorhandenen Daten abgeleitet, ohne Zusatzeingabe; dazu neue Bestwerte, je Übung den besten Satz, den Vergleich mit dem letzten Mal und eine Empfehlung für das nächste Mal (Double Progression, nach den abgehakten Sätzen und dem Wiederholungsbereich – das Wiederholungsziel ist dabei immer die Obergrenze des Bereichs). Dazu die Arbeitssätze pro Muskel der letzten 7 Tage. Die Auswertung funktioniert auch offline, weil sie nur lokale Daten nutzt.
+
+**Reiter „Verlauf":** Kennzahlen der letzten 7 Tage im Vergleich zu den 7 Tagen davor, Sätze pro Muskel, die Liste aller Einheiten mit Details (jeder Satz, geschätztes 1RM), ein **Kraftverlauf pro Körperpartie** (je Training die Übung mit der höchsten Last für den jeweiligen Hauptmuskel – ein Näherungswert, da verschiedene Übungen für denselben Muskel nicht 1:1 vergleichbar sind) und je Übung ein Verlaufsdiagramm mit Kennzahl (geschätztes 1RM, höchste Last, Volumen, Wiederholungen) und Zeitraum (3 Monate oder alle). Jedes Diagramm hat eine Tabellenansicht. Es sind die letzten 150 Trainings geladen und lokal zwischengespeichert.
 
 **Testdaten zurücksetzen:** Auf dem Startbildschirm unten, neben „Abmelden“. Löscht nur Trainings, Sätze, Verlauf und Fußball-Einträge; Pläne, Vorlagen, eigene Übungen und der Übungskatalog bleiben immer erhalten. Gelöscht wird dauerhaft in der Datenbank und im lokalen Zwischenspeicher, erst nachdem du LÖSCHEN eingetippt hast. Die Datenbank wird zuerst geleert; schlägt das fehl, bleibt der lokale Stand unverändert.
 

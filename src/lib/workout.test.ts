@@ -9,6 +9,7 @@ import {
   describeLastSets,
   doneSetsAsLogged,
   removeSet,
+  setFeedback,
   toggleDone,
   updateExercise,
   updateSet,
@@ -184,6 +185,17 @@ describe('Abschluss', () => {
     expect(p.workoutExercises).toHaveLength(1);
     expect(p.sets.map((s) => s.set_number)).toEqual([1, 2]);
     expect(p.sets.every((s) => s.workout_exercise_id === e.id)).toBe(true);
+    expect(p.workout.feedback).toBeNull();
+  });
+
+  it('nimmt das Feedback ("Wie lief\'s?") mit in die Datenbankzeile; null hebt es wieder auf', () => {
+    let d = draftWithBench();
+    const e = d.exercises[0];
+    d = toggleDone(d, e.id, e.sets[0].id);
+    d = setFeedback(d, 'hard');
+    expect(buildPayload(d, later)!.workout.feedback).toBe('hard');
+    d = setFeedback(d, null);
+    expect(buildPayload(d, later)!.workout.feedback).toBeNull();
   });
 
   it('liefert null, wenn nichts abgehakt wurde', () => {

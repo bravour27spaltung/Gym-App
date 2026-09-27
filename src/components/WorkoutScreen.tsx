@@ -8,6 +8,7 @@ import {
   addWarmups,
   removeExercise,
   removeSet,
+  setFeedback,
   toggleDone,
   updateExercise,
   updateSet,
@@ -15,6 +16,7 @@ import {
   type Draft,
   type DraftExercise,
   type ExerciseInput,
+  type Feedback,
 } from '../lib/workout';
 import { AddExercise } from './AddExercise';
 import { ExerciseCard } from './ExerciseCard';
@@ -30,9 +32,19 @@ interface Props {
   onFinish: () => void;
   onDiscard: () => void;
   busy: boolean;
+  /** Kurzer Hinweis zu Beginn ("Schwachstelle: …"); null = nichts anzuzeigen. */
+  weakSpotHint?: string | null;
+  onDismissWeakSpotHint?: () => void;
 }
 
 const REST_STALE_MS = 10 * 60 * 1000;
+
+/** Ein Tap beim Speichern, keine Pflicht. */
+const FEEDBACK_OPTIONS: { value: Feedback; label: string }[] = [
+  { value: 'great', label: '💪 Stark' },
+  { value: 'ok', label: '🙂 Okay' },
+  { value: 'hard', label: '😓 Schwer' },
+];
 
 /** Hält den Bildschirm wach, solange das Training läuft (wo der Browser es erlaubt). */
 function useWakeLock(): void {
@@ -90,6 +102,8 @@ export function WorkoutScreen({
   onFinish,
   onDiscard,
   busy,
+  weakSpotHint,
+  onDismissWeakSpotHint,
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -179,6 +193,16 @@ export function WorkoutScreen({
       </header>
 
       <div className="screen">
+        {weakSpotHint && (
+          <div className="banner weakspot" role="note">
+            <Icon name="flame" size={16} />
+            <p>{weakSpotHint}</p>
+            <button type="button" className="banner-close" aria-label="Hinweis schließen" onClick={onDismissWeakSpotHint}>
+              <Icon name="x" size={16} />
+            </button>
+          </div>
+        )}
+
         {draft.exercises.length > 0 && (
           <nav className="chips scroll fx-strip" aria-label="Übungen dieses Trainings">
             {draft.exercises.map((e, i) => {
@@ -274,6 +298,25 @@ export function WorkoutScreen({
                   {doneCount} {doneCount === 1 ? 'Satz' : 'Sätze'} in {minutes} min.
                   {totalCount > doneCount && ' Nicht abgehakte Sätze werden nicht gespeichert.'}
                 </p>
+                <div className="field stack feedback-field">
+                  <span>Wie lief&apos;s? (freiwillig)</span>
+                  <div className="chips" role="radiogroup" aria-label="Wie lief's?">
+                    {FEEDBACK_OPTIONS.map((o) => (
+                      <button
+                        key={o.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={draft.feedback === o.value}
+                        className={draft.feedback === o.value ? 'chip on' : 'chip'}
+                        onClick={() =>
+                          onUpdate((d) => setFeedback(d, d.feedback === o.value ? null : o.value))
+                        }
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <button type="button" className="btn primary block" disabled={busy} onClick={onFinish}>
                   {busy ? 'Speichere …' : 'Speichern'}
                 </button>

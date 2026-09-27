@@ -203,6 +203,27 @@ small {
   font-size: 0.92rem;
 }
 
+.banner.weakspot {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border-left: 4px solid var(--warn);
+}
+
+.banner.weakspot p {
+  margin: 0;
+  flex: 1;
+}
+
+.banner-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 2px;
+  color: var(--muted);
+  line-height: 0;
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -1828,6 +1849,37 @@ button.tile:disabled {
 .records em {
   font-style: normal;
   color: var(--muted);
+}
+
+.card.highlight,
+.card.focus {
+  border-left: 4px solid var(--accent);
+}
+
+.card.focus {
+  border-left-color: var(--warn);
+}
+
+.card.highlight h2,
+.card.focus h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.05rem;
+}
+
+.card.highlight h2 svg {
+  color: var(--accent);
+}
+
+.card.focus h2 svg {
+  color: var(--warn);
+}
+
+.card.highlight p,
+.card.focus p {
+  margin: 8px 0 0;
+  font-size: 0.92rem;
 }
 
 .sumlist {

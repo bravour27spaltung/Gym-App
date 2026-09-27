@@ -44,6 +44,9 @@ export interface DraftExercise {
   suggestion: ProgressionSuggestion;
 }
 
+/** Sehr kurzes, freiwilliges Feedback beim Speichern ("Wie lief's?"), ein Tap, keine Pflicht. */
+export type Feedback = 'great' | 'ok' | 'hard';
+
 export interface Draft {
   id: string;
   name: string;
@@ -52,6 +55,8 @@ export interface Draft {
   exercises: DraftExercise[];
   /** Ende der laufenden Pause (Date.now()-Zeit in ms), damit sie ein Neuladen übersteht. */
   restEndsAt?: number | null;
+  /** Wie lief's? Freiwillig, wird beim Speichern-Dialog abgefragt; null = nicht beantwortet. */
+  feedback?: Feedback | null;
 }
 
 export interface ExerciseInput {
@@ -131,6 +136,11 @@ export function addExercise(draft: Draft, input: ExerciseInput): Draft {
     suggestion,
   };
   return { ...draft, exercises: [...draft.exercises, exercise] };
+}
+
+/** Setzt das Feedback ("Wie lief's?") des laufenden Trainings; null hebt die Auswahl wieder auf. */
+export function setFeedback(draft: Draft, feedback: Feedback | null): Draft {
+  return { ...draft, feedback };
 }
 
 export function updateExercise(
@@ -299,6 +309,7 @@ export interface WorkoutPayload {
     name: string;
     started_at: string;
     finished_at: string;
+    feedback: Feedback | null;
   };
   workoutExercises: {
     id: string;
@@ -341,6 +352,7 @@ export function buildPayload(draft: Draft, finishedAt: Date): WorkoutPayload | n
       name: draft.name,
       started_at: draft.startedAt,
       finished_at: finished,
+      feedback: draft.feedback ?? null,
     },
     workoutExercises: [],
     sets: [],

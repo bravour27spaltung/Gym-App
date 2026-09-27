@@ -20,7 +20,7 @@ function topSetText(ex: ExerciseSummary): string | null {
 
 /** Auswertung direkt nach dem Speichern eines Trainings. */
 export function WorkoutSummaryScreen({ summary, onDone }: Props) {
-  const { workout, totals, exercises, records, muscles } = summary;
+  const { workout, totals, exercises, records, muscles, highlight, focus } = summary;
   const nameOf = (id: string) => exercises.find((e) => e.exerciseId === id)?.name ?? 'Übung';
   const recordExercises = [...new Set(records.map((r) => r.exerciseId))];
 
@@ -42,6 +42,24 @@ export function WorkoutSummaryScreen({ summary, onDone }: Props) {
           ]}
         />
       </section>
+
+      {highlight && (
+        <section className="card highlight" aria-label="Highlight">
+          <h2>
+            <Icon name="trophy" size={20} /> Highlight
+          </h2>
+          <p>{highlight}</p>
+        </section>
+      )}
+
+      {focus && (
+        <section className="card focus" aria-label="Verbesserungspotenzial fürs nächste Training">
+          <h2>
+            <Icon name="trend" size={20} /> Verbesserungspotenzial
+          </h2>
+          <p>{focus}</p>
+        </section>
+      )}
 
       {recordExercises.length > 0 && (
         <section className="card records" aria-label="Neue Bestwerte">

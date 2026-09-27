@@ -17,11 +17,13 @@ import {
   exerciseStats,
   lastDays,
   muscleSets,
+  musclePoints,
   windowTotals,
   workoutTotals,
   type ExerciseMeta,
   type HistWorkout,
 } from '../lib/stats';
+import { muscleLabel } from '../lib/muscles';
 import { totalLoad } from '../lib/weight';
 import { LineChart, type ChartPoint } from './Chart';
 import { MuscleVolume } from './MuscleVolume';
@@ -32,9 +34,15 @@ interface Props {
   meta: Record<string, ExerciseMeta | undefined>;
 }
 
-type View = { kind: 'overview' } | { kind: 'workout'; id: string } | { kind: 'exercise'; id: string };
+type View =
+  | { kind: 'overview' }
+  | { kind: 'workout'; id: string }
+  | { kind: 'exercise'; id: string }
+  | { kind: 'muscle'; muscle: string };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+const FEEDBACK_LABEL: Record<string, string> = { great: '💪 Stark', ok: '🙂 Okay', hard: '😓 Schwer' };
 
 export function HistoryScreen({ workouts, meta }: Props) {
   const [stack, setStack] = useState<View[]>([{ kind: 'overview' }]);
@@ -50,6 +58,11 @@ export function HistoryScreen({ workouts, meta }: Props) {
   if (view.kind === 'exercise') {
     return <ExerciseProgress workouts={workouts} exerciseId={view.id} name={nameOf(view.id)} onBack={pop} />;
   }
+  if (view.kind === 'muscle') {
+    return (
+      <MuscleProgress workouts={workouts} meta={meta} muscle={view.muscle} onBack={pop} onExercise={(id) => push({ kind: 'exercise', id })} />
+    );
+  }
   return (
     <Overview
       workouts={workouts}
@@ -57,6 +70,7 @@ export function HistoryScreen({ workouts, meta }: Props) {
       nameOf={nameOf}
       onWorkout={(id) => push({ kind: 'workout', id })}
       onExercise={(id) => push({ kind: 'exercise', id })}
+      onMuscle={(muscle) => push({ kind: 'muscle', muscle })}
     />
   );
 }
@@ -69,6 +83,7 @@ function Overview(props: {
   nameOf: (id: string) => string;
   onWorkout: (id: string) => void;
   onExercise: (id: string) => void;
+  onMuscle: (muscle: string) => void;
 }) {
   const { workouts, meta } = props;
   const [shown, setShown] = useState(15);
@@ -80,13 +95,22 @@ function Overview(props: {
     const prev = { from: new Date(cur.from.getTime() - 7 * DAY_MS), to: cur.from };
     const muscleOf = (id: string) => ({ primary: meta[id]?.primary ?? [], secondary: meta[id]?.secondary ?? [] });
     const exercises = new Map<string, { sessions: number; lastAt: number }>();
+    const muscleInfo = new Map<string, { sessions: number; lastAt: number }>();
     for (const w of workouts) {
+      const primaryMuscles = new Set<string>();
       for (const ex of w.exercises) {
         if (exerciseStats(ex).workingSets === 0) continue;
         const e = exercises.get(ex.exerciseId) ?? { sessions: 0, lastAt: 0 };
         e.sessions += 1;
         e.lastAt = Math.max(e.lastAt, new Date(w.startedAt).getTime());
         exercises.set(ex.exerciseId, e);
+        for (const m of muscleOf(ex.exerciseId).primary) primaryMuscles.add(m);
+      }
+      for (const m of primaryMuscles) {
+        const e = muscleInfo.get(m) ?? { sessions: 0, lastAt: 0 };
+        e.sessions += 1;
+        e.lastAt = Math.max(e.lastAt, new Date(w.startedAt).getTime());
+        muscleInfo.set(m, e);
       }
     }
     return {
@@ -94,6 +118,7 @@ function Overview(props: {
       before: windowTotals(workouts, prev.from, prev.to),
       muscles: muscleSets(workouts, cur.from, cur.to, muscleOf),
       exercises: [...exercises.entries()].sort((a, b) => b[1].lastAt - a[1].lastAt),
+      muscleProgress: [...muscleInfo.entries()].sort((a, b) => muscleLabel(a[0]).localeCompare(muscleLabel(b[0]))),
     };
   }, [workouts, meta]);
 
@@ -161,6 +186,27 @@ function Overview(props: {
         </button>
       )}
 
+      {data.muscleProgress.length > 0 && (
+        <>
+          <h2 className="section-title">Kraftverlauf pro Körperpartie</h2>
+          <ul className="tiles">
+            {data.muscleProgress.map(([muscle, info]) => (
+              <li key={muscle}>
+                <button type="button" className="tile" onClick={() => props.onMuscle(muscle)}>
+                  <span className="tile-title">
+                    <strong>{muscleLabel(muscle)}</strong>
+                    <small>
+                      {info.sessions} {info.sessions === 1 ? 'Einheit' : 'Einheiten'} · zuletzt {fmtDay(info.lastAt)}
+                    </small>
+                  </span>
+                  <Icon name="trend" size={20} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
       <h2 className="section-title">Einheiten</h2>
       <ul className="tiles">
         {workouts.slice(0, shown).map((w) => {
@@ -174,6 +220,7 @@ function Overview(props: {
                     {fmtDay(w.startedAt)}
                     {t.durationMin !== null && ` · ${t.durationMin} min`} · {t.workingSets} Sätze
                     {t.volumeKg > 0 && ` · ${fmtVolume(t.volumeKg)}`}
+                    {w.feedback && ` · ${FEEDBACK_LABEL[w.feedback]}`}
                   </small>
                 </span>
                 <Icon name="forward" size={20} />
@@ -207,6 +254,7 @@ function WorkoutDetail(props: {
       <div className="screen">
         <p className="eyebrow">
           {fmtDayLong(w.startedAt)}, {fmtTime(w.startedAt)} Uhr
+          {w.feedback && ` · ${FEEDBACK_LABEL[w.feedback]}`}
         </p>
         <StatGrid
           items={[
@@ -403,6 +451,164 @@ function ExerciseProgress(props: {
                       <td>{format(s.value)}</td>
                       <td>{s.top}</td>
                       <td>{s.sets}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+type MuscleMetric = 'e1rm' | 'weight';
+
+function MuscleProgress(props: {
+  workouts: HistWorkout[];
+  meta: Record<string, ExerciseMeta | undefined>;
+  muscle: string;
+  onBack: () => void;
+  onExercise: (id: string) => void;
+}) {
+  const { meta } = props;
+  const muscleOf = (id: string) => ({ primary: meta[id]?.primary ?? [], secondary: meta[id]?.secondary ?? [] });
+  const nameOf = (id: string) => meta[id]?.name ?? 'Übung';
+  const all = useMemo(
+    () => musclePoints(props.workouts, props.muscle, muscleOf),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [props.workouts, meta, props.muscle],
+  );
+  const hasRm = all.some((p) => p.best1RM !== null);
+  const [metric, setMetric] = useState<MuscleMetric>(hasRm ? 'e1rm' : 'weight');
+  const [range, setRange] = useState<'90' | 'all'>('all');
+  const [table, setTable] = useState(false);
+
+  const format = (v: number): string => fmtKg(v);
+  const title = metric === 'e1rm' ? 'Geschätztes 1RM' : 'Höchste Last';
+
+  const inRange = range === '90' ? all.filter((p) => p.at >= Date.now() - 90 * DAY_MS) : all;
+  const series: (ChartPoint & { exerciseId: string; top: string })[] = inRange.flatMap((p) => {
+    const v = metric === 'e1rm' ? p.best1RM : p.topLoadKg;
+    if (v === null || v <= 0) return [];
+    const top = p.topSet
+      ? p.topSet.loadKg === 0
+        ? `${p.topSet.reps} Wdh.`
+        : `${fmtKg(p.topSet.weightKg)} × ${p.topSet.reps}`
+      : '–';
+    return [{ at: p.at, value: v, caption: `${nameOf(p.exerciseId)} · ${top}`, exerciseId: p.exerciseId, top }];
+  });
+
+  const first = series[0];
+  const last = series[series.length - 1];
+  const best = series.reduce<(typeof series)[number] | null>((b, s) => (b === null || s.value > b.value ? s : b), null);
+  const change = first && last && series.length > 1 ? last.value - first.value : null;
+  const changePct = change !== null && first.value > 0 ? Math.round((change / first.value) * 100) : null;
+
+  return (
+    <div className="editor">
+      <AppBar title={muscleLabel(props.muscle)} backLabel="Zurück" onBack={props.onBack} />
+      <div className="screen">
+        <p className="muted">
+          Je Training die Übung mit der höchsten Last für diesen Hauptmuskel – ein Näherungswert, kein
+          direkt gemessener „Muskelkraft"-Wert: verschiedene Übungen sind nicht 1:1 vergleichbar.
+        </p>
+
+        <div className="filterrow" role="group" aria-label="Kennzahl">
+          <div className="chips scroll">
+            <button
+              type="button"
+              className={metric === 'e1rm' ? 'chip on' : 'chip'}
+              aria-pressed={metric === 'e1rm'}
+              onClick={() => setMetric('e1rm')}
+            >
+              1RM (geschätzt)
+            </button>
+            <button
+              type="button"
+              className={metric === 'weight' ? 'chip on' : 'chip'}
+              aria-pressed={metric === 'weight'}
+              onClick={() => setMetric('weight')}
+            >
+              Höchste Last
+            </button>
+          </div>
+          <div className="chips sm rangechips" role="group" aria-label="Zeitraum">
+            <button type="button" className={range === '90' ? 'chip on' : 'chip'} aria-pressed={range === '90'} onClick={() => setRange('90')}>
+              3 Monate
+            </button>
+            <button type="button" className={range === 'all' ? 'chip on' : 'chip'} aria-pressed={range === 'all'} onClick={() => setRange('all')}>
+              Alle
+            </button>
+          </div>
+        </div>
+
+        <section className="card chartcard">
+          <h2>{title}</h2>
+          {series.length === 0 ? (
+            <p className="muted">
+              {metric === 'e1rm'
+                ? `Für die 1RM-Schätzung braucht es Sätze mit Gewicht und höchstens ${ONE_RM_MAX_REPS} Wiederholungen.`
+                : 'Für diese Kennzahl gibt es im gewählten Zeitraum noch keine Werte.'}
+            </p>
+          ) : (
+            <>
+              <LineChart points={series} format={format} label={`${muscleLabel(props.muscle)}: ${title}`} />
+              {series.length === 1 && <p className="muted">Mit einer weiteren Einheit entsteht ein Verlauf.</p>}
+            </>
+          )}
+        </section>
+
+        {series.length > 0 && best && last && (
+          <StatGrid
+            items={[
+              { label: 'Bestwert', value: format(best.value), sub: fmtShortYear(best.at) },
+              { label: 'Zuletzt', value: format(last.value), sub: fmtShortYear(last.at) },
+              {
+                label: 'Änderung',
+                value: change === null ? '–' : `${change > 0 ? '+' : change < 0 ? '−' : '±'}${format(Math.abs(change))}`,
+                sub: changePct === null ? `${series.length} Einheiten` : `${fmtPercent(changePct)} seit ${fmtShortYear(first.at)}`,
+              },
+            ]}
+          />
+        )}
+
+        {metric === 'e1rm' && (
+          <p className="evidence">
+            Geschätzt nach Epley: Last × (1 + Wiederholungen ÷ 30), nur bis {ONE_RM_MAX_REPS} Wiederholungen. Schätzformeln
+            sind bei wenigen Wiederholungen am genauesten; mit Stange oder Maschine zählt die Gesamtlast.
+          </p>
+        )}
+
+        {series.length > 0 && (
+          <>
+            <button type="button" className="textbtn tablebtn" aria-expanded={table} onClick={() => setTable((v) => !v)}>
+              <Icon name="table" size={18} /> {table ? 'Tabelle ausblenden' : 'Als Tabelle anzeigen'}
+            </button>
+            {table && (
+              <table className="datatable">
+                <thead>
+                  <tr>
+                    <th scope="col">Datum</th>
+                    <th scope="col">{title}</th>
+                    <th scope="col">Übung</th>
+                    <th scope="col">Bester Satz</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...series].reverse().map((s) => (
+                    <tr key={s.at}>
+                      <th scope="row">{fmtShortYear(s.at)}</th>
+                      <td>{format(s.value)}</td>
+                      <td>
+                        <button type="button" className="link" onClick={() => props.onExercise(s.exerciseId)}>
+                          {nameOf(s.exerciseId)}
+                        </button>
+                      </td>
+                      <td>{s.top}</td>
                     </tr>
                   ))}
                 </tbody>

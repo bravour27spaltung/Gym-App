@@ -5,7 +5,7 @@ import { resetSteps } from './reset';
 import { plansFromRows } from './plan';
 import type { HistWorkout } from './stats';
 import type { ExerciseListItem, LastInfo, Store } from './storage';
-import type { WorkoutPayload } from './workout';
+import type { Feedback, WorkoutPayload } from './workout';
 
 /** Dünne Schicht um Supabase. Fehler werden zurückgegeben, nicht geworfen. */
 
@@ -124,6 +124,8 @@ interface HistoryRow {
   name: string;
   started_at: string;
   finished_at: string | null;
+  /** Fehlt in Datenbanken ohne Migration 0007. */
+  feedback?: Feedback | null;
   fit_workout_exercises: {
     exercise_id: string;
     position: number;
@@ -139,17 +141,28 @@ interface HistoryRow {
  */
 export async function fetchHistory(limit = 150): Promise<Result<HistWorkout[]>> {
   if (!supabase) return fail(NOT_CONFIGURED);
-  const { data, error } = await supabase
-    .from('fit_workouts')
-    .select(
-      'id, name, started_at, finished_at, ' +
-        'fit_workout_exercises(exercise_id, position, equipment_kg, fit_sets(type, weight_kg, reps, set_number))',
-    )
-    .not('finished_at', 'is', null)
-    .order('started_at', { ascending: false })
-    .limit(limit);
-  if (error) return fail(error.message);
-  const rows = (data ?? []) as unknown as HistoryRow[];
+  // "feedback" gibt es erst seit Migration 0007; ohne sie auf die älteren Spalten ausweichen,
+  // damit der Verlauf trotzdem lädt.
+  const variants = ['id, name, started_at, finished_at, feedback, ', 'id, name, started_at, finished_at, '];
+  let data: unknown[] | null = null;
+  let lastError = '';
+  for (const cols of variants) {
+    const res = await supabase
+      .from('fit_workouts')
+      .select(
+        `${cols}fit_workout_exercises(exercise_id, position, equipment_kg, fit_sets(type, weight_kg, reps, set_number))`,
+      )
+      .not('finished_at', 'is', null)
+      .order('started_at', { ascending: false })
+      .limit(limit);
+    if (!res.error) {
+      data = res.data;
+      break;
+    }
+    lastError = res.error.message;
+  }
+  if (data === null) return fail(lastError);
+  const rows = data as unknown as HistoryRow[];
   return {
     ok: true,
     data: rows.map((w) => ({
@@ -157,6 +170,7 @@ export async function fetchHistory(limit = 150): Promise<Result<HistWorkout[]>> 
       name: w.name,
       startedAt: w.started_at,
       finishedAt: w.finished_at,
+      feedback: w.feedback ?? null,
       exercises: [...w.fit_workout_exercises]
         .sort((a, b) => a.position - b.position)
         .map((e) => ({

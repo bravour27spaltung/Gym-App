@@ -1,6 +1,6 @@
 import { suggestProgression, type LoggedSet } from './progression';
 import { totalLoad } from './weight';
-import type { Draft, WorkoutPayload } from './workout';
+import type { Draft, Feedback, WorkoutPayload } from './workout';
 
 /**
  * Auswertungen aus abgeschlossenen Trainings. Reine Logik ohne Browser- oder Datenbankzugriff.
@@ -33,6 +33,8 @@ export interface HistWorkout {
   startedAt: string;
   finishedAt: string | null;
   exercises: HistExercise[];
+  /** Wie lief's? Freiwillig beim Speichern beantwortet; null = keine Angabe. */
+  feedback?: Feedback | null;
 }
 
 /** Über dieser Wiederholungszahl wird das 1RM nicht mehr geschätzt (zu ungenau). */
@@ -184,6 +186,66 @@ export function exercisePoints(workouts: HistWorkout[], exerciseId: string): Exe
 }
 
 // ---------------------------------------------------------------------------
+// Kraftverlauf pro Körperpartie
+
+export interface MusclePoint {
+  workoutId: string;
+  at: number;
+  /** Übung, deren Satz an diesem Tag für diesen Muskel maßgeblich war (bester Wert). */
+  exerciseId: string;
+  topLoadKg: number;
+  best1RM: number | null;
+  topSet: TopSet | null;
+}
+
+/**
+ * Ein Punkt je Training, in dem der Muskel als Hauptmuskel einer ausgeführten Übung
+ * vorkommt (Hilfsmuskel-Übungen zählen hier nicht, sonst wäre der Verlauf kaum
+ * vergleichbar). Maßgeblich ist die Übung mit der höchsten Gesamtlast an diesem Tag;
+ * ältestes zuerst. Ein grober Näherungswert, kein direkt gemessener "Muskelkraft"-Wert:
+ * verschiedene Übungen für denselben Muskel sind nicht 1:1 vergleichbar.
+ */
+export function musclePoints(
+  workouts: HistWorkout[],
+  muscle: string,
+  muscleOf: (exerciseId: string) => MuscleInfo,
+): MusclePoint[] {
+  const points: MusclePoint[] = [];
+  for (const w of workouts) {
+    let best: (TopSet & { exerciseId: string }) | null = null;
+    for (const ex of w.exercises) {
+      if (!muscleOf(ex.exerciseId).primary.includes(muscle)) continue;
+      const st = exerciseStats(ex);
+      if (st.workingSets === 0 || !st.topSet) continue;
+      if (best === null || st.topSet.loadKg > best.loadKg) best = { ...st.topSet, exerciseId: ex.exerciseId };
+    }
+    if (best) {
+      points.push({
+        workoutId: w.id,
+        at: new Date(w.startedAt).getTime(),
+        exerciseId: best.exerciseId,
+        topLoadKg: best.loadKg,
+        best1RM: best.oneRm,
+        topSet: best,
+      });
+    }
+  }
+  return points.sort((a, b) => a.at - b.at);
+}
+
+/** Alle Muskeln, die in den Trainings mindestens einmal als Hauptmuskel vorkamen. */
+export function trainedMuscles(workouts: HistWorkout[], muscleOf: (exerciseId: string) => MuscleInfo): string[] {
+  const set = new Set<string>();
+  for (const w of workouts) {
+    for (const ex of w.exercises) {
+      if (exerciseStats(ex).workingSets === 0) continue;
+      for (const m of muscleOf(ex.exerciseId).primary) set.add(m);
+    }
+  }
+  return [...set];
+}
+
+// ---------------------------------------------------------------------------
 // Bestwerte
 
 export interface RecordHit {
@@ -286,6 +348,33 @@ export function muscleSets(
     .sort((a, b) => b.sets - a.sets || a.muscle.localeCompare(b.muscle));
 }
 
+export interface WeakSpot {
+  muscle: string;
+  /** Sätze dieses Muskels in den letzten 7 Tagen. */
+  sets: number;
+}
+
+/**
+ * Der Muskel mit den wenigsten Sätzen der letzten 7 Tage, sofern er schon einmal
+ * trainiert wurde und unter dem Richtwert (WEEKLY_SETS_REFERENCE.min) liegt; sonst null.
+ * Für einen kurzen Hinweis beim Trainingsstart, kein Ersatz für die volle Übersicht.
+ */
+export function weakestMuscle(
+  workouts: HistWorkout[],
+  now: Date,
+  muscleOf: (exerciseId: string) => MuscleInfo,
+): WeakSpot | null {
+  const trained = trainedMuscles(workouts, muscleOf);
+  if (trained.length === 0) return null;
+  const win = lastDays(now, 7);
+  const week = new Map(muscleSets(workouts, win.from, win.to, muscleOf).map((m) => [m.muscle, m.sets]));
+  const under = trained
+    .map((m) => ({ muscle: m, sets: week.get(m) ?? 0 }))
+    .filter((m) => m.sets < WEEKLY_SETS_REFERENCE.min)
+    .sort((a, b) => a.sets - b.sets);
+  return under[0] ?? null;
+}
+
 /** Die letzten `days` Tage bis einschließlich `end` (Ende ist exklusiv um eine Millisekunde erweitert). */
 export function lastDays(end: Date, days: number): { from: Date; to: Date } {
   const to = new Date(end.getTime() + 1);
@@ -308,6 +397,7 @@ export function payloadToHist(p: WorkoutPayload): HistWorkout {
     name: p.workout.name,
     startedAt: p.workout.started_at,
     finishedAt: p.workout.finished_at,
+    feedback: p.workout.feedback,
     exercises: [...p.workoutExercises]
       .sort((a, b) => a.position - b.position)
       .map((we) => ({
@@ -325,6 +415,7 @@ export function draftToHist(draft: Draft, finishedAt: Date): HistWorkout {
     name: draft.name,
     startedAt: draft.startedAt,
     finishedAt: finishedAt.toISOString(),
+    feedback: draft.feedback ?? null,
     exercises: draft.exercises
       .map((e) => ({
         exerciseId: e.exerciseId,
@@ -385,6 +476,42 @@ export interface WorkoutSummary {
   exercises: ExerciseSummary[];
   records: RecordHit[];
   muscles: MuscleLine[];
+  /** Das auffälligste Ergebnis dieses Trainings in einem Satz; null ohne Vergleichswert. */
+  highlight: string | null;
+  /** Die klarste Möglichkeit fürs nächste Training in einem Satz; null ohne Wiederholungsbereich. */
+  focus: string | null;
+}
+
+function fmtKgShort(kg: number): string {
+  return `${String(kg).replace('.', ',')} kg`;
+}
+
+/** Bestwert mit der größten relativen Verbesserung, sonst die größte Volumensteigerung. */
+function pickHighlight(
+  records: RecordHit[],
+  exercises: ExerciseSummary[],
+  nameOf: (exerciseId: string) => string,
+): string | null {
+  if (records.length > 0) {
+    const rel = (r: RecordHit) => (r.previous > 0 ? (r.value - r.previous) / r.previous : 0);
+    const best = records.reduce((b, r) => (rel(r) > rel(b) ? r : b));
+    const kind = best.kind === 'load' ? 'Höchste Last' : 'Geschätztes 1RM';
+    return `${nameOf(best.exerciseId)}: neuer Bestwert – ${kind} ${fmtKgShort(best.value)} (vorher ${fmtKgShort(best.previous)}).`;
+  }
+  const improved = exercises
+    .filter((e) => e.volumeDeltaPct !== null && e.volumeDeltaPct > 0)
+    .sort((a, b) => (b.volumeDeltaPct ?? 0) - (a.volumeDeltaPct ?? 0))[0];
+  return improved ? `${improved.name}: Volumen +${improved.volumeDeltaPct} % zum letzten Mal.` : null;
+}
+
+/** Die Übung mit der klarsten Steigerungschance; sonst die mit dem geringsten Fortschritt beim Halten. */
+function pickFocus(exercises: ExerciseSummary[]): string | null {
+  const canIncrease = [...exercises].filter((e) => e.next === 'increase').sort((a, b) => b.volumeKg - a.volumeKg)[0];
+  if (canIncrease) return `${canIncrease.name}: nächstes Mal das Gewicht steigern.`;
+  const stuck = [...exercises]
+    .filter((e) => e.next === 'hold')
+    .sort((a, b) => (a.volumeDeltaPct ?? 0) - (b.volumeDeltaPct ?? 0))[0];
+  return stuck ? `${stuck.name}: Gewicht halten, eine Wiederholung mehr anstreben.` : null;
 }
 
 export function summarizeWorkout(
@@ -433,7 +560,15 @@ export function summarizeWorkout(
   const own = muscleSets([current], new Date(0), new Date(8.64e15), ctx.muscleOf);
   const muscles: MuscleLine[] = own.map((m) => ({ muscle: m.muscle, workout: m.sets, week: week.get(m.muscle) ?? m.sets }));
 
-  return { workout: current, totals: workoutTotals(current), exercises, records, muscles };
+  return {
+    workout: current,
+    totals: workoutTotals(current),
+    exercises,
+    records,
+    muscles,
+    highlight: pickHighlight(records, exercises, ctx.nameOf),
+    focus: pickFocus(exercises),
+  };
 }
 
 /** Name und Muskeln einer Übung für die Anzeige. */

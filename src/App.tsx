@@ -38,10 +38,14 @@ import {
   draftToHist,
   mergeHistory,
   summarizeWorkout,
+  weakestMuscle,
+  WEEKLY_SETS_REFERENCE,
   type ExerciseMeta,
   type HistWorkout,
   type WorkoutSummary,
 } from './lib/stats';
+import { muscleLabel } from './lib/muscles';
+import { num1 } from './lib/format';
 import { browserStore, type ExerciseListItem, type LastInfo } from './lib/storage';
 import {
   buildPayload,
@@ -76,6 +80,9 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  // Kurzer Hinweis beim Trainingsstart auf die Muskelgruppe mit den wenigsten Sätzen
+  // der letzten 7 Tage; null = nichts auffällig oder schon weggeklickt.
+  const [weakSpotHint, setWeakSpotHint] = useState<string | null>(null);
   const loaded = useRef(false);
 
   // Entwurf bei jeder Änderung lokal sichern.
@@ -172,6 +179,7 @@ export function App() {
     const payload = buildPayload(draft, finishedAt);
     if (!payload) {
       setDraft(null);
+      setWeakSpotHint(null);
       return;
     }
     setBusy(true);
@@ -214,6 +222,7 @@ export function App() {
       }),
     );
     setDraft(null);
+    setWeakSpotHint(null);
     setPending(store.loadOutbox().length);
     setBusy(false);
     void sync();
@@ -247,6 +256,22 @@ export function App() {
     [exercises],
   );
 
+  /** Primär-/Hilfsmuskeln einer Übung aus Katalog oder eigenen Übungen. */
+  const muscleOfExercise = useCallback(
+    (id: string) => ({ primary: exerciseMeta[id]?.primary ?? [], secondary: exerciseMeta[id]?.secondary ?? [] }),
+    [exerciseMeta],
+  );
+
+  /** Kurzer Hinweis auf die Muskelgruppe mit den wenigsten Sätzen der letzten 7 Tage. */
+  function updateWeakSpotHint() {
+    const weak = weakestMuscle(mergedHistory, new Date(), muscleOfExercise);
+    setWeakSpotHint(
+      weak
+        ? `Schwachstelle: ${muscleLabel(weak.muscle)} – nur ${num1(weak.sets)} von ${WEEKLY_SETS_REFERENCE.min}–${WEEKLY_SETS_REFERENCE.max} Sätzen in den letzten 7 Tagen.`
+        : null,
+    );
+  }
+
   async function startFromPlan(plan: Plan, dayId: string) {
     const day = plan.days.find((d) => d.id === dayId);
     if (!day) return;
@@ -263,6 +288,7 @@ export function App() {
         Object.fromEntries(entries.map(([id, info]) => [id, info.equipmentKg])),
       ),
     );
+    updateWeakSpotHint();
     setScreen('home');
     setStarting(false);
   }
@@ -351,8 +377,13 @@ export function App() {
           onUpdate={(fn) => setDraft((d) => (d ? fn(d) : d))}
           loadLast={loadLast}
           onFinish={() => void finish()}
-          onDiscard={() => setDraft(null)}
+          onDiscard={() => {
+            setDraft(null);
+            setWeakSpotHint(null);
+          }}
           busy={busy}
+          weakSpotHint={weakSpotHint}
+          onDismissWeakSpotHint={() => setWeakSpotHint(null)}
         />
       </main>
     );
@@ -521,6 +552,7 @@ export function App() {
           onClick={() => {
             setNotice(null);
             setDraft(createDraft('Freies Training', null, new Date()));
+            updateWeakSpotHint();
           }}
         >
           <Icon name="plus" size={20} /> Freies Training

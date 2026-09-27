@@ -8,13 +8,16 @@ import {
   lastDays,
   mergeHistory,
   muscleSets,
+  musclePoints,
   payloadToHist,
   summarizeWorkout,
+  trainedMuscles,
+  weakestMuscle,
   windowTotals,
   workoutTotals,
   type HistWorkout,
 } from './stats';
-import { addExercise, buildPayload, createDraft, toggleDone } from './workout';
+import { addExercise, buildPayload, createDraft, setFeedback, toggleDone } from './workout';
 
 const d = (day: number, h = 10) => new Date(2026, 8, day, h, 0, 0).toISOString();
 const end = (day: number, h = 11) => new Date(2026, 8, day, h, 0, 0).toISOString();
@@ -157,6 +160,52 @@ describe('Zeitfenster und Muskeln', () => {
   });
 });
 
+describe('Kraftverlauf pro Körperpartie und Schwachstellen', () => {
+  // 'bench' trifft primär die Brust, 'row' primär den Rücken.
+  const muscleOf = (id: string) =>
+    id === 'bench' ? { primary: ['chest'], secondary: ['triceps'] } : { primary: ['middle back'], secondary: [] };
+
+  function multi(id: string, day: number, benchSet: [number, number], rowSet?: [number, number]): HistWorkout {
+    const w = workout(id, day, [benchSet], { exerciseId: 'bench' });
+    if (rowSet) {
+      w.exercises.push({ exerciseId: 'row', equipmentKg: null, sets: [{ type: 'working', weightKg: rowSet[0], reps: rowSet[1] }] });
+    }
+    return w;
+  }
+
+  it('nimmt je Training die Übung mit der höchsten Last für den Muskel', () => {
+    const list = [multi('a', 1, [60, 8]), multi('b', 8, [65, 6])];
+    const points = musclePoints(list, 'chest', muscleOf);
+    expect(points.map((p) => ({ at: p.at, topLoadKg: p.topLoadKg, exerciseId: p.exerciseId }))).toEqual([
+      { at: new Date(2026, 8, 1, 10).getTime(), topLoadKg: 60, exerciseId: 'bench' },
+      { at: new Date(2026, 8, 8, 10).getTime(), topLoadKg: 65, exerciseId: 'bench' },
+    ]);
+  });
+
+  it('zählt einen Muskel nicht, wenn er nur Hilfsmuskel einer ausgeführten Übung ist', () => {
+    const list = [multi('a', 1, [60, 8])];
+    // 'triceps' ist bei 'bench' nur Hilfsmuskel.
+    expect(musclePoints(list, 'triceps', muscleOf)).toEqual([]);
+  });
+
+  it('listet alle Hauptmuskeln, die schon einmal trainiert wurden', () => {
+    const list = [multi('a', 1, [60, 8], [40, 8])];
+    expect(trainedMuscles(list, muscleOf).sort()).toEqual(['chest', 'middle back']);
+  });
+
+  it('meldet den Muskel mit den wenigsten Sätzen der letzten 7 Tage unter dem Richtwert', () => {
+    // Brust: 2 Sätze in den letzten 7 Tagen (unter dem Richtwert von 10); Rücken: gar nicht trainiert.
+    const list = [multi('a', 10, [60, 8]), multi('b', 11, [60, 8])];
+    const now = new Date(2026, 8, 12);
+    const weak = weakestMuscle(list, now, muscleOf);
+    expect(weak).toEqual({ muscle: 'chest', sets: 2 });
+  });
+
+  it('meldet nichts, wenn noch nie trainiert wurde', () => {
+    expect(weakestMuscle([], new Date(2026, 8, 12), muscleOf)).toBeNull();
+  });
+});
+
 describe('Umwandlungen', () => {
   function done() {
     let dr = createDraft('Push', null, new Date(2026, 8, 20, 10));
@@ -172,6 +221,15 @@ describe('Umwandlungen', () => {
     expect(h.exercises).toHaveLength(1);
     expect(h.exercises[0].sets).toHaveLength(2);
     expect(h.exercises[0].equipmentKg).toBe(20);
+    expect(h.feedback).toBeNull();
+  });
+
+  it('übernimmt das Feedback ("Wie lief\'s?") in Verlauf und Payload', () => {
+    const dr = setFeedback(done(), 'great');
+    const fin = new Date(2026, 8, 20, 11);
+    expect(draftToHist(dr, fin).feedback).toBe('great');
+    expect(buildPayload(dr, fin)!.workout.feedback).toBe('great');
+    expect(payloadToHist(buildPayload(dr, fin)!).feedback).toBe('great');
   });
 
   it('wandelt einen noch nicht gesendeten Datensatz in denselben Verlaufseintrag um', () => {
@@ -241,5 +299,29 @@ describe('Auswertung nach dem Training', () => {
     expect(chest.week).toBe(2);
     const triceps = s.muscles.find((m) => m.muscle === 'triceps')!;
     expect(triceps.workout).toBe(1);
+  });
+
+  it('nennt als Highlight den Bestwert mit der größten relativen Verbesserung', () => {
+    const cur = workout('c', 15, [[65, 8], [65, 8]]);
+    const s = summarizeWorkout(cur, before, ctx);
+    // Last: 65 vs. vorher 62,5 (+4 %); 1RM: 82,3 vs. 80 (+2,9 %) – Last gewinnt.
+    expect(s.highlight).toBe('Bankdrücken: neuer Bestwert – Höchste Last 65 kg (vorher 62,5 kg).');
+  });
+
+  it('ohne Bestwert oder Steigerungschance bleiben Highlight und Fokus leer', () => {
+    const cur = workout('c', 15, [[50, 3]], { exerciseId: 'row' });
+    const s = summarizeWorkout(cur, before, ctx);
+    expect(s.highlight).toBeNull();
+    expect(s.focus).toBeNull();
+  });
+
+  it('nennt als Fokus die Übung mit der klarsten Steigerungschance', () => {
+    const cur = workout('c', 15, [[65, 10], [65, 10], [65, 9]]);
+    expect(summarizeWorkout(cur, before, ctx).focus).toBe('Bankdrücken: nächstes Mal das Gewicht steigern.');
+  });
+
+  it('ohne Steigerungschance schlägt der Fokus eine Wiederholung mehr beim Halten vor', () => {
+    const hold = workout('c', 15, [[65, 9], [65, 8]]);
+    expect(summarizeWorkout(hold, before, ctx).focus).toBe('Bankdrücken: Gewicht halten, eine Wiederholung mehr anstreben.');
   });
 });
