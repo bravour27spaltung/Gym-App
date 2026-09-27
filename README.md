@@ -68,7 +68,7 @@ Die Sätze sind eine Tabelle: **Satz | Vorher | kg | Wdh. | Haken**. Gewicht und
 
 **Reiter „Verlauf":** Kennzahlen der letzten 7 Tage im Vergleich zu den 7 Tagen davor, Sätze pro Muskel, die Liste aller Einheiten mit Details (jeder Satz, geschätztes 1RM) und je Übung ein Verlaufsdiagramm mit Kennzahl (geschätztes 1RM, höchste Last, Volumen, Wiederholungen) und Zeitraum (3 Monate oder alle). Jedes Diagramm hat eine Tabellenansicht. Es sind die letzten 150 Trainings geladen und lokal zwischengespeichert.
 
-**Daten zurücksetzen (zum Testen):** Auf dem Startbildschirm unten, neben „Abmelden“. Zur Wahl stehen „Nur Trainings“ (Trainings, Sätze, Verlauf, Fußball) und „Alles zurücksetzen“ (zusätzlich Pläne, Vorlagen und eigene Übungen). Der Übungskatalog bleibt immer erhalten. Gelöscht wird dauerhaft in der Datenbank und im lokalen Zwischenspeicher, erst nachdem du LÖSCHEN eingetippt hast. Die Datenbank wird zuerst geleert; schlägt das fehl, bleibt der lokale Stand unverändert.
+**Testdaten zurücksetzen:** Auf dem Startbildschirm unten, neben „Abmelden“. Löscht nur Trainings, Sätze, Verlauf und Fußball-Einträge; Pläne, Vorlagen, eigene Übungen und der Übungskatalog bleiben immer erhalten. Gelöscht wird dauerhaft in der Datenbank und im lokalen Zwischenspeicher, erst nachdem du LÖSCHEN eingetippt hast. Die Datenbank wird zuerst geleert; schlägt das fehl, bleibt der lokale Stand unverändert.
 
 **Was gemessen und was geschätzt ist:**
 

@@ -90,8 +90,6 @@ export function createStore(storage: KeyValueStorage | null) {
         KEYS.history,
         KEYS.lastPlanDay,
       ]),
-    /** Setzt den gesamten lokalen Zwischenspeicher zurück. */
-    clearAll: () => removeKeys(Object.values(KEYS)),
 
     loadDraft: () => read<Draft | null>(KEYS.draft, null),
     saveDraft: (d: Draft) => write(KEYS.draft, d),

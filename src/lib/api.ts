@@ -1,7 +1,7 @@
 import { supabase } from '../supabase';
 import { translateAuthError } from './authErrors';
 import type { Plan, PlanDbRow, PlanRows } from './plan';
-import { resetSteps, type ResetScope } from './reset';
+import { resetSteps } from './reset';
 import { plansFromRows } from './plan';
 import type { HistWorkout } from './stats';
 import type { ExerciseListItem, LastInfo, Store } from './storage';
@@ -276,13 +276,13 @@ export async function flushOutbox(store: Store): Promise<{ sent: number; pending
 }
 
 /**
- * Löscht die Daten des angemeldeten Nutzers dauerhaft (zum Testen). Die Zeilen sind per
- * Row-Level-Security ohnehin auf den Nutzer beschränkt; der Übungskatalog bleibt erhalten.
- * Bricht beim ersten Fehler ab und nennt die Tabelle.
+ * Löscht nur Trainings, Sätze, Verlauf und Fußball-Einträge des angemeldeten Nutzers
+ * dauerhaft (zum Testen). Pläne, Vorlagen, eigene Übungen und der Übungskatalog bleiben
+ * erhalten. Bricht beim ersten Fehler ab und nennt die Tabelle.
  */
-export async function resetRemoteData(scope: ResetScope): Promise<Result<null>> {
+export async function resetRemoteData(): Promise<Result<null>> {
   if (!supabase) return fail(NOT_CONFIGURED);
-  for (const step of resetSteps(scope)) {
+  for (const step of resetSteps()) {
     let query = supabase.from(step.table).delete();
     // delete() verlangt einen Filter; "id ist nicht null" trifft alle eigenen Zeilen.
     query = step.only ? query.eq(step.only.column, step.only.value) : query.not('id', 'is', null);

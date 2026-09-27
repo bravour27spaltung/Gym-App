@@ -1,13 +1,9 @@
 /**
- * Daten zurücksetzen (zum Testen der App). Die Reihenfolge der Schritte ist wichtig:
- * Trainings und Pläne verweisen auf Übungen, eigene Übungen dürfen deshalb erst danach
- * gelöscht werden. Sätze, Trainings-Übungen, Plantage und Planübungen fallen über die
- * Fremdschlüssel (on delete cascade) mit ihrem Training bzw. Plan weg.
- *
- * Der Übungskatalog (source <> 'custom') bleibt in jedem Fall erhalten.
+ * Testdaten zurücksetzen: löscht nur Trainings, Sätze, Verlauf und Fußball-Einträge.
+ * Pläne, Vorlagen und eigene Übungen bleiben immer erhalten, damit beim Testen nicht
+ * versehentlich die eigentliche Planung verloren geht. Der Übungskatalog
+ * (source <> 'custom') bleibt ohnehin unberührt.
  */
-
-export type ResetScope = 'training' | 'all';
 
 export interface ResetStep {
   table: string;
@@ -15,15 +11,8 @@ export interface ResetStep {
   only?: { column: string; value: string };
 }
 
-const TRAINING: ResetStep[] = [{ table: 'fit_workouts' }, { table: 'fit_football_sessions' }];
-
-const PLANS_AND_CUSTOM: ResetStep[] = [
-  { table: 'fit_plans' },
-  { table: 'fit_exercises', only: { column: 'source', value: 'custom' } },
-];
-
-export function resetSteps(scope: ResetScope): ResetStep[] {
-  return scope === 'all' ? [...TRAINING, ...PLANS_AND_CUSTOM] : [...TRAINING];
+export function resetSteps(): ResetStep[] {
+  return [{ table: 'fit_workouts' }, { table: 'fit_football_sessions' }];
 }
 
 /** Wort, das zur Bestätigung eingetippt werden muss. */

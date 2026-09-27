@@ -13,18 +13,9 @@ function fakeStorage(): KeyValueStorage & { keys(): string[] } {
 }
 
 describe('resetSteps', () => {
-  it('löscht bei "training" nur Trainings und Fußball, nie Pläne oder Übungen', () => {
-    const tables = resetSteps('training').map((s) => s.table);
+  it('löscht nur Trainings und Fußball, nie Pläne oder Übungen', () => {
+    const tables = resetSteps().map((s) => s.table);
     expect(tables).toEqual(['fit_workouts', 'fit_football_sessions']);
-  });
-
-  it('löscht bei "all" zusätzlich Pläne und nur eigene Übungen, in sicherer Reihenfolge', () => {
-    const steps = resetSteps('all');
-    const tables = steps.map((s) => s.table);
-    expect(tables).toEqual(['fit_workouts', 'fit_football_sessions', 'fit_plans', 'fit_exercises']);
-    // Eigene Übungen zuletzt, weil Trainings und Pläne auf sie verweisen.
-    expect(tables.indexOf('fit_exercises')).toBe(tables.length - 1);
-    expect(steps[steps.length - 1].only).toEqual({ column: 'source', value: 'custom' });
   });
 });
 
@@ -64,14 +55,8 @@ describe('lokaler Speicher zurücksetzen', () => {
     expect(raw.keys().sort()).toEqual(['gym.exercises.v1', 'gym.plans.v1']);
   });
 
-  it('clearAll entfernt alles', () => {
-    const { raw, s } = filled();
-    s.clearAll();
-    expect(raw.keys()).toEqual([]);
-  });
-
   it('läuft ohne Speicher oder mit gesperrtem Speicher ohne Fehler', () => {
-    expect(() => createStore(null).clearAll()).not.toThrow();
+    expect(() => createStore(null).clearTrainingData()).not.toThrow();
     const broken: KeyValueStorage = {
       getItem() { throw new Error('gesperrt'); },
       setItem() { throw new Error('gesperrt'); },

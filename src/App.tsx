@@ -34,7 +34,6 @@ import {
 } from './lib/plan';
 import { normalizeCode } from './lib/authErrors';
 import { nextPlanDay } from './lib/rotation';
-import type { ResetScope } from './lib/reset';
 import {
   draftToHist,
   mergeHistory,
@@ -289,23 +288,21 @@ export function App() {
     return null;
   }
 
-  /** Löscht Testdaten in der Datenbank und lokal; lokal erst, wenn die Datenbank erfolgreich war. */
-  async function handleReset(scope: ResetScope): Promise<string | null> {
-    const res = await resetRemoteData(scope);
+  /**
+   * Löscht nur Testdaten und Logs (Trainings, Sätze, Verlauf, Fußball) in der Datenbank
+   * und lokal; Pläne, Vorlagen und eigene Übungen bleiben unangetastet. Lokal wird erst
+   * geleert, wenn die Datenbank erfolgreich war.
+   */
+  async function handleReset(): Promise<string | null> {
+    const res = await resetRemoteData();
     if (!res.ok) return `Zurücksetzen fehlgeschlagen: ${res.error}`;
-    if (scope === 'all') {
-      store.clearAll();
-      setPlans([]);
-      setPlansReady(false);
-    } else {
-      store.clearTrainingData();
-    }
+    store.clearTrainingData();
     setDraft(null);
     setSummary(null);
     setHistory([]);
     setPending(0);
     setLastPlanDayId(null);
-    setNotice(scope === 'all' ? 'Alles zurückgesetzt.' : 'Trainings zurückgesetzt.');
+    setNotice('Testdaten und Logs zurückgesetzt.');
     void sync();
     return null;
   }
@@ -536,7 +533,7 @@ export function App() {
           </button>{' '}
           ·{' '}
           <button type="button" className="link" onClick={() => setResetOpen(true)}>
-            Daten zurücksetzen
+            Testdaten zurücksetzen
           </button>
         </p>
       </div>
