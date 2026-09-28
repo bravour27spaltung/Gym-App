@@ -1,6 +1,7 @@
 import type { Plan } from './plan';
 import type { LoggedSet } from './progression';
 import type { HistWorkout } from './stats';
+import type { StretchDraft, StretchPayload } from './stretch';
 import type { Draft, WorkoutPayload } from './workout';
 
 /**
@@ -37,6 +38,30 @@ export interface LastInfo {
   equipmentKg: number | null;
 }
 
+export interface StretchExerciseListItem {
+  id: string;
+  name: string;
+  muscles: string[];
+  defaultHoldSeconds: number | null;
+}
+
+export interface HistStretchItem {
+  stretchExerciseId: string;
+  side: 'links' | 'rechts' | 'beidseitig';
+  holdSeconds: number;
+  sets: number;
+}
+
+export interface HistStretchSession {
+  id: string;
+  startedAt: string;
+  finishedAt: string | null;
+  feelingBefore: number | null;
+  feelingAfter: number | null;
+  note: string | null;
+  items: HistStretchItem[];
+}
+
 const KEYS = {
   draft: 'gym.draft.v1',
   outbox: 'gym.outbox.v1',
@@ -46,6 +71,10 @@ const KEYS = {
   exercises: 'gym.exercises.v1',
   plans: 'gym.plans.v1',
   lastPlanDay: 'gym.lastPlanDay.v1',
+  stretchDraft: 'gym.stretchDraft.v1',
+  stretchOutbox: 'gym.stretchOutbox.v1',
+  stretchExercises: 'gym.stretchExercises.v1',
+  stretchHistory: 'gym.stretchHistory.v1',
 } as const;
 
 export function createStore(storage: KeyValueStorage | null) {
@@ -142,6 +171,33 @@ export function createStore(storage: KeyValueStorage | null) {
     /** Zuletzt trainierter Plantag, Grundlage der Rotation (Push -> Pull -> Lower). */
     getLastPlanDayId: () => read<string | null>(KEYS.lastPlanDay, null),
     setLastPlanDayId: (id: string) => write(KEYS.lastPlanDay, id),
+
+    // Stretching: eigener Bereich, eigener Zwischenspeicher (gleiches Muster wie oben).
+    loadStretchDraft: () => read<StretchDraft | null>(KEYS.stretchDraft, null),
+    saveStretchDraft: (d: StretchDraft) => write(KEYS.stretchDraft, d),
+    clearStretchDraft() {
+      try {
+        storage?.removeItem(KEYS.stretchDraft);
+      } catch {
+        /* ignorieren */
+      }
+    },
+
+    loadStretchOutbox: () => read<StretchPayload[]>(KEYS.stretchOutbox, []),
+    saveStretchOutbox: (items: StretchPayload[]) => write(KEYS.stretchOutbox, items),
+    enqueueStretch(p: StretchPayload): boolean {
+      const items = read<StretchPayload[]>(KEYS.stretchOutbox, []).filter(
+        (x) => x.session.id !== p.session.id,
+      );
+      items.push(p);
+      return write(KEYS.stretchOutbox, items);
+    },
+
+    loadStretchExercises: () => read<StretchExerciseListItem[]>(KEYS.stretchExercises, []),
+    saveStretchExercises: (items: StretchExerciseListItem[]) => write(KEYS.stretchExercises, items),
+
+    loadStretchHistory: () => read<HistStretchSession[]>(KEYS.stretchHistory, []),
+    saveStretchHistory: (items: HistStretchSession[]) => write(KEYS.stretchHistory, items),
   };
 }
 

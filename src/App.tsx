@@ -3,6 +3,8 @@ import { HistoryScreen } from './components/HistoryScreen';
 import { musclesOfDay } from './components/PlanEditor';
 import { PlansScreen } from './components/PlansScreen';
 import { ResetData } from './components/ResetData';
+import { StretchHistoryScreen } from './components/StretchHistoryScreen';
+import { StretchScreen } from './components/StretchScreen';
 import { Icon, TabBar, type Tab } from './components/ui';
 import { WorkoutSummaryScreen } from './components/WorkoutSummary';
 import { WorkoutScreen } from './components/WorkoutScreen';
@@ -14,7 +16,10 @@ import {
   fetchLastPlanDayId,
   fetchLastSets,
   fetchPlans,
+  fetchStretchExercises,
+  fetchStretchHistory,
   flushOutbox,
+  flushStretchOutbox,
   getSessionEmail,
   resetRemoteData,
   savePlanRows,
@@ -22,6 +27,7 @@ import {
   signIn,
   signOut,
   syncPayload,
+  syncStretchPayload,
   verifyLoginCode,
 } from './lib/api';
 import {
@@ -35,6 +41,7 @@ import {
 } from './lib/plan';
 import { normalizeCode } from './lib/authErrors';
 import { nextPlanDay } from './lib/rotation';
+import { buildStretchPayload, createStretchDraft, type StretchDraft } from './lib/stretch';
 import {
   draftToHist,
   mergeHistory,
@@ -47,7 +54,13 @@ import {
 } from './lib/stats';
 import { muscleLabel } from './lib/muscles';
 import { num1 } from './lib/format';
-import { browserStore, type ExerciseListItem, type LastInfo } from './lib/storage';
+import {
+  browserStore,
+  type ExerciseListItem,
+  type HistStretchSession,
+  type LastInfo,
+  type StretchExerciseListItem,
+} from './lib/storage';
 import { buildWeeklyReview, isLastPlanDay, type WeeklyReview } from './lib/weeklyReview';
 import {
   buildPayload,
@@ -87,6 +100,25 @@ export function App() {
   // der letzten 7 Tage; null = nichts auffällig oder schon weggeklickt.
   const [weakSpotHint, setWeakSpotHint] = useState<string | null>(null);
   const loaded = useRef(false);
+
+  // Stretching: eigener Bereich, eigener Entwurf/Zwischenspeicher (gleiches Muster wie Training).
+  const [stretchDraft, setStretchDraft] = useState<StretchDraft | null>(() => store.loadStretchDraft());
+  const [stretchExercises, setStretchExercises] = useState<StretchExerciseListItem[]>(() =>
+    store.loadStretchExercises(),
+  );
+  const [stretchHistory, setStretchHistory] = useState<HistStretchSession[]>(() => store.loadStretchHistory());
+  const [stretchPending, setStretchPending] = useState(() => store.loadStretchOutbox().length);
+  const [stretchBusy, setStretchBusy] = useState(false);
+  const stretchLoaded = useRef(false);
+
+  useEffect(() => {
+    if (!stretchLoaded.current) {
+      stretchLoaded.current = true;
+      return;
+    }
+    if (stretchDraft) store.saveStretchDraft(stretchDraft);
+    else store.clearStretchDraft();
+  }, [stretchDraft, store]);
 
   // Entwurf bei jeder Änderung lokal sichern.
   useEffect(() => {
@@ -134,6 +166,21 @@ export function App() {
         store.setLastPlanDayId(last.data);
         setLastPlanDayId(last.data);
       }
+    }
+
+    // Stretching: eigener Bereich, eigener Sync (gleiches Muster wie Training).
+    const stretchRes = await flushStretchOutbox(store);
+    setStretchPending(stretchRes.pending);
+    if (stretchRes.sent > 0) setNotice(`${stretchRes.sent} Stretching-Session(s) gespeichert.`);
+    const stretchList = await fetchStretchExercises();
+    if (stretchList.ok) {
+      setStretchExercises(stretchList.data);
+      store.saveStretchExercises(stretchList.data);
+    }
+    const stretchHist = await fetchStretchHistory();
+    if (stretchHist.ok) {
+      setStretchHistory(stretchHist.data);
+      store.saveStretchHistory(stretchHist.data);
     }
   }, [store, refreshPlans]);
 
@@ -240,6 +287,32 @@ export function App() {
     void sync();
   }
 
+  async function finishStretch(feelingAfter: number | null, note: string) {
+    if (!stretchDraft) return;
+    const finishedAt = new Date();
+    const payload = buildStretchPayload(stretchDraft, finishedAt, feelingAfter, note);
+    if (!payload) {
+      setStretchDraft(null);
+      return;
+    }
+    setStretchBusy(true);
+    let saved = store.enqueueStretch(payload);
+    if (!saved) {
+      // Lokaler Speicher gesperrt: direkt senden.
+      const res = await syncStretchPayload(payload);
+      saved = res.ok;
+    }
+    if (!saved) {
+      setStretchBusy(false);
+      setNotice('Speichern fehlgeschlagen. Die Session bleibt geöffnet, bitte später erneut versuchen.');
+      return;
+    }
+    setStretchDraft(null);
+    setStretchPending(store.loadStretchOutbox().length);
+    setStretchBusy(false);
+    void sync();
+  }
+
   // Name und Muskeln je Übung: Katalog plus eigene Übungen, die noch nicht in der Datenbank sind.
   const exerciseMeta = useMemo(() => {
     const meta: Record<string, ExerciseMeta> = {};
@@ -262,6 +335,18 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [history, pending, store],
   );
+
+  // Namen der Dehnübungen: Katalog plus eigene, in dieser Sitzung noch nicht gesendete Übungen.
+  const stretchNameOf = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const x of stretchExercises) names[x.id] = x.name;
+    for (const p of store.loadStretchOutbox()) {
+      for (const n of p.newExercises) names[n.id] = n.name_de;
+    }
+    return (id: string) => names[id] ?? 'Übung';
+    // stretchPending ändert sich mit dem Ausgangskorb
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stretchExercises, stretchPending, store]);
 
   const exercisesById = useMemo(
     () => Object.fromEntries(exercises.map((x) => [x.id, x])),
@@ -403,6 +488,26 @@ export function App() {
     );
   }
 
+  if (stretchDraft) {
+    return (
+      <main>
+        {notice && (
+          <p className="notice" role="status">
+            {notice}
+          </p>
+        )}
+        <StretchScreen
+          draft={stretchDraft}
+          stretchExercises={stretchExercises}
+          onUpdate={(fn) => setStretchDraft((d) => (d ? fn(d) : d))}
+          onFinish={(feelingAfter, note) => void finishStretch(feelingAfter, note)}
+          onDiscard={() => setStretchDraft(null)}
+          busy={stretchBusy}
+        />
+      </main>
+    );
+  }
+
   if (summary) {
     return (
       <main>
@@ -420,6 +525,41 @@ export function App() {
   }
 
   const tabs = editorOpen ? null : <TabBar active={screen} onChange={setScreen} />;
+
+  if (screen === 'stretch') {
+    return (
+      <main>
+        <div className="screen">
+          <header className="pagehead">
+            <h1>Stretching</h1>
+          </header>
+          {notice && (
+            <p className="notice" role="status">
+              {notice}
+            </p>
+          )}
+          {stretchPending > 0 && (
+            <p className="notice" role="status">
+              {stretchPending} Stretching-Session(s) noch nicht gespeichert. Sie werden gesendet, sobald
+              eine Verbindung besteht.{' '}
+              <button type="button" className="link" onClick={() => void sync()}>
+                Jetzt versuchen
+              </button>
+            </p>
+          )}
+          <button
+            type="button"
+            className="btn primary block"
+            onClick={() => setStretchDraft(createStretchDraft(new Date(), null))}
+          >
+            <Icon name="play" size={18} /> Stretching starten
+          </button>
+        </div>
+        <StretchHistoryScreen sessions={stretchHistory} nameOf={stretchNameOf} />
+        {tabs}
+      </main>
+    );
+  }
 
   if (screen === 'history') {
     return (

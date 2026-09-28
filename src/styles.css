@@ -2687,3 +2687,32 @@ button.tile:disabled {
 .reset-confirm input {
   margin-top: 6px;
 }
+
+/* Stretching: Verspannungs-Skala und Notizfeld (Session beenden). */
+.feeling {
+  margin: 4px 0 16px;
+}
+
+.feeling-label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.notefield {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 12px 0;
+}
+
+.notefield textarea {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.timer.hold {
+  margin-top: 12px;
+}

@@ -188,12 +188,13 @@ export function AppBar(props: {
   );
 }
 
-export type Tab = 'home' | 'history' | 'plans';
+export type Tab = 'home' | 'stretch' | 'history' | 'plans';
 
-/** Untere Navigation (Training / Verlauf / Pläne). */
+/** Untere Navigation (Training / Stretching / Verlauf / Pläne). */
 export function TabBar(props: { active: Tab; onChange: (tab: Tab) => void }) {
   const tabs: { key: Tab; label: string; icon: IconName }[] = [
     { key: 'home', label: 'Training', icon: 'dumbbell' },
+    { key: 'stretch', label: 'Stretching', icon: 'flame' },
     { key: 'history', label: 'Verlauf', icon: 'chart' },
     { key: 'plans', label: 'Pläne', icon: 'list' },
   ];

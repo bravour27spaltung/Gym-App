@@ -3,8 +3,15 @@ import { translateAuthError } from './authErrors';
 import type { Plan, PlanDbRow, PlanRows } from './plan';
 import { resetSteps } from './reset';
 import { plansFromRows } from './plan';
+import type { StretchPayload, StretchSide } from './stretch';
 import type { HistWorkout } from './stats';
-import type { ExerciseListItem, LastInfo, Store } from './storage';
+import type {
+  ExerciseListItem,
+  HistStretchSession,
+  LastInfo,
+  Store,
+  StretchExerciseListItem,
+} from './storage';
 import type { Feedback, WorkoutPayload } from './workout';
 
 /** Dünne Schicht um Supabase. Fehler werden zurückgegeben, nicht geworfen. */
@@ -304,4 +311,120 @@ export async function resetRemoteData(): Promise<Result<null>> {
     if (error) return fail(`${step.table}: ${error.message}`);
   }
   return { ok: true, data: null };
+}
+
+// ---------------------------------------------------------------------------
+// Stretching: eigener Bereich, eigene Tabellen (fit_stretch_*), gleiches Muster wie oben.
+
+interface StretchExerciseRow {
+  id: string;
+  name_de: string;
+  muscles: string[] | null;
+  default_hold_seconds: number | null;
+}
+
+export async function fetchStretchExercises(): Promise<Result<StretchExerciseListItem[]>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { data, error } = await supabase
+    .from('fit_stretch_exercises')
+    .select('id, name_de, muscles, default_hold_seconds')
+    .is('archived_at', null)
+    .order('name_de');
+  if (error) return fail(error.message);
+  const rows = (data ?? []) as unknown as StretchExerciseRow[];
+  return {
+    ok: true,
+    data: rows.map((r) => ({
+      id: r.id,
+      name: r.name_de,
+      muscles: r.muscles ?? [],
+      defaultHoldSeconds: r.default_hold_seconds === null ? null : Number(r.default_hold_seconds),
+    })),
+  };
+}
+
+interface StretchHistoryRow {
+  id: string;
+  started_at: string;
+  finished_at: string | null;
+  feeling_before: number | null;
+  feeling_after: number | null;
+  note: string | null;
+  fit_stretch_items: {
+    stretch_exercise_id: string;
+    position: number;
+    side: StretchSide;
+    hold_seconds: number;
+    sets: number;
+  }[];
+}
+
+/** Abgeschlossene Stretching-Sessions mit ihren Übungen, neueste zuerst. */
+export async function fetchStretchHistory(limit = 150): Promise<Result<HistStretchSession[]>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { data, error } = await supabase
+    .from('fit_stretch_sessions')
+    .select(
+      'id, started_at, finished_at, feeling_before, feeling_after, note, ' +
+        'fit_stretch_items(stretch_exercise_id, position, side, hold_seconds, sets)',
+    )
+    .not('finished_at', 'is', null)
+    .order('started_at', { ascending: false })
+    .limit(limit);
+  if (error) return fail(error.message);
+  const rows = (data ?? []) as unknown as StretchHistoryRow[];
+  return {
+    ok: true,
+    data: rows.map((s) => ({
+      id: s.id,
+      startedAt: s.started_at,
+      finishedAt: s.finished_at,
+      feelingBefore: s.feeling_before,
+      feelingAfter: s.feeling_after,
+      note: s.note,
+      items: [...s.fit_stretch_items]
+        .sort((a, b) => a.position - b.position)
+        .map((it) => ({
+          stretchExerciseId: it.stretch_exercise_id,
+          side: it.side,
+          holdSeconds: it.hold_seconds,
+          sets: it.sets,
+        })),
+    })),
+  };
+}
+
+/**
+ * Schreibt eine Stretching-Session: neue eigene Dehnübungen, Session, Übungen.
+ * Upsert über die Client-IDs, ein Wiederholen nach einem Abbruch erzeugt deshalb
+ * keine Doppelten.
+ */
+export async function syncStretchPayload(p: StretchPayload): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+
+  const steps: [string, unknown[]][] = [
+    ['fit_stretch_exercises', p.newExercises],
+    ['fit_stretch_sessions', [p.session]],
+    ['fit_stretch_items', p.items],
+  ];
+  for (const [table, rows] of steps) {
+    if (rows.length === 0) continue;
+    const { error } = await supabase.from(table).upsert(rows, { onConflict: 'id' });
+    if (error) return fail(`${table}: ${error.message}`);
+  }
+  return { ok: true, data: null };
+}
+
+/** Versucht alle Stretching-Sessions im Ausgangskorb zu senden; Fehlgeschlagene bleiben liegen. */
+export async function flushStretchOutbox(store: Store): Promise<{ sent: number; pending: number }> {
+  const items = store.loadStretchOutbox();
+  const remaining = [];
+  let sent = 0;
+  for (const item of items) {
+    const res = await syncStretchPayload(item);
+    if (res.ok) sent += 1;
+    else remaining.push(item);
+  }
+  if (sent > 0) store.saveStretchOutbox(remaining);
+  return { sent, pending: remaining.length };
 }
