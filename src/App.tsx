@@ -6,6 +6,7 @@ import { ResetData } from './components/ResetData';
 import { Icon, TabBar, type Tab } from './components/ui';
 import { WorkoutSummaryScreen } from './components/WorkoutSummary';
 import { WorkoutScreen } from './components/WorkoutScreen';
+import { WeeklyReviewScreen } from './components/WeeklyReview';
 import {
   archivePlan,
   fetchExercises,
@@ -47,6 +48,7 @@ import {
 import { muscleLabel } from './lib/muscles';
 import { num1 } from './lib/format';
 import { browserStore, type ExerciseListItem, type LastInfo } from './lib/storage';
+import { buildWeeklyReview, isLastPlanDay, type WeeklyReview } from './lib/weeklyReview';
 import {
   buildPayload,
   createDraft,
@@ -74,6 +76,7 @@ export function App() {
   const [screen, setScreen] = useState<Tab>('home');
   const [history, setHistory] = useState<HistWorkout[]>(() => store.loadHistory());
   const [summary, setSummary] = useState<WorkoutSummary | null>(null);
+  const [weeklyReview, setWeeklyReview] = useState<WeeklyReview | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [pending, setPending] = useState(() => store.loadOutbox().length);
@@ -208,18 +211,27 @@ export function App() {
     // Auswertung direkt nach dem Speichern, auch offline (nur lokale Daten).
     const current = draftToHist(draft, finishedAt);
     const byId = new Map<string, DraftExercise>(draft.exercises.map((e) => [e.exerciseId, e] as const));
-    setSummary(
-      summarizeWorkout(current, mergedHistory, {
-        nameOf: (id) => byId.get(id)?.name ?? exerciseMeta[id]?.name ?? 'Übung',
-        muscleOf: (id) => ({
-          primary: byId.get(id)?.primaryMuscles ?? exerciseMeta[id]?.primary ?? [],
-          secondary: byId.get(id)?.secondaryMuscles ?? exerciseMeta[id]?.secondary ?? [],
-        }),
-        rangeOf: (id) => {
-          const e = byId.get(id);
-          return e ? { repMin: e.repMin, repMax: e.repMax } : null;
-        },
+    const ctx = {
+      nameOf: (id: string) => byId.get(id)?.name ?? exerciseMeta[id]?.name ?? 'Übung',
+      muscleOf: (id: string) => ({
+        primary: byId.get(id)?.primaryMuscles ?? exerciseMeta[id]?.primary ?? [],
+        secondary: byId.get(id)?.secondaryMuscles ?? exerciseMeta[id]?.secondary ?? [],
       }),
+      rangeOf: (id: string) => {
+        const e = byId.get(id);
+        return e ? { repMin: e.repMin, repMax: e.repMax } : null;
+      },
+    };
+    setSummary(summarizeWorkout(current, mergedHistory, ctx));
+    // Wochenrückblick: nur wenn dieses Training der letzte Tag der Rotation eines
+    // mehrtägigen Plans war (nicht bei Vorlagen oder freiem Training).
+    const plan = draft.planDayId
+      ? plans.find((p) => p.kind === 'plan' && p.days.some((d) => d.id === draft.planDayId))
+      : undefined;
+    setWeeklyReview(
+      plan && draft.planDayId && isLastPlanDay(plan, draft.planDayId)
+        ? buildWeeklyReview(plan, [current, ...mergedHistory], finishedAt, ctx)
+        : null,
     );
     setDraft(null);
     setWeakSpotHint(null);
@@ -325,6 +337,7 @@ export function App() {
     store.clearTrainingData();
     setDraft(null);
     setSummary(null);
+    setWeeklyReview(null);
     setHistory([]);
     setPending(0);
     setLastPlanDayId(null);
@@ -394,6 +407,14 @@ export function App() {
     return (
       <main>
         <WorkoutSummaryScreen summary={summary} onDone={() => setSummary(null)} />
+      </main>
+    );
+  }
+
+  if (weeklyReview) {
+    return (
+      <main>
+        <WeeklyReviewScreen review={weeklyReview} onDone={() => setWeeklyReview(null)} />
       </main>
     );
   }

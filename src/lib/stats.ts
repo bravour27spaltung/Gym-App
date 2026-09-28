@@ -482,6 +482,17 @@ export interface SummaryContext {
   rangeOf: (exerciseId: string) => { repMin: number; repMax: number } | null;
 }
 
+/** Double-Progression-Vorschlag (increase/hold) aus geloggten Sätzen und Wiederholungsbereich. */
+export function nextAction(
+  sets: HistSet[],
+  range: { repMin: number; repMax: number } | null,
+): 'increase' | 'hold' | null {
+  if (!range || range.repMin > range.repMax) return null;
+  const logged: LoggedSet[] = sets.map((s) => ({ type: s.type, weightKg: s.weightKg, reps: s.reps, rir: null }));
+  const sug = suggestProgression({ sets: logged, repMin: range.repMin, repMax: range.repMax });
+  return sug.action === 'increase' ? 'increase' : sug.action === 'hold' ? 'hold' : null;
+}
+
 export interface ExerciseSummary {
   exerciseId: string;
   name: string;
@@ -566,12 +577,7 @@ export function summarizeWorkout(
       const prevEx = prevW?.exercises.find((e) => e.exerciseId === ex.exerciseId);
       const prevSt = prevEx ? exerciseStats(prevEx) : null;
       const range = ctx.rangeOf(ex.exerciseId);
-      let next: ExerciseSummary['next'] = null;
-      if (range && range.repMin <= range.repMax) {
-        const logged: LoggedSet[] = ex.sets.map((s) => ({ type: s.type, weightKg: s.weightKg, reps: s.reps, rir: null }));
-        const sug = suggestProgression({ sets: logged, repMin: range.repMin, repMax: range.repMax });
-        next = sug.action === 'increase' ? 'increase' : sug.action === 'hold' ? 'hold' : null;
-      }
+      const next = nextAction(ex.sets, range);
       return {
         exerciseId: ex.exerciseId,
         name: ctx.nameOf(ex.exerciseId),
