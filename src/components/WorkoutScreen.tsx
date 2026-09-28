@@ -14,6 +14,7 @@ import {
   updateExercise,
   updateSet,
   updateSetWeight,
+  workoutProgress,
   type Draft,
   type DraftExercise,
   type ExerciseInput,
@@ -132,11 +133,7 @@ export function WorkoutScreen({
     prevCount.current = draft.exercises.length;
   }, [draft.exercises]);
 
-  const doneCount = draft.exercises.reduce(
-    (n, e) => n + e.sets.filter((s) => s.done).length,
-    0,
-  );
-  const totalCount = draft.exercises.reduce((n, e) => n + e.sets.filter((s) => s.type === 'working').length, 0);
+  const { done: doneCount, total: totalCount } = workoutProgress(draft);
 
   const current: DraftExercise | undefined =
     draft.exercises.find((e) => e.id === currentId) ?? firstOpenExercise(draft);

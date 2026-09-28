@@ -13,6 +13,7 @@ import {
   toggleDone,
   updateExercise,
   updateSet,
+  workoutProgress,
 } from './workout';
 import type { LoggedSet } from './progression';
 
@@ -150,6 +151,42 @@ describe('Aufwärmsätze', () => {
     const d0 = draftWithBench([]);
     const d1 = addWarmups(d0, d0.exercises[0].id, 'full');
     expect(d1.exercises[0].sets.filter((s) => s.type === 'warmup')).toHaveLength(0);
+  });
+});
+
+describe('Trainingsfortschritt', () => {
+  it('zählt nur Arbeitssätze, keine Aufwärmsätze', () => {
+    let d = draftWithBench(); // 3 Arbeitssätze
+    const exId = d.exercises[0].id;
+    d = addWarmups(d, exId, 'full'); // + Aufwärmsätze, keiner davon abgehakt
+    expect(workoutProgress(d)).toEqual({ done: 0, total: 3 });
+  });
+
+  it('erledigte Aufwärmsätze allein zählen nicht als Fortschritt (Start an neuer Maschine)', () => {
+    let d = draftWithBench();
+    const exId = d.exercises[0].id;
+    d = addWarmups(d, exId, 'full');
+    const firstWarm = d.exercises[0].sets.find((s) => s.type === 'warmup')!;
+    d = toggleDone(d, exId, firstWarm.id);
+    // Aufwärmsatz abgehakt, aber noch kein Arbeitssatz: "erledigt" bleibt 0 von 3.
+    expect(workoutProgress(d)).toEqual({ done: 0, total: 3 });
+  });
+
+  it('zählt über mehrere Übungen und kann nie mehr "erledigt" als "geplant" zeigen', () => {
+    let d = draftWithBench();
+    const exId = d.exercises[0].id;
+    d = addWarmups(d, exId, 'full');
+    for (const s of d.exercises[0].sets.filter((s) => s.type === 'warmup')) {
+      d = toggleDone(d, exId, s.id);
+    }
+    d = toggleDone(d, exId, d.exercises[0].sets.find((s) => s.type === 'working')!.id);
+    const p = workoutProgress(d);
+    expect(p).toEqual({ done: 1, total: 3 });
+    expect(p.done).toBeLessThanOrEqual(p.total);
+  });
+
+  it('liefert 0 von 0 ohne Übungen', () => {
+    expect(workoutProgress(createDraft('Frei', null, now))).toEqual({ done: 0, total: 0 });
   });
 });
 

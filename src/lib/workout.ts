@@ -189,6 +189,31 @@ export function toggleDone(draft: Draft, exId: string, setId: string): Draft {
   }));
 }
 
+export interface WorkoutProgress {
+  done: number;
+  total: number;
+}
+
+/**
+ * Erledigte und geplante Arbeitssätze des ganzen Trainings. Aufwärmsätze zählen
+ * bewusst nicht mit: Sie sind Vorbereitung, keine geplante Trainingsleistung, und
+ * "total" ist die Anzahl geplanter Arbeitssätze. Ohne diese Trennung würde ein
+ * abgehakter Aufwärmsatz "erledigt" erhöhen, ohne dass "geplant" mitzieht – dann
+ * könnten mehr Sätze als "erledigt" gelten als insgesamt geplant sind.
+ */
+export function workoutProgress(draft: Draft): WorkoutProgress {
+  let done = 0;
+  let total = 0;
+  for (const e of draft.exercises) {
+    for (const s of e.sets) {
+      if (s.type !== 'working') continue;
+      total += 1;
+      if (s.done) done += 1;
+    }
+  }
+  return { done, total };
+}
+
 /** Neuer Arbeitssatz mit den Werten des letzten Satzes als Startwert. */
 export function addSet(draft: Draft, exId: string): Draft {
   return mapEx(draft, exId, (e) => {
