@@ -5,7 +5,7 @@ import { resetSteps } from './reset';
 import { plansFromRows } from './plan';
 import type { StretchPayload, StretchPlan, StretchSide } from './stretch';
 import { STRETCH_CATALOG, STRETCH_PLAN_CATALOG } from './stretchCatalog';
-import type { FootballKind, FootballPayload } from './football';
+import type { FootballKind, FootballPayload, FootballSource } from './football';
 import type { HistWorkout } from './stats';
 import type {
   ExerciseListItem,
@@ -548,10 +548,15 @@ export async function importStretchCatalog(): Promise<Result<{ exercises: number
 interface FootballRow {
   id: string;
   played_on: string;
+  started_at: string | null;
   kind: FootballKind;
   minutes: number;
   rpe: number;
   note: string | null;
+  distance_km: number | null;
+  calories: number | null;
+  avg_heart_rate: number | null;
+  source: FootballSource;
 }
 
 /** Fußball-Einträge, neueste zuerst. */
@@ -559,7 +564,9 @@ export async function fetchFootballHistory(limit = 200): Promise<Result<HistFoot
   if (!supabase) return fail(NOT_CONFIGURED);
   const { data, error } = await supabase
     .from('fit_football_sessions')
-    .select('id, played_on, kind, minutes, rpe, note')
+    .select(
+      'id, played_on, started_at, kind, minutes, rpe, note, distance_km, calories, avg_heart_rate, source',
+    )
     .order('played_on', { ascending: false })
     .limit(limit);
   if (error) return fail(error.message);
@@ -569,10 +576,15 @@ export async function fetchFootballHistory(limit = 200): Promise<Result<HistFoot
     data: rows.map((r) => ({
       id: r.id,
       playedOn: r.played_on,
+      startedAt: r.started_at,
       kind: r.kind,
       minutes: r.minutes,
       rpe: r.rpe,
       note: r.note,
+      distanceKm: r.distance_km === null ? null : Number(r.distance_km),
+      calories: r.calories,
+      avgHeartRate: r.avg_heart_rate,
+      source: r.source,
     })),
   };
 }

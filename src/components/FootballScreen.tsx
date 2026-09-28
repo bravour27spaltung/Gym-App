@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { summarizeAppleHealthWindow } from '../lib/appleHealthImport';
 import { fmtDay, todayIso } from '../lib/format';
 import {
   FOOTBALL_KINDS,
@@ -6,6 +7,7 @@ import {
   footballLoad,
   type FootballEntryInput,
   type FootballKind,
+  type FootballSource,
 } from '../lib/football';
 import type { HistFootballSession } from '../lib/storage';
 import { Icon, IconButton } from './ui';
@@ -23,29 +25,126 @@ interface Props {
 const DEFAULT_RPE = 5;
 const DEFAULT_MINUTES = 90;
 
+/** Einfaches Zahlenfeld mit Einheit, für die optionalen Health-Werte. */
+function MetricField(props: {
+  label: string;
+  unit: string;
+  value: number | null;
+  step?: number;
+  onChange: (n: number | null) => void;
+}) {
+  const [text, setText] = useState(props.value === null ? '' : String(props.value));
+  return (
+    <div className="field stack">
+      <span>{props.label}</span>
+      <div className="equip-input">
+        <input
+          className="cellinput"
+          type="number"
+          inputMode="decimal"
+          step={props.step ?? 1}
+          min={0}
+          aria-label={props.label}
+          placeholder="–"
+          value={text}
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => {
+            setText(e.target.value);
+            const n = e.target.value.trim() === '' ? null : Number(e.target.value.replace(',', '.'));
+            props.onChange(n !== null && Number.isFinite(n) ? n : null);
+          }}
+        />
+        <span className="unit">{props.unit}</span>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Fußball: eigener, einfacher Bereich – anders als Training/Stretching kein Live-Timer,
  * sondern ein Formular, das nach der Einheit ausgefüllt wird (Dauer, Typ, subjektive
- * Belastung/RPE, Notiz). Die letzten Einträge stehen darunter zum Nachschauen und
- * Löschen; die volle Auswertung mit Diagramm ist im Verlauf-Tab.
+ * Belastung/RPE, Notiz). Optional lassen sich Distanz, Kalorien und Ø Herzfrequenz aus
+ * einem Apple-Health-Export für den Zeitraum der Einheit übernehmen (Apple Health
+ * sammelt diese Werte auch ohne eine aktiv gestartete Aufzeichnung auf der Uhr). Die
+ * letzten Einträge stehen darunter zum Nachschauen und Löschen; die volle Auswertung
+ * mit Diagramm ist im Verlauf-Tab.
  */
 export function FootballScreen({ history, pending, busy, notice, onSave, onSync, onDelete }: Props) {
   const [playedOn, setPlayedOn] = useState(() => todayIso());
+  const [startedAtTime, setStartedAtTime] = useState('');
   const [kind, setKind] = useState<FootballKind>('training');
   const [minutes, setMinutes] = useState(DEFAULT_MINUTES);
   const [rpe, setRpe] = useState(DEFAULT_RPE);
   const [note, setNote] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  const [distanceKm, setDistanceKm] = useState<number | null>(null);
+  const [calories, setCalories] = useState<number | null>(null);
+  const [avgHeartRate, setAvgHeartRate] = useState<number | null>(null);
+  const [source, setSource] = useState<FootballSource>('manual');
+
+  const [healthXml, setHealthXml] = useState<string | null>(null);
+  const [healthFileName, setHealthFileName] = useState<string | null>(null);
+  const [healthBusy, setHealthBusy] = useState(false);
+  const [healthNotice, setHealthNotice] = useState<string | null>(null);
+
   const valid = playedOn.trim() !== '' && minutes > 0;
 
-  function submit() {
-    if (!valid) return;
-    onSave({ playedOn, kind, minutes, rpe, note });
+  function resetForm() {
     setKind('training');
     setMinutes(DEFAULT_MINUTES);
     setRpe(DEFAULT_RPE);
     setNote('');
+    setStartedAtTime('');
+    setDistanceKm(null);
+    setCalories(null);
+    setAvgHeartRate(null);
+    setSource('manual');
+    setHealthNotice(null);
+  }
+
+  function submit() {
+    if (!valid) return;
+    onSave({ playedOn, startedAtTime, kind, minutes, rpe, note, distanceKm, calories, avgHeartRate, source });
+    resetForm();
+  }
+
+  function handleHealthFile(file: File) {
+    setHealthNotice(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setHealthXml(typeof reader.result === 'string' ? reader.result : null);
+      setHealthFileName(file.name);
+    };
+    reader.onerror = () => setHealthNotice('Datei konnte nicht gelesen werden.');
+    reader.readAsText(file);
+  }
+
+  function applyHealthImport() {
+    if (!healthXml || startedAtTime.trim() === '' || minutes <= 0) return;
+    setHealthBusy(true);
+    setHealthNotice(null);
+    // Kurz aus dem Event-Loop raus, damit "Verarbeite …" noch gerendert wird, bevor
+    // der (bei großen Exporten spürbar langsame) Text-Scan das Hauptthema blockiert.
+    window.setTimeout(() => {
+      try {
+        const startedAt = new Date(`${playedOn}T${startedAtTime}:00`);
+        const res = summarizeAppleHealthWindow(healthXml, startedAt, minutes);
+        setDistanceKm(res.distanceKm);
+        setCalories(res.calories);
+        setAvgHeartRate(res.avgHeartRate);
+        setSource('apple_health');
+        if (res.distanceKm === null && res.calories === null && res.avgHeartRate === null) {
+          setHealthNotice('Keine passenden Health-Daten in diesem Zeitfenster gefunden.');
+        } else {
+          setHealthNotice('Werte aus Apple Health übernommen – bei Bedarf oben noch anpassen.');
+        }
+      } catch {
+        setHealthNotice('Export konnte nicht gelesen werden (ungültige oder beschädigte Datei?).');
+      } finally {
+        setHealthBusy(false);
+      }
+    }, 0);
   }
 
   return (
@@ -141,6 +240,59 @@ export function FootballScreen({ history, pending, busy, notice, onSave, onSync,
           <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
         </label>
 
+        <details className="equipment">
+          <summary>Zusatzwerte (Distanz, Kalorien, Ø Puls) – optional, z. B. aus Apple Health</summary>
+
+          <label className="field stack">
+            <span>Startzeit (für den Apple-Health-Abgleich)</span>
+            <input
+              className="text"
+              type="time"
+              value={startedAtTime}
+              onChange={(e) => setStartedAtTime(e.target.value)}
+            />
+          </label>
+
+          <p className="muted newex-hint">
+            Trägst du die Einheit nur nachträglich ein, ohne eine Aufzeichnung auf der Uhr zu starten? Health
+            sammelt Distanz, Kalorien und Herzfrequenz trotzdem im Hintergrund. Exportiere in der
+            Health-App unter Profil → „Alle Gesundheitsdaten exportieren“, entpacke das ZIP und wähle hier
+            die enthaltene <code>export.xml</code>. Die Datei kann mehrere hundert MB groß sein; das
+            Verarbeiten dauert dann einen Moment. Genauigkeit: Distanz/Kalorien/Puls sind Schätzungen der
+            Uhr, kein Ersatz für eine gestartete Trainingsaufzeichnung.
+          </p>
+
+          <div className="row wrap">
+            <label className="btn compact" style={{ cursor: 'pointer' }}>
+              <Icon name="folder" size={16} /> export.xml wählen
+              <input
+                type="file"
+                accept=".xml,text/xml"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleHealthFile(file);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            {healthFileName && <span className="muted">{healthFileName} geladen</span>}
+            <button
+              type="button"
+              className="btn compact"
+              disabled={!healthXml || startedAtTime.trim() === '' || minutes <= 0 || healthBusy}
+              onClick={applyHealthImport}
+            >
+              {healthBusy ? 'Verarbeite …' : 'Werte übernehmen'}
+            </button>
+          </div>
+          {healthNotice && <p className="muted">{healthNotice}</p>}
+
+          <MetricField label="Distanz" unit="km" step={0.1} value={distanceKm} onChange={setDistanceKm} />
+          <MetricField label="Kalorien" unit="kcal" value={calories} onChange={setCalories} />
+          <MetricField label="Ø Herzfrequenz" unit="bpm" value={avgHeartRate} onChange={setAvgHeartRate} />
+        </details>
+
         <button type="button" className="btn primary block" disabled={!valid || busy} onClick={submit}>
           <Icon name="plus" size={18} /> {busy ? 'Speichere …' : 'Eintrag speichern'}
         </button>
@@ -159,6 +311,8 @@ export function FootballScreen({ history, pending, busy, notice, onSave, onSync,
                     </strong>
                     <small>
                       {s.minutes} min · RPE {s.rpe} · Belastung {footballLoad(s.minutes, s.rpe)}
+                      {s.distanceKm !== null ? ` · ${s.distanceKm.toFixed(1)} km` : ''}
+                      {s.avgHeartRate !== null ? ` · Ø ${s.avgHeartRate} bpm` : ''}
                       {s.note ? ` · ${s.note}` : ''}
                     </small>
                   </span>

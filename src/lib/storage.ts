@@ -2,7 +2,7 @@ import type { Plan } from './plan';
 import type { LoggedSet } from './progression';
 import type { HistWorkout } from './stats';
 import type { StretchDraft, StretchPayload, StretchPlan } from './stretch';
-import type { FootballKind, FootballPayload } from './football';
+import type { FootballKind, FootballPayload, FootballSource } from './football';
 import type { Draft, WorkoutPayload } from './workout';
 
 /**
@@ -67,10 +67,15 @@ export interface HistFootballSession {
   id: string;
   /** "YYYY-MM-DD". */
   playedOn: string;
+  startedAt: string | null;
   kind: FootballKind;
   minutes: number;
   rpe: number;
   note: string | null;
+  distanceKm: number | null;
+  calories: number | null;
+  avgHeartRate: number | null;
+  source: FootballSource;
 }
 
 const KEYS = {

@@ -12,7 +12,19 @@ function stretch(id: string, startedAt: string): HistStretchSession {
 }
 
 function football(id: string, playedOn: string): HistFootballSession {
-  return { id, playedOn, kind: 'training', minutes: 60, rpe: 6, note: null };
+  return {
+    id,
+    playedOn,
+    startedAt: null,
+    kind: 'training',
+    minutes: 60,
+    rpe: 6,
+    note: null,
+    distanceKm: null,
+    calories: null,
+    avgHeartRate: null,
+    source: 'manual',
+  };
 }
 
 describe('combineHistory', () => {

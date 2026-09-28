@@ -60,4 +60,49 @@ describe('buildFootballPayload', () => {
   it('lehnt ein leeres Datum ab', () => {
     expect(buildFootballPayload({ playedOn: '', kind: 'training', minutes: 60, rpe: 5, note: '' })).toBeNull();
   });
+
+  it('übernimmt optionale Health-Werte und leitet started_at aus Datum + Uhrzeit ab', () => {
+    const p = buildFootballPayload({
+      playedOn: '2026-09-23',
+      startedAtTime: '19:00',
+      kind: 'training',
+      minutes: 90,
+      rpe: 6,
+      note: '',
+      distanceKm: 3.5,
+      calories: 420,
+      avgHeartRate: 148.6,
+      source: 'apple_health',
+    });
+    expect(p!.session.distance_km).toBe(3.5);
+    expect(p!.session.calories).toBe(420);
+    expect(p!.session.avg_heart_rate).toBe(149);
+    expect(p!.session.source).toBe('apple_health');
+    expect(p!.session.started_at).toBe(new Date('2026-09-23T19:00:00').toISOString());
+  });
+
+  it('ohne Health-Werte bleiben die optionalen Felder null, Quelle ist "manual"', () => {
+    const p = buildFootballPayload({ playedOn: '2026-09-23', kind: 'casual', minutes: 45, rpe: 3, note: '' });
+    expect(p!.session).toMatchObject({
+      started_at: null,
+      distance_km: null,
+      calories: null,
+      avg_heart_rate: null,
+      source: 'manual',
+    });
+  });
+
+  it('negative oder unplausible Health-Werte werden ignoriert (null) statt die Eingabe abzulehnen', () => {
+    const p = buildFootballPayload({
+      playedOn: '2026-09-23',
+      kind: 'training',
+      minutes: 60,
+      rpe: 5,
+      note: '',
+      distanceKm: -2,
+      avgHeartRate: 300,
+    });
+    expect(p!.session.distance_km).toBeNull();
+    expect(p!.session.avg_heart_rate).toBeNull();
+  });
 });

@@ -28,24 +28,53 @@ export function footballLoad(minutes: number, rpe: number): number {
   return minutes * rpe;
 }
 
+export type FootballSource = 'manual' | 'apple_health';
+
 export interface FootballEntryInput {
   /** Datum im Format "YYYY-MM-DD". */
   playedOn: string;
+  /**
+   * Uhrzeit "HH:MM" (optional). Wird bisher nur für den Apple-Health-Fensterabgleich
+   * gebraucht (welche Health-Datensätze fallen in die Einheit) und mitgespeichert.
+   */
+  startedAtTime?: string | null;
   kind: FootballKind;
   minutes: number;
   rpe: number;
   note: string;
+  /** Aus einem Apple-Health-Export übernommen oder manuell eingetragen; alle optional. */
+  distanceKm?: number | null;
+  calories?: number | null;
+  avgHeartRate?: number | null;
+  source?: FootballSource;
 }
 
 export interface FootballPayload {
   session: {
     id: string;
     played_on: string;
+    started_at: string | null;
     kind: FootballKind;
     minutes: number;
     rpe: number;
     note: string | null;
+    distance_km: number | null;
+    calories: number | null;
+    avg_heart_rate: number | null;
+    source: FootballSource;
   };
+}
+
+/** Ungültige/negative Werte werden zu null statt die ganze Eingabe abzulehnen. */
+function nonNegOrNull(n: number | null | undefined): number | null {
+  if (n === null || n === undefined || !Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+function heartRateOrNull(n: number | null | undefined): number | null {
+  if (n === null || n === undefined || !Number.isFinite(n)) return null;
+  const r = Math.round(n);
+  return r >= 30 && r <= 220 ? r : null;
 }
 
 /**
@@ -58,14 +87,26 @@ export function buildFootballPayload(input: FootballEntryInput): FootballPayload
   const rpe = Math.round(input.rpe);
   if (!Number.isFinite(rpe) || rpe < 0 || rpe > 10) return null;
   if (input.playedOn.trim() === '') return null;
+
+  let startedAt: string | null = null;
+  if (input.startedAtTime && input.startedAtTime.trim() !== '') {
+    const ms = new Date(`${input.playedOn}T${input.startedAtTime}:00`).getTime();
+    if (Number.isFinite(ms)) startedAt = new Date(ms).toISOString();
+  }
+
   return {
     session: {
       id: newId(),
       played_on: input.playedOn,
+      started_at: startedAt,
       kind: input.kind,
       minutes,
       rpe,
       note: input.note.trim() === '' ? null : input.note.trim(),
+      distance_km: nonNegOrNull(input.distanceKm),
+      calories: nonNegOrNull(input.calories) === null ? null : Math.round(nonNegOrNull(input.calories)!),
+      avg_heart_rate: heartRateOrNull(input.avgHeartRate),
+      source: input.source ?? 'manual',
     },
   };
 }

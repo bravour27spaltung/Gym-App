@@ -34,6 +34,8 @@ export function FootballHistoryScreen({ sessions }: Props) {
 
   const totalMinutes = sessions.reduce((n, s) => n + s.minutes, 0);
   const avgRpe = sessions.reduce((n, s) => n + s.rpe, 0) / sessions.length;
+  const withDistance = sessions.filter((s) => s.distanceKm !== null);
+  const totalDistanceKm = withDistance.reduce((n, s) => n + (s.distanceKm ?? 0), 0);
 
   return (
     <div className="screen">
@@ -49,6 +51,15 @@ export function FootballHistoryScreen({ sessions }: Props) {
           { label: 'Gesamtdauer', value: `${num0(totalMinutes)} min` },
         ]}
       />
+      {withDistance.length > 0 && (
+        <StatGrid
+          columns={2}
+          items={[
+            { label: 'Gesamtdistanz', value: `${num1(totalDistanceKm)} km`, sub: `aus ${withDistance.length} Einheiten mit Health-Daten` },
+            { label: 'Ø Distanz / Einheit', value: `${num1(totalDistanceKm / withDistance.length)} km` },
+          ]}
+        />
+      )}
 
       <h2 className="section-title">Belastung (Dauer × RPE)</h2>
       <LineChart points={points} format={(v) => num0(v)} label="Belastung, Dauer mal subjektive Belastung" />
@@ -63,6 +74,9 @@ export function FootballHistoryScreen({ sessions }: Props) {
                 </strong>
                 <small>
                   {s.minutes} min · RPE {s.rpe} · Belastung {footballLoad(s.minutes, s.rpe)}
+                  {s.distanceKm !== null ? ` · ${s.distanceKm.toFixed(1)} km` : ''}
+                  {s.calories !== null ? ` · ${s.calories} kcal` : ''}
+                  {s.avgHeartRate !== null ? ` · Ø ${s.avgHeartRate} bpm` : ''}
                   {s.note ? ` · ${s.note}` : ''}
                 </small>
               </span>
