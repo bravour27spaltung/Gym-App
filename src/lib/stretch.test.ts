@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   addStretchItem,
   buildStretchPayload,
+  clearQueue,
+  consumeQueued,
   createStretchDraft,
+  queueFromPlan,
   removeStretchItem,
   totalHoldSeconds,
   updateStretchItem,
+  type StretchPlan,
 } from './stretch';
 
 const NOW = new Date('2026-09-28T18:00:00.000Z');
@@ -125,5 +129,59 @@ describe('buildStretchPayload', () => {
       { id: 'new1', name_de: 'Eigene Dehnung', muscles: ['hamstrings'], default_hold_seconds: 30 },
     ]);
     expect(payload!.items).toHaveLength(2);
+  });
+});
+
+
+describe('Vorlagen: queueFromPlan / consumeQueued / clearQueue', () => {
+  const plan: StretchPlan = {
+    id: 'plan1',
+    name: 'Testroutine',
+    items: [
+      { id: 'pi1', stretchExerciseId: 'ex1', side: 'links', holdSeconds: 20, sets: 1 },
+      { id: 'pi2', stretchExerciseId: 'ex2', side: 'beidseitig', holdSeconds: 30, sets: 2 },
+    ],
+  };
+  const nameOf = (id: string) => (id === 'ex1' ? 'Übung A' : 'Übung B');
+  const musclesOf = (id: string) => (id === 'ex1' ? ['neck'] : ['chest']);
+
+  it('baut aus der Vorlage eine Warteschlange in Reihenfolge', () => {
+    const queue = queueFromPlan(plan, nameOf, musclesOf);
+    expect(queue).toEqual([
+      { input: { stretchExerciseId: 'ex1', name: 'Übung A', isNew: false, muscles: ['neck'] }, side: 'links', holdSeconds: 20, sets: 1 },
+      { input: { stretchExerciseId: 'ex2', name: 'Übung B', isNew: false, muscles: ['chest'] }, side: 'beidseitig', holdSeconds: 30, sets: 2 },
+    ]);
+  });
+
+  it('legt eine Session direkt mit Warteschlange und Vorlagenname an', () => {
+    const queue = queueFromPlan(plan, nameOf, musclesOf);
+    const d = createStretchDraft(NOW, null, queue, plan.name);
+    expect(d.queue).toHaveLength(2);
+    expect(d.planName).toBe('Testroutine');
+    expect(d.items).toEqual([]);
+  });
+
+  it('consumeQueued verbucht die erste Übung der Warteschlange mit der gemessenen Zeit', () => {
+    const queue = queueFromPlan(plan, nameOf, musclesOf);
+    let d = createStretchDraft(NOW, null, queue, plan.name);
+    d = consumeQueued(d, 'rechts', 25);
+    expect(d.items).toHaveLength(1);
+    expect(d.items[0]).toMatchObject({ stretchExerciseId: 'ex1', side: 'rechts', holdSeconds: 25, sets: 1 });
+    expect(d.queue).toHaveLength(1);
+    expect(d.queue![0].input.stretchExerciseId).toBe('ex2');
+  });
+
+  it('consumeQueued ohne Warteschlange lässt den Entwurf unverändert', () => {
+    const d = createStretchDraft(NOW, null);
+    expect(consumeQueued(d, 'links', 20)).toBe(d);
+  });
+
+  it('clearQueue verwirft die restliche Warteschlange, geloggte Übungen bleiben', () => {
+    const queue = queueFromPlan(plan, nameOf, musclesOf);
+    let d = createStretchDraft(NOW, null, queue, plan.name);
+    d = consumeQueued(d, 'links', 20);
+    d = clearQueue(d);
+    expect(d.queue).toEqual([]);
+    expect(d.items).toHaveLength(1);
   });
 });

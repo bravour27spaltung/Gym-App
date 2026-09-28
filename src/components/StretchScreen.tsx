@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import {
   addStretchItem,
   buildStretchPayload,
+  clearQueue,
+  consumeQueued,
   sideLabel,
   type StretchDraft,
   type StretchExerciseInput,
@@ -68,19 +70,36 @@ export function StretchScreen({ draft, stretchExercises, onUpdate, onFinish, onD
   const [feelingAfter, setFeelingAfter] = useState<number | null>(null);
   const [note, setNote] = useState('');
   // Übung gewählt, Haltezeit-Timer läuft; erst nach "Fertig" wird sie zur Session hinzugefügt.
-  const [running, setRunning] = useState<{ input: StretchExerciseInput; holdSeconds: number; side: StretchSide } | null>(
-    null,
-  );
+  // fromQueue: Übung stammt aus einer importierten Vorlage und wird nach dem Timer aus der
+  // Warteschlange genommen statt manuell über AddStretchExercise gewählt zu werden.
+  const [running, setRunning] = useState<
+    { input: StretchExerciseInput; holdSeconds: number; side: StretchSide; fromQueue: boolean } | null
+  >(null);
   const minutes = useElapsedMinutes(draft.startedAt);
+  const queue = draft.queue ?? [];
+
+  // Nächste Übung aus einer Vorlage automatisch starten, sobald keine läuft.
+  useEffect(() => {
+    if (running || adding || queue.length === 0) return;
+    const head = queue[0];
+    setRunning({ input: head.input, holdSeconds: head.holdSeconds, side: head.side, fromQueue: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queue, running, adding]);
 
   function handlePick(input: StretchExerciseInput, holdSeconds: number) {
     setAdding(false);
-    setRunning({ input, holdSeconds, side: 'beidseitig' });
+    setRunning({ input, holdSeconds, side: 'beidseitig', fromQueue: false });
   }
 
   function handleTimerFinish(actualSeconds: number) {
     if (!running) return;
-    onUpdate((d) => addStretchItem(d, running.input, running.side, actualSeconds));
+    if (running.fromQueue) onUpdate((d) => consumeQueued(d, running.side, actualSeconds));
+    else onUpdate((d) => addStretchItem(d, running.input, running.side, actualSeconds));
+    setRunning(null);
+  }
+
+  function handleTimerCancel() {
+    if (running?.fromQueue) onUpdate((d) => ({ ...d, queue: (d.queue ?? []).slice(1) }));
     setRunning(null);
   }
 
@@ -112,7 +131,16 @@ export function StretchScreen({ draft, stretchExercises, onUpdate, onFinish, onD
           onChange={(n) => onUpdate((d) => ({ ...d, feelingBefore: n }))}
         />
 
-        {draft.items.length === 0 && !running && (
+        {draft.planName && queue.length > 0 && (
+          <p className="notice" role="status">
+            Vorlage „{draft.planName}“ · noch {queue.length} {queue.length === 1 ? 'Übung' : 'Übungen'}{' '}
+            <button type="button" className="link" onClick={() => onUpdate((d) => clearQueue(d))}>
+              Vorlage abbrechen
+            </button>
+          </p>
+        )}
+
+        {draft.items.length === 0 && !running && queue.length === 0 && (
           <div className="empty-state">
             <Icon name="flame" size={32} />
             <p>Noch keine Dehnübung.</p>
@@ -165,7 +193,7 @@ export function StretchScreen({ draft, stretchExercises, onUpdate, onFinish, onD
             <HoldTimer
               targetSeconds={running.holdSeconds}
               onFinish={handleTimerFinish}
-              onCancel={() => setRunning(null)}
+              onCancel={handleTimerCancel}
             />
           </div>
         )}

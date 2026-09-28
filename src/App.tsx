@@ -18,9 +18,11 @@ import {
   fetchPlans,
   fetchStretchExercises,
   fetchStretchHistory,
+  fetchStretchPlans,
   flushOutbox,
   flushStretchOutbox,
   getSessionEmail,
+  importStretchCatalog,
   resetRemoteData,
   savePlanRows,
   sendLoginLink,
@@ -41,7 +43,13 @@ import {
 } from './lib/plan';
 import { normalizeCode } from './lib/authErrors';
 import { nextPlanDay } from './lib/rotation';
-import { buildStretchPayload, createStretchDraft, type StretchDraft } from './lib/stretch';
+import {
+  buildStretchPayload,
+  createStretchDraft,
+  queueFromPlan,
+  type StretchDraft,
+  type StretchPlan,
+} from './lib/stretch';
 import {
   draftToHist,
   mergeHistory,
@@ -109,6 +117,8 @@ export function App() {
   const [stretchHistory, setStretchHistory] = useState<HistStretchSession[]>(() => store.loadStretchHistory());
   const [stretchPending, setStretchPending] = useState(() => store.loadStretchOutbox().length);
   const [stretchBusy, setStretchBusy] = useState(false);
+  const [stretchPlans, setStretchPlans] = useState<StretchPlan[]>(() => store.loadStretchPlans());
+  const [stretchImporting, setStretchImporting] = useState(false);
   const stretchLoaded = useRef(false);
 
   useEffect(() => {
@@ -181,6 +191,11 @@ export function App() {
     if (stretchHist.ok) {
       setStretchHistory(stretchHist.data);
       store.saveStretchHistory(stretchHist.data);
+    }
+    const stretchPlansRes = await fetchStretchPlans();
+    if (stretchPlansRes.ok) {
+      setStretchPlans(stretchPlansRes.data);
+      store.saveStretchPlans(stretchPlansRes.data);
     }
   }, [store, refreshPlans]);
 
@@ -311,6 +326,26 @@ export function App() {
     setStretchPending(store.loadStretchOutbox().length);
     setStretchBusy(false);
     void sync();
+  }
+
+  /** Startet eine neue Session mit den Übungen einer Vorlage vorbelegt (automatischer Timer-Ablauf). */
+  function startStretchPlan(plan: StretchPlan) {
+    const musclesOf = (id: string) => stretchExercises.find((x) => x.id === id)?.muscles ?? [];
+    const queue = queueFromPlan(plan, stretchNameOf, musclesOf);
+    setStretchDraft(createStretchDraft(new Date(), null, queue, plan.name));
+  }
+
+  /** Importiert den mitgelieferten Dehnübungs-Katalog und die fertigen Vorlagen (Knopf statt SQL). */
+  async function handleImportStretchCatalog() {
+    setStretchImporting(true);
+    const res = await importStretchCatalog();
+    if (res.ok) {
+      setNotice(`${res.data.exercises} Dehnübungen, ${res.data.plans} Vorlagen importiert.`);
+      await sync();
+    } else {
+      setNotice(`Import fehlgeschlagen: ${res.error}`);
+    }
+    setStretchImporting(false);
   }
 
   // Name und Muskeln je Übung: Katalog plus eigene Übungen, die noch nicht in der Datenbank sind.
@@ -554,6 +589,44 @@ export function App() {
           >
             <Icon name="play" size={18} /> Stretching starten
           </button>
+
+          {stretchPlans.length === 0 ? (
+            <button
+              type="button"
+              className="btn block"
+              disabled={stretchImporting}
+              onClick={() => void handleImportStretchCatalog()}
+            >
+              {stretchImporting ? 'Importiere …' : 'Häufige Dehnübungen & Vorlagen importieren'}
+            </button>
+          ) : (
+            <>
+              <h2 className="section-title">Vorlagen</h2>
+              <ul className="exlist">
+                {stretchPlans.map((p) => (
+                  <li key={p.id}>
+                    <div className="exrow static">
+                      <span className="exrow-text">
+                        <strong>{p.name}</strong>
+                        <small>{p.items.length} {p.items.length === 1 ? 'Übung' : 'Übungen'}</small>
+                      </span>
+                      <button type="button" className="btn compact" onClick={() => startStretchPlan(p)}>
+                        Starten
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                className="textbtn"
+                disabled={stretchImporting}
+                onClick={() => void handleImportStretchCatalog()}
+              >
+                {stretchImporting ? 'Importiere …' : 'Katalog erneut importieren'}
+              </button>
+            </>
+          )}
         </div>
         <StretchHistoryScreen sessions={stretchHistory} nameOf={stretchNameOf} />
         {tabs}

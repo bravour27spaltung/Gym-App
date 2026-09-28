@@ -1,7 +1,7 @@
 import type { Plan } from './plan';
 import type { LoggedSet } from './progression';
 import type { HistWorkout } from './stats';
-import type { StretchDraft, StretchPayload } from './stretch';
+import type { StretchDraft, StretchPayload, StretchPlan } from './stretch';
 import type { Draft, WorkoutPayload } from './workout';
 
 /**
@@ -75,6 +75,7 @@ const KEYS = {
   stretchOutbox: 'gym.stretchOutbox.v1',
   stretchExercises: 'gym.stretchExercises.v1',
   stretchHistory: 'gym.stretchHistory.v1',
+  stretchPlans: 'gym.stretchPlans.v1',
 } as const;
 
 export function createStore(storage: KeyValueStorage | null) {
@@ -198,6 +199,9 @@ export function createStore(storage: KeyValueStorage | null) {
 
     loadStretchHistory: () => read<HistStretchSession[]>(KEYS.stretchHistory, []),
     saveStretchHistory: (items: HistStretchSession[]) => write(KEYS.stretchHistory, items),
+
+    loadStretchPlans: () => read<StretchPlan[]>(KEYS.stretchPlans, []),
+    saveStretchPlans: (items: StretchPlan[]) => write(KEYS.stretchPlans, items),
   };
 }
 

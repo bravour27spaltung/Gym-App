@@ -22,6 +22,13 @@ export interface StretchItem {
   sets: number;
 }
 
+export interface QueuedStretch {
+  input: StretchExerciseInput;
+  side: StretchSide;
+  holdSeconds: number;
+  sets: number;
+}
+
 export interface StretchDraft {
   id: string;
   startedAt: string;
@@ -30,6 +37,10 @@ export interface StretchDraft {
   items: StretchItem[];
   /** Ende des laufenden Haltezeit-Timers (Date.now()-Zeit in ms); null = kein Timer aktiv. */
   timerEndsAt?: number | null;
+  /** Aus einer Vorlage übernommene, noch abzuarbeitende Übungen (ältere Entwürfe haben keine). */
+  queue?: QueuedStretch[];
+  /** Name der Vorlage, falls die Session daraus gestartet wurde. */
+  planName?: string | null;
 }
 
 export interface StretchExerciseInput {
@@ -40,8 +51,30 @@ export interface StretchExerciseInput {
   defaultHoldSeconds?: number | null;
 }
 
-export function createStretchDraft(now: Date, feelingBefore: number | null): StretchDraft {
-  return { id: newId(), startedAt: now.toISOString(), feelingBefore, items: [] };
+export function createStretchDraft(
+  now: Date,
+  feelingBefore: number | null,
+  queue: QueuedStretch[] = [],
+  planName: string | null = null,
+): StretchDraft {
+  return { id: newId(), startedAt: now.toISOString(), feelingBefore, items: [], queue, planName };
+}
+
+/**
+ * Nächste Übung aus der Vorlagen-Warteschlange mit dem tatsächlichen Timer-Ergebnis
+ * verbuchen und aus der Warteschlange nehmen. Ohne Warteschlange passiert nichts.
+ */
+export function consumeQueued(draft: StretchDraft, side: StretchSide, holdSeconds: number): StretchDraft {
+  const queue = draft.queue ?? [];
+  if (queue.length === 0) return draft;
+  const [head, ...rest] = queue;
+  const withItem = addStretchItem(draft, head.input, side, holdSeconds, head.sets);
+  return { ...withItem, queue: rest };
+}
+
+/** Restliche Vorlagen-Warteschlange verwerfen (z. B. um manuell weiterzumachen). */
+export function clearQueue(draft: StretchDraft): StretchDraft {
+  return { ...draft, queue: [] };
 }
 
 /** Neue Dehnübung mit gemessener Haltezeit zur Session hinzufügen. */
@@ -93,6 +126,42 @@ const SIDE_LABELS: Record<StretchSide, string> = {
 
 export function sideLabel(side: StretchSide): string {
   return SIDE_LABELS[side];
+}
+
+// ---------------------------------------------------------------------------
+// Vorlagen (fertige Routinen aus Dehnübungen)
+
+export interface StretchPlanItem {
+  id: string;
+  stretchExerciseId: string;
+  side: StretchSide;
+  holdSeconds: number;
+  sets: number;
+}
+
+export interface StretchPlan {
+  id: string;
+  name: string;
+  items: StretchPlanItem[];
+}
+
+/** Baut aus einer Vorlage die Warteschlange für eine neue Session. */
+export function queueFromPlan(
+  plan: StretchPlan,
+  nameOf: (stretchExerciseId: string) => string,
+  musclesOf: (stretchExerciseId: string) => string[],
+): QueuedStretch[] {
+  return plan.items.map((it) => ({
+    input: {
+      stretchExerciseId: it.stretchExerciseId,
+      name: nameOf(it.stretchExerciseId),
+      isNew: false,
+      muscles: musclesOf(it.stretchExerciseId),
+    },
+    side: it.side,
+    holdSeconds: it.holdSeconds,
+    sets: it.sets,
+  }));
 }
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,8 @@ import { translateAuthError } from './authErrors';
 import type { Plan, PlanDbRow, PlanRows } from './plan';
 import { resetSteps } from './reset';
 import { plansFromRows } from './plan';
-import type { StretchPayload, StretchSide } from './stretch';
+import type { StretchPayload, StretchPlan, StretchSide } from './stretch';
+import { STRETCH_CATALOG, STRETCH_PLAN_CATALOG } from './stretchCatalog';
 import type { HistWorkout } from './stats';
 import type {
   ExerciseListItem,
@@ -12,6 +13,7 @@ import type {
   Store,
   StretchExerciseListItem,
 } from './storage';
+import { newId } from './workout';
 import type { Feedback, WorkoutPayload } from './workout';
 
 /** Dünne Schicht um Supabase. Fehler werden zurückgegeben, nicht geworfen. */
@@ -427,4 +429,102 @@ export async function flushStretchOutbox(store: Store): Promise<{ sent: number; 
   }
   if (sent > 0) store.saveStretchOutbox(remaining);
   return { sent, pending: remaining.length };
+}
+
+interface StretchPlanDbRow {
+  id: string;
+  name: string;
+  archived_at: string | null;
+  fit_stretch_plan_items: {
+    id: string;
+    stretch_exercise_id: string;
+    position: number;
+    side: StretchSide;
+    hold_seconds: number;
+    sets: number;
+    archived_at: string | null;
+  }[];
+}
+
+/** Gespeicherte Dehn-Vorlagen mit ihren Übungen, in Anlegereihenfolge. */
+export async function fetchStretchPlans(): Promise<Result<StretchPlan[]>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { data, error } = await supabase
+    .from('fit_stretch_plans')
+    .select(
+      'id, name, archived_at, ' +
+        'fit_stretch_plan_items(id, stretch_exercise_id, position, side, hold_seconds, sets, archived_at)',
+    )
+    .is('archived_at', null)
+    .order('created_at');
+  if (error) return fail(error.message);
+  const rows = (data ?? []) as unknown as StretchPlanDbRow[];
+  return {
+    ok: true,
+    data: rows.map((p) => ({
+      id: p.id,
+      name: p.name,
+      items: [...p.fit_stretch_plan_items]
+        .filter((it) => it.archived_at === null)
+        .sort((a, b) => a.position - b.position)
+        .map((it) => ({
+          id: it.id,
+          stretchExerciseId: it.stretch_exercise_id,
+          side: it.side,
+          holdSeconds: it.hold_seconds,
+          sets: it.sets,
+        })),
+    })),
+  };
+}
+
+/**
+ * Importiert den mitgelieferten Katalog häufiger Dehnübungen und fertiger Vorlagen
+ * (Knopf in der App statt SQL-Skript). Feste IDs im Katalog machen die Übungen und
+ * Vorlagen selbst idempotent (Upsert); die Vorlagen-Einträge werden je Vorlage neu
+ * geschrieben, ein erneuter Import ersetzt sie also sauber statt sie zu verdoppeln.
+ */
+export async function importStretchCatalog(): Promise<Result<{ exercises: number; plans: number }>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+
+  const exerciseRows = STRETCH_CATALOG.map((s) => ({
+    id: s.id,
+    name_de: s.name,
+    muscles: s.muscles,
+    default_hold_seconds: s.holdSeconds,
+  }));
+  if (exerciseRows.length > 0) {
+    const { error } = await supabase.from('fit_stretch_exercises').upsert(exerciseRows, { onConflict: 'id' });
+    if (error) return fail(`fit_stretch_exercises: ${error.message}`);
+  }
+
+  const planRows = STRETCH_PLAN_CATALOG.map((p) => ({ id: p.id, name: p.name }));
+  if (planRows.length > 0) {
+    const { error } = await supabase.from('fit_stretch_plans').upsert(planRows, { onConflict: 'id' });
+    if (error) return fail(`fit_stretch_plans: ${error.message}`);
+  }
+
+  for (const plan of STRETCH_PLAN_CATALOG) {
+    const { error: delError } = await supabase
+      .from('fit_stretch_plan_items')
+      .delete()
+      .eq('plan_id', plan.id);
+    if (delError) return fail(`fit_stretch_plan_items: ${delError.message}`);
+
+    if (plan.items.length === 0) continue;
+    const itemRows = plan.items.map((it, i) => ({
+      id: newId(),
+      plan_id: plan.id,
+      stretch_exercise_id: it.stretchId,
+      position: i + 1,
+      side: it.side,
+      hold_seconds:
+        it.holdSeconds ?? STRETCH_CATALOG.find((s) => s.id === it.stretchId)?.holdSeconds ?? 30,
+      sets: it.sets ?? 1,
+    }));
+    const { error: insError } = await supabase.from('fit_stretch_plan_items').insert(itemRows);
+    if (insError) return fail(`fit_stretch_plan_items: ${insError.message}`);
+  }
+
+  return { ok: true, data: { exercises: exerciseRows.length, plans: planRows.length } };
 }
