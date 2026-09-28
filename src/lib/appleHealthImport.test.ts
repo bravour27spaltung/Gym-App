@@ -146,6 +146,60 @@ describe('summarizeAppleHealthWindow', () => {
 
   it('ohne passende Datensätze bleiben alle Felder null', () => {
     const res = summarizeAppleHealthWindow(xmlWith([]), started, minutes);
-    expect(res).toEqual({ distanceKm: null, calories: null, avgHeartRate: null });
+    expect(res).toEqual({
+      distanceKm: null,
+      calories: null,
+      avgHeartRate: null,
+      hrvMs: null,
+      restingHr: null,
+      sleepHours: null,
+    });
+  });
+
+  it('mittelt HRV und Ruhepuls, summiert Schlafphasen (ohne "im Bett"/"wach")', () => {
+    const xml = xmlWith([
+      record({
+        type: 'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
+        sourceName: 'Steffens Apple Watch',
+        unit: 'ms',
+        startDate: '2026-09-23 19:05:00 +0200',
+        endDate: '2026-09-23 19:05:00 +0200',
+        value: '42',
+      }),
+      record({
+        type: 'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
+        sourceName: 'Steffens Apple Watch',
+        unit: 'ms',
+        startDate: '2026-09-23 19:30:00 +0200',
+        endDate: '2026-09-23 19:30:00 +0200',
+        value: '48',
+      }),
+      record({
+        type: 'HKQuantityTypeIdentifierRestingHeartRate',
+        sourceName: 'Steffens Apple Watch',
+        unit: 'count/min',
+        startDate: '2026-09-23 19:00:00 +0200',
+        endDate: '2026-09-23 19:00:00 +0200',
+        value: '52',
+      }),
+      record({
+        type: 'HKCategoryTypeIdentifierSleepAnalysis',
+        sourceName: 'Steffens Apple Watch',
+        startDate: '2026-09-23 19:10:00 +0200',
+        endDate: '2026-09-23 19:40:00 +0200',
+        value: 'HKCategoryValueSleepAnalysisAsleepCore',
+      }),
+      record({
+        type: 'HKCategoryTypeIdentifierSleepAnalysis',
+        sourceName: 'Steffens Apple Watch',
+        startDate: '2026-09-23 19:45:00 +0200',
+        endDate: '2026-09-23 20:15:00 +0200',
+        value: 'HKCategoryValueSleepAnalysisInBed', // zählt nicht als geschlafen
+      }),
+    ]);
+    const res = summarizeAppleHealthWindow(xml, started, minutes);
+    expect(res.hrvMs).toBe(45);
+    expect(res.restingHr).toBe(52);
+    expect(res.sleepHours).toBeCloseTo(0.5, 5);
   });
 });

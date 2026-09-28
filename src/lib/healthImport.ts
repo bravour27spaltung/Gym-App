@@ -1,24 +1,42 @@
 import type { HealthRecord, HealthWindowSummary } from './appleHealthImport';
 import { summarizeWindow } from './appleHealthImport';
 import type { HistWorkout } from './stats';
-import type { HistFootballSession, HistStretchSession } from './storage';
+import type { HistFootballSession, HistRecoveryEntry, HistStretchSession } from './storage';
 
 /**
- * Bereichsübergreifender Apple-Health-Import: findet zu Training, Stretching und
- * Fußball die Einträge, denen noch Health-Werte (Kalorien, Ø Herzfrequenz, bei Fußball
- * auch Distanz) fehlen, und gleicht sie anhand ihres bekannten Zeitfensters mit einem
- * einmal geparsten Health-Export ab. Reine Logik, kein Browser-/DB-Zugriff.
+ * Bereichsübergreifender Apple-Health-Import: findet zu Training, Stretching, Fußball
+ * und Recovery die Einträge, denen noch Health-Werte fehlen (Kalorien/Ø Herzfrequenz;
+ * bei Fußball zusätzlich Distanz; bei Recovery HRV/Ruhepuls/Schlafdauer), und gleicht
+ * sie anhand ihres bekannten Zeitfensters mit einem einmal geparsten Health-Export ab.
+ * Reine Logik, kein Browser-/DB-Zugriff.
  *
  * Training und Stretching haben durch die Live-Aufzeichnung ein exaktes
  * Start-/Endzeitfenster; Fußball nur, wenn beim Eintrag eine Startzeit angegeben wurde.
+ * Recovery hat kein Sessionfenster, sondern einen Tag (siehe recoveryWindowForDate).
  */
 
-export type HealthImportKind = 'workout' | 'stretch' | 'football';
+export type HealthImportKind = 'workout' | 'stretch' | 'football' | 'recovery';
 
 interface ExistingValues {
   distanceKm: number | null;
   calories: number | null;
   avgHeartRate: number | null;
+  /** Nur bei Recovery-Kandidaten gesetzt (siehe buildHealthImportCandidates). */
+  hrvMs?: number | null;
+  restingHr?: number | null;
+  sleepHours?: number | null;
+}
+
+/**
+ * Tagesfenster für Recovery-Werte: vom Vorabend (18 Uhr lokal) bis zum späten Vormittag
+ * des Tages (12 Uhr lokal). Deckt damit sowohl den nächtlichen Schlaf als auch eine
+ * morgendliche HRV-/Ruhepuls-Messung der Uhr ab, ohne ein exaktes "Aufwachfenster" zu
+ * kennen (das Health nicht meldet). Bewusst grosszügig statt exakt, siehe
+ * summarizeWindow.
+ */
+export function recoveryWindowForDate(dateIso: string): { fromMs: number; toMs: number } {
+  const dayStartMs = new Date(`${dateIso}T00:00:00`).getTime();
+  return { fromMs: dayStartMs - 6 * 3_600_000, toMs: dayStartMs + 12 * 3_600_000 };
 }
 
 export interface HealthImportCandidate {
@@ -35,11 +53,16 @@ function isMissingSomething(existing: ExistingValues, includeDistance: boolean):
   return existing.calories === null || existing.avgHeartRate === null || (includeDistance && existing.distanceKm === null);
 }
 
-/** Trainings, Stretching-Sessions und Fußball-Einträge, denen noch Health-Werte fehlen. */
+/**
+ * Trainings, Stretching-Sessions, Fußball- und Recovery-Einträge, denen noch
+ * Health-Werte fehlen. `recoveries` ist optional (Default: keine), damit bestehende
+ * Aufrufstellen ohne Recovery-Bereich unverändert funktionieren.
+ */
 export function buildHealthImportCandidates(
   workouts: HistWorkout[],
   stretches: HistStretchSession[],
   footballs: HistFootballSession[],
+  recoveries: HistRecoveryEntry[] = [],
 ): HealthImportCandidate[] {
   const candidates: HealthImportCandidate[] = [];
 
@@ -86,6 +109,20 @@ export function buildHealthImportCandidates(
     });
   }
 
+  for (const r of recoveries) {
+    const existing: ExistingValues = {
+      distanceKm: null,
+      calories: null,
+      avgHeartRate: null,
+      hrvMs: r.hrvMs,
+      restingHr: r.restingHr,
+      sleepHours: r.sleepHours,
+    };
+    if (existing.hrvMs !== null && existing.restingHr !== null && existing.sleepHours !== null) continue;
+    const { fromMs, toMs } = recoveryWindowForDate(r.date);
+    candidates.push({ kind: 'recovery', id: r.id, label: 'Recovery', fromMs, toMs, existing });
+  }
+
   return candidates.sort((a, b) => b.fromMs - a.fromMs);
 }
 
@@ -93,6 +130,9 @@ export interface HealthImportPatch {
   distanceKm?: number;
   calories?: number;
   avgHeartRate?: number;
+  hrvMs?: number;
+  restingHr?: number;
+  sleepHours?: number;
 }
 
 export interface HealthImportMatch {
@@ -117,6 +157,12 @@ export function matchHealthImportCandidates(
     if (c.existing.distanceKm === null && summary.distanceKm !== null) patch.distanceKm = summary.distanceKm;
     if (c.existing.calories === null && summary.calories !== null) patch.calories = summary.calories;
     if (c.existing.avgHeartRate === null && summary.avgHeartRate !== null) patch.avgHeartRate = summary.avgHeartRate;
+    // HRV/Ruhepuls/Schlaf gibt es nur bei Recovery-Kandidaten (existing dort nie
+    // undefined, siehe buildHealthImportCandidates); bei anderen Arten bleibt
+    // existing.hrvMs etc. undefined, die strikte null-Prüfung greift dort also nie.
+    if (c.existing.hrvMs === null && summary.hrvMs !== null) patch.hrvMs = summary.hrvMs;
+    if (c.existing.restingHr === null && summary.restingHr !== null) patch.restingHr = summary.restingHr;
+    if (c.existing.sleepHours === null && summary.sleepHours !== null) patch.sleepHours = summary.sleepHours;
     return { candidate: c, summary, patch };
   });
 }

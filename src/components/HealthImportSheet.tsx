@@ -9,13 +9,14 @@ import {
   type HealthImportMatch,
 } from '../lib/healthImport';
 import type { HistWorkout } from '../lib/stats';
-import type { HistFootballSession, HistStretchSession } from '../lib/storage';
+import type { HistFootballSession, HistRecoveryEntry, HistStretchSession } from '../lib/storage';
 import { Icon, IconButton, type IconName } from './ui';
 
 interface Props {
   workouts: HistWorkout[];
   stretches: HistStretchSession[];
   footballs: HistFootballSession[];
+  recoveries: HistRecoveryEntry[];
   onClose: () => void;
   /** Übernimmt die ausgewählten Treffer (schreibt in die Datenbank) und synchronisiert danach. */
   onApply: (matches: HealthImportMatch[]) => Promise<void>;
@@ -25,28 +26,58 @@ const KIND_ICON: Record<HealthImportKind, IconName> = {
   workout: 'dumbbell',
   stretch: 'flame',
   football: 'football',
+  recovery: 'heart',
 };
 
-function unit(field: 'distanceKm' | 'calories' | 'avgHeartRate'): string {
-  return field === 'distanceKm' ? 'km' : field === 'calories' ? 'kcal' : 'bpm';
+type PatchField = 'distanceKm' | 'calories' | 'avgHeartRate' | 'hrvMs' | 'restingHr' | 'sleepHours';
+const PATCH_FIELDS: PatchField[] = ['distanceKm', 'calories', 'avgHeartRate', 'hrvMs', 'restingHr', 'sleepHours'];
+
+function unit(field: PatchField): string {
+  switch (field) {
+    case 'distanceKm':
+      return 'km';
+    case 'calories':
+      return 'kcal';
+    case 'avgHeartRate':
+    case 'restingHr':
+      return 'bpm';
+    case 'hrvMs':
+      return 'ms';
+    case 'sleepHours':
+      return 'h';
+  }
 }
 
-function fieldLabel(field: 'distanceKm' | 'calories' | 'avgHeartRate'): string {
-  return field === 'distanceKm' ? 'Distanz' : field === 'calories' ? 'Kalorien' : 'Ø Puls';
+function fieldLabel(field: PatchField): string {
+  switch (field) {
+    case 'distanceKm':
+      return 'Distanz';
+    case 'calories':
+      return 'Kalorien';
+    case 'avgHeartRate':
+      return 'Ø Puls';
+    case 'hrvMs':
+      return 'HRV';
+    case 'restingHr':
+      return 'Ruhepuls';
+    case 'sleepHours':
+      return 'Schlaf';
+  }
 }
 
-function formatValue(field: 'distanceKm' | 'calories' | 'avgHeartRate', value: number): string {
-  return field === 'distanceKm' ? value.toFixed(1) : String(value);
+function formatValue(field: PatchField, value: number): string {
+  return field === 'calories' || field === 'avgHeartRate' || field === 'restingHr' ? String(value) : value.toFixed(1);
 }
 
 /**
  * Bereichsübergreifender Apple-Health-Import: eine export.xml wählen, dann werden alle
- * noch unvollständigen Trainings, Stretching-Sessions und Fußball-Einträge gegen ihr
- * bekanntes Zeitfenster abgeglichen (Training/Stretching haben ein exaktes Fenster aus
- * der Live-Aufzeichnung, Fußball nur mit eingetragener Startzeit). Bereits vorhandene
- * Werte werden nie überschrieben.
+ * noch unvollständigen Trainings, Stretching-Sessions, Fußball- und Recovery-Einträge
+ * gegen ihr bekanntes Zeitfenster abgeglichen (Training/Stretching haben ein exaktes
+ * Fenster aus der Live-Aufzeichnung, Fußball nur mit eingetragener Startzeit, Recovery
+ * ein Tagesfenster, siehe recoveryWindowForDate). Bereits vorhandene Werte werden nie
+ * überschrieben.
  */
-export function HealthImportSheet({ workouts, stretches, footballs, onClose, onApply }: Props) {
+export function HealthImportSheet({ workouts, stretches, footballs, recoveries, onClose, onApply }: Props) {
   const [fileName, setFileName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +99,7 @@ export function HealthImportSheet({ workouts, stretches, footballs, onClose, onA
       window.setTimeout(() => {
         try {
           const records: HealthRecord[] = parseRelevantRecords(xml);
-          const candidates = buildHealthImportCandidates(workouts, stretches, footballs);
+          const candidates = buildHealthImportCandidates(workouts, stretches, footballs, recoveries);
           const found = withData(matchHealthImportCandidates(records, candidates));
           setMatches(found);
           setSelected(new Set(found.map(matchKey)));
@@ -130,9 +161,10 @@ export function HealthImportSheet({ workouts, stretches, footballs, onClose, onA
       <div className="sheet-scroll">
         <div className="card">
           <p className="muted newex-hint">
-            Ergänzt Kalorien, Ø Herzfrequenz (und bei Fußball die Distanz) für bereits gespeicherte
-            Einträge in Training, Stretching und Fußball – anhand des jeweils bekannten Zeitfensters.
-            Bereits vorhandene Werte werden nie überschrieben. Export in der Health-App unter Profil →
+            Ergänzt Kalorien, Ø Herzfrequenz (bei Fußball zusätzlich die Distanz, bei Recovery HRV,
+            Ruhepuls und Schlafdauer) für bereits gespeicherte Einträge in Training, Stretching,
+            Fußball und Recovery – anhand des jeweils bekannten Zeitfensters. Bereits vorhandene Werte
+            werden nie überschrieben. Export in der Health-App unter Profil →
             „Alle Gesundheitsdaten exportieren“, ZIP entpacken und hier die enthaltene{' '}
             <code>export.xml</code> wählen. Die Datei kann mehrere hundert MB groß sein; das Verarbeiten
             dauert dann einen Moment.
@@ -170,9 +202,7 @@ export function HealthImportSheet({ workouts, stretches, footballs, onClose, onA
               {matches.map((m) => {
                 const key = matchKey(m);
                 const on = selected.has(key);
-                const fields = (['distanceKm', 'calories', 'avgHeartRate'] as const).filter(
-                  (f) => m.patch[f] !== undefined,
-                );
+                const fields = PATCH_FIELDS.filter((f) => m.patch[f] !== undefined);
                 return (
                   <li key={key}>
                     <button

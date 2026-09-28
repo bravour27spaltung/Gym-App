@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { buildHealthImportCandidates, matchHealthImportCandidates, withData } from './healthImport';
+import {
+  buildHealthImportCandidates,
+  matchHealthImportCandidates,
+  recoveryWindowForDate,
+  withData,
+} from './healthImport';
 import type { HealthRecord } from './appleHealthImport';
 import type { HistWorkout } from './stats';
-import type { HistFootballSession, HistStretchSession } from './storage';
+import type { HistFootballSession, HistRecoveryEntry, HistStretchSession } from './storage';
 
 function workout(over: Partial<HistWorkout> = {}): HistWorkout {
   return {
@@ -45,6 +50,23 @@ function football(over: Partial<HistFootballSession> = {}): HistFootballSession 
   };
 }
 
+function recovery(over: Partial<HistRecoveryEntry> = {}): HistRecoveryEntry {
+  return {
+    id: 'r1',
+    date: '2026-09-23',
+    perceivedRecovery: 7,
+    soreness: null,
+    stress: null,
+    sleepQuality: null,
+    note: null,
+    hrvMs: null,
+    restingHr: null,
+    sleepHours: null,
+    source: 'manual',
+    ...over,
+  };
+}
+
 describe('buildHealthImportCandidates', () => {
   it('nimmt Trainings/Stretching ohne Kalorien oder Puls auf', () => {
     const candidates = buildHealthImportCandidates([workout()], [stretch()], []);
@@ -75,6 +97,26 @@ describe('buildHealthImportCandidates', () => {
     const candidates = buildHealthImportCandidates([], [], [withoutTime, withTime, complete]);
     expect(candidates.map((c) => c.id)).toEqual(['f-time']);
   });
+
+  it('nimmt Recovery-Einträge auf, denen noch HRV, Ruhepuls oder Schlaf fehlt', () => {
+    const incomplete = recovery({ id: 'r-open', hrvMs: 45 }); // restingHr/sleepHours fehlen noch
+    const complete = recovery({ id: 'r-complete', hrvMs: 45, restingHr: 52, sleepHours: 7.5 });
+    const candidates = buildHealthImportCandidates([], [], [], [incomplete, complete]);
+    expect(candidates.map((c) => c.id)).toEqual(['r-open']);
+    expect(candidates[0].kind).toBe('recovery');
+  });
+
+  it('ohne recoveries-Argument bleibt das Verhalten wie zuvor (Rückwärtskompatibilität)', () => {
+    expect(buildHealthImportCandidates([], [], [])).toEqual([]);
+  });
+});
+
+describe('recoveryWindowForDate', () => {
+  it('spannt vom Vorabend 18 Uhr bis zum Folgevormittag 12 Uhr lokal', () => {
+    const { fromMs, toMs } = recoveryWindowForDate('2026-09-23');
+    expect(new Date(fromMs).toISOString()).toBe(new Date('2026-09-22T18:00:00').toISOString());
+    expect(new Date(toMs).toISOString()).toBe(new Date('2026-09-23T12:00:00').toISOString());
+  });
 });
 
 describe('matchHealthImportCandidates / withData', () => {
@@ -89,6 +131,21 @@ describe('matchHealthImportCandidates / withData', () => {
     const matches = matchHealthImportCandidates(records, candidates);
     expect(matches).toHaveLength(1);
     expect(matches[0].patch).toEqual({ calories: 300 });
+  });
+
+  it('befüllt HRV/Ruhepuls/Schlaf nur bei Recovery-Kandidaten, nie bei anderen Arten', () => {
+    const recRecords: HealthRecord[] = [
+      { type: 'HKQuantityTypeIdentifierHeartRateVariabilitySDNN', value: 45, startMs: Date.parse('2026-09-23T05:00:00.000Z'), isWatch: true },
+      { type: 'HKQuantityTypeIdentifierRestingHeartRate', value: 52, startMs: Date.parse('2026-09-23T05:00:00.000Z'), isWatch: true },
+    ];
+    const r = recovery({ id: 'r-open' });
+    const w = workout({ id: 'w-same-window', startedAt: '2026-09-23T04:00:00.000Z', finishedAt: '2026-09-23T06:00:00.000Z' });
+    const candidates = buildHealthImportCandidates([w], [], [], [r]);
+    const matches = matchHealthImportCandidates(recRecords, candidates);
+    const recMatch = matches.find((m) => m.candidate.kind === 'recovery')!;
+    const workoutMatch = matches.find((m) => m.candidate.kind === 'workout')!;
+    expect(recMatch.patch).toEqual({ hrvMs: 45, restingHr: 52 });
+    expect(workoutMatch.patch).toEqual({}); // Training kennt keine HRV/Ruhepuls-Spalten
   });
 
   it('withData lässt Treffer ohne jeden neuen Wert weg', () => {

@@ -10,7 +10,7 @@ import {
   type FootballSource,
 } from '../lib/football';
 import type { HistFootballSession } from '../lib/storage';
-import { Icon, IconButton } from './ui';
+import { Icon, IconButton, MetricField } from './ui';
 
 interface Props {
   history: HistFootballSession[];
@@ -24,41 +24,6 @@ interface Props {
 
 const DEFAULT_RPE = 5;
 const DEFAULT_MINUTES = 90;
-
-/** Einfaches Zahlenfeld mit Einheit, für die optionalen Health-Werte. */
-function MetricField(props: {
-  label: string;
-  unit: string;
-  value: number | null;
-  step?: number;
-  onChange: (n: number | null) => void;
-}) {
-  const [text, setText] = useState(props.value === null ? '' : String(props.value));
-  return (
-    <div className="field stack">
-      <span>{props.label}</span>
-      <div className="equip-input">
-        <input
-          className="cellinput"
-          type="number"
-          inputMode="decimal"
-          step={props.step ?? 1}
-          min={0}
-          aria-label={props.label}
-          placeholder="–"
-          value={text}
-          onFocus={(e) => e.currentTarget.select()}
-          onChange={(e) => {
-            setText(e.target.value);
-            const n = e.target.value.trim() === '' ? null : Number(e.target.value.replace(',', '.'));
-            props.onChange(n !== null && Number.isFinite(n) ? n : null);
-          }}
-        />
-        <span className="unit">{props.unit}</span>
-      </div>
-    </div>
-  );
-}
 
 /**
  * Fußball: eigener, einfacher Bereich – anders als Training/Stretching kein Live-Timer,

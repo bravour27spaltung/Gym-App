@@ -6,10 +6,12 @@ import { plansFromRows } from './plan';
 import type { StretchPayload, StretchPlan, StretchSide } from './stretch';
 import { STRETCH_CATALOG, STRETCH_PLAN_CATALOG } from './stretchCatalog';
 import type { FootballKind, FootballPayload, FootballSource } from './football';
+import type { RecoveryPayload, RecoverySource } from './recovery';
 import type { HistWorkout } from './stats';
 import type {
   ExerciseListItem,
   HistFootballSession,
+  HistRecoveryEntry,
   HistStretchSession,
   LastInfo,
   Store,
@@ -698,6 +700,104 @@ export async function updateFootballHealth(
   if (patch.calories !== undefined) row.calories = patch.calories;
   if (patch.avgHeartRate !== undefined) row.avg_heart_rate = patch.avgHeartRate;
   const { error } = await supabase.from('fit_football_sessions').update(row).eq('id', id);
+  if (error) return fail(error.message);
+  return { ok: true, data: null };
+}
+
+/** Ergänzt HRV/Ruhepuls/Schlafdauer eines bestehenden Recovery-Eintrags; nur übergebene Felder werden gesetzt. */
+export async function updateRecoveryHealth(
+  id: string,
+  patch: { hrvMs?: number; restingHr?: number; sleepHours?: number },
+): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const row: Record<string, number | string> = { source: 'apple_health' };
+  if (patch.hrvMs !== undefined) row.hrv_ms = patch.hrvMs;
+  if (patch.restingHr !== undefined) row.resting_hr = patch.restingHr;
+  if (patch.sleepHours !== undefined) row.sleep_hours = patch.sleepHours;
+  const { error } = await supabase.from('fit_recovery_entries').update(row).eq('id', id);
+  if (error) return fail(error.message);
+  return { ok: true, data: null };
+}
+
+// ---------------------------------------------------------------------------
+// Recovery: eigener, einfacher Bereich (eine Zeile pro Tag, kein Draft), gleiches
+// Muster wie Fußball.
+
+interface RecoveryRow {
+  id: string;
+  date: string;
+  perceived_recovery: number;
+  soreness: number | null;
+  stress: number | null;
+  sleep_quality: number | null;
+  note: string | null;
+  hrv_ms: number | string | null;
+  resting_hr: number | null;
+  sleep_hours: number | string | null;
+  source: RecoverySource;
+}
+
+/** Recovery-Einträge, neueste zuerst. */
+export async function fetchRecoveryHistory(limit = 200): Promise<Result<HistRecoveryEntry[]>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { data, error } = await supabase
+    .from('fit_recovery_entries')
+    .select(
+      'id, date, perceived_recovery, soreness, stress, sleep_quality, note, hrv_ms, resting_hr, sleep_hours, source',
+    )
+    .order('date', { ascending: false })
+    .limit(limit);
+  if (error) return fail(error.message);
+  const rows = (data ?? []) as unknown as RecoveryRow[];
+  return {
+    ok: true,
+    data: rows.map((r) => ({
+      id: r.id,
+      date: r.date,
+      perceivedRecovery: r.perceived_recovery,
+      soreness: r.soreness,
+      stress: r.stress,
+      sleepQuality: r.sleep_quality,
+      note: r.note,
+      hrvMs: r.hrv_ms === null ? null : Number(r.hrv_ms),
+      restingHr: r.resting_hr,
+      sleepHours: r.sleep_hours === null ? null : Number(r.sleep_hours),
+      source: r.source,
+    })),
+  };
+}
+
+/**
+ * Schreibt einen Recovery-Eintrag. Upsert über die Client-ID, ein Sync-Versuch kann
+ * deshalb gefahrlos wiederholt werden. Existiert für den Tag bereits ein Eintrag
+ * (unique user_id+date), meldet Supabase einen Konflikt statt still zu überschreiben –
+ * Korrektur erfolgt wie bei Fußball durch Löschen und Neuanlegen.
+ */
+export async function syncRecoveryPayload(p: RecoveryPayload): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { error } = await supabase.from('fit_recovery_entries').upsert([p.entry], { onConflict: 'id' });
+  if (error) return fail(`fit_recovery_entries: ${error.message}`);
+  return { ok: true, data: null };
+}
+
+/** Versucht alle Recovery-Einträge im Ausgangskorb zu senden; Fehlgeschlagene bleiben liegen. */
+export async function flushRecoveryOutbox(store: Store): Promise<{ sent: number; pending: number }> {
+  const items = store.loadRecoveryOutbox();
+  const remaining: RecoveryPayload[] = [];
+  let sent = 0;
+  for (const item of items) {
+    const res = await syncRecoveryPayload(item);
+    if (res.ok) sent += 1;
+    else remaining.push(item);
+  }
+  if (sent > 0) store.saveRecoveryOutbox(remaining);
+  return { sent, pending: remaining.length };
+}
+
+/** Löscht einen Recovery-Eintrag endgültig. */
+export async function deleteRecoveryEntry(id: string): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { error } = await supabase.from('fit_recovery_entries').delete().eq('id', id);
   if (error) return fail(error.message);
   return { ok: true, data: null };
 }

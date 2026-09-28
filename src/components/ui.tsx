@@ -60,6 +60,9 @@ const PATHS = {
       <path d="M12 6.8V3.5M15.4 9.3l3.3-1.1M14.1 13.4l2 3.3M9.9 13.4l-2 3.3M8.6 9.3l-3.3-1.1" />
     </>
   ),
+  heart: (
+    <path d="M20.8 8.6c0 4.5-4.8 7.7-8.8 10.8-4-3.1-8.8-6.3-8.8-10.8a4.9 4.9 0 0 1 8.8-3 4.9 4.9 0 0 1 8.8 3Z" />
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;
@@ -195,14 +198,15 @@ export function AppBar(props: {
   );
 }
 
-export type Tab = 'home' | 'stretch' | 'football' | 'history' | 'plans';
+export type Tab = 'home' | 'stretch' | 'football' | 'recovery' | 'history' | 'plans';
 
-/** Untere Navigation (Training / Stretching / Verlauf / Pläne). */
+/** Untere Navigation (Training / Stretching / Fußball / Recovery / Verlauf / Pläne). */
 export function TabBar(props: { active: Tab; onChange: (tab: Tab) => void }) {
   const tabs: { key: Tab; label: string; icon: IconName }[] = [
     { key: 'home', label: 'Training', icon: 'dumbbell' },
     { key: 'stretch', label: 'Stretching', icon: 'flame' },
     { key: 'football', label: 'Fußball', icon: 'football' },
+    { key: 'recovery', label: 'Recovery', icon: 'heart' },
     { key: 'history', label: 'Verlauf', icon: 'chart' },
     { key: 'plans', label: 'Pläne', icon: 'list' },
   ];
@@ -428,6 +432,44 @@ export function EquipmentField(props: {
         ))}
       </div>
     </>
+  );
+}
+
+/**
+ * Einfaches Zahlenfeld mit Einheit, für optionale Health-Werte (Distanz, Kalorien,
+ * Puls, HRV, Schlafdauer, …). Gemeinsam von Fußball- und Recovery-Formular genutzt.
+ */
+export function MetricField(props: {
+  label: string;
+  unit: string;
+  value: number | null;
+  step?: number;
+  onChange: (n: number | null) => void;
+}) {
+  const [text, setText] = useState(props.value === null ? '' : String(props.value));
+  return (
+    <div className="field stack">
+      <span>{props.label}</span>
+      <div className="equip-input">
+        <input
+          className="cellinput"
+          type="number"
+          inputMode="decimal"
+          step={props.step ?? 1}
+          min={0}
+          aria-label={props.label}
+          placeholder="–"
+          value={text}
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => {
+            setText(e.target.value);
+            const n = e.target.value.trim() === '' ? null : Number(e.target.value.replace(',', '.'));
+            props.onChange(n !== null && Number.isFinite(n) ? n : null);
+          }}
+        />
+        <span className="unit">{props.unit}</span>
+      </div>
+    </div>
   );
 }
 

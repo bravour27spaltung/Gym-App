@@ -13,9 +13,9 @@ function fakeStorage(): KeyValueStorage & { keys(): string[] } {
 }
 
 describe('resetSteps', () => {
-  it('löscht nur Trainings und Fußball, nie Pläne oder Übungen', () => {
+  it('löscht nur Trainings, Fußball und Recovery, nie Pläne oder Übungen', () => {
     const tables = resetSteps().map((s) => s.table);
-    expect(tables).toEqual(['fit_workouts', 'fit_football_sessions']);
+    expect(tables).toEqual(['fit_workouts', 'fit_football_sessions', 'fit_recovery_entries']);
   });
 });
 

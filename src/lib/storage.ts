@@ -3,6 +3,7 @@ import type { LoggedSet } from './progression';
 import type { HistWorkout } from './stats';
 import type { StretchDraft, StretchPayload, StretchPlan } from './stretch';
 import type { FootballKind, FootballPayload, FootballSource } from './football';
+import type { RecoveryPayload, RecoverySource } from './recovery';
 import type { Draft, WorkoutPayload } from './workout';
 
 /**
@@ -81,6 +82,26 @@ export interface HistFootballSession {
   source: FootballSource;
 }
 
+export interface HistRecoveryEntry {
+  id: string;
+  /** "YYYY-MM-DD", ein Eintrag pro Tag. */
+  date: string;
+  /** Perceived Recovery Status (Laurent et al. 2011), 0-10. */
+  perceivedRecovery: number;
+  /** Muskelkater, 1 (keiner) - 5 (stark); optional. */
+  soreness: number | null;
+  /** Subjektiver Stress, 1 (sehr entspannt) - 5 (sehr gestresst); optional. */
+  stress: number | null;
+  /** Subjektive Schlafqualität, 1 (sehr schlecht) - 5 (sehr gut); optional. */
+  sleepQuality: number | null;
+  note: string | null;
+  /** Nachträglich per Apple-Health-Import befüllt; sonst nicht gesetzt/null. */
+  hrvMs: number | null;
+  restingHr: number | null;
+  sleepHours: number | null;
+  source: RecoverySource;
+}
+
 const KEYS = {
   draft: 'gym.draft.v1',
   outbox: 'gym.outbox.v1',
@@ -97,6 +118,8 @@ const KEYS = {
   stretchPlans: 'gym.stretchPlans.v1',
   footballOutbox: 'gym.footballOutbox.v1',
   footballHistory: 'gym.footballHistory.v1',
+  recoveryOutbox: 'gym.recoveryOutbox.v1',
+  recoveryHistory: 'gym.recoveryHistory.v1',
 } as const;
 
 export function createStore(storage: KeyValueStorage | null) {
@@ -237,6 +260,21 @@ export function createStore(storage: KeyValueStorage | null) {
 
     loadFootballHistory: () => read<HistFootballSession[]>(KEYS.footballHistory, []),
     saveFootballHistory: (items: HistFootballSession[]) => write(KEYS.footballHistory, items),
+
+    // Recovery: eigener, einfacher Bereich (kein Draft, ein Eintrag pro Tag), gleiches
+    // Muster wie Fußball.
+    loadRecoveryOutbox: () => read<RecoveryPayload[]>(KEYS.recoveryOutbox, []),
+    saveRecoveryOutbox: (items: RecoveryPayload[]) => write(KEYS.recoveryOutbox, items),
+    enqueueRecovery(p: RecoveryPayload): boolean {
+      const items = read<RecoveryPayload[]>(KEYS.recoveryOutbox, []).filter(
+        (x) => x.entry.id !== p.entry.id,
+      );
+      items.push(p);
+      return write(KEYS.recoveryOutbox, items);
+    },
+
+    loadRecoveryHistory: () => read<HistRecoveryEntry[]>(KEYS.recoveryHistory, []),
+    saveRecoveryHistory: (items: HistRecoveryEntry[]) => write(KEYS.recoveryHistory, items),
   };
 }
 

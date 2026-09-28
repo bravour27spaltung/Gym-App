@@ -1,8 +1,8 @@
 /**
- * Testdaten zurücksetzen: löscht nur Trainings, Sätze, Verlauf und Fußball-Einträge.
- * Pläne, Vorlagen und eigene Übungen bleiben immer erhalten, damit beim Testen nicht
- * versehentlich die eigentliche Planung verloren geht. Der Übungskatalog
- * (source <> 'custom') bleibt ohnehin unberührt.
+ * Testdaten zurücksetzen: löscht nur Trainings, Sätze, Verlauf, Fußball- und
+ * Recovery-Einträge. Pläne, Vorlagen und eigene Übungen bleiben immer erhalten, damit
+ * beim Testen nicht versehentlich die eigentliche Planung verloren geht. Der
+ * Übungskatalog (source <> 'custom') bleibt ohnehin unberührt.
  */
 
 export interface ResetStep {
@@ -12,7 +12,7 @@ export interface ResetStep {
 }
 
 export function resetSteps(): ResetStep[] {
-  return [{ table: 'fit_workouts' }, { table: 'fit_football_sessions' }];
+  return [{ table: 'fit_workouts' }, { table: 'fit_football_sessions' }, { table: 'fit_recovery_entries' }];
 }
 
 /** Wort, das zur Bestätigung eingetippt werden muss. */
