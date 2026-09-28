@@ -35,6 +35,9 @@ export interface HistWorkout {
   exercises: HistExercise[];
   /** Wie lief's? Freiwillig beim Speichern beantwortet; null = keine Angabe. */
   feedback?: Feedback | null;
+  /** Nachträglich per Apple-Health-Import befüllt; sonst nicht gesetzt/null. */
+  calories?: number | null;
+  avgHeartRate?: number | null;
 }
 
 /** Über dieser Wiederholungszahl wird das 1RM nicht mehr geschätzt (zu ungenau). */

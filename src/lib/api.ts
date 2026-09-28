@@ -137,6 +137,9 @@ interface HistoryRow {
   finished_at: string | null;
   /** Fehlt in Datenbanken ohne Migration 0007. */
   feedback?: Feedback | null;
+  /** Fehlt in Datenbanken ohne Migration 0011. */
+  calories?: number | null;
+  avg_heart_rate?: number | null;
   fit_workout_exercises: {
     exercise_id: string;
     position: number;
@@ -152,9 +155,14 @@ interface HistoryRow {
  */
 export async function fetchHistory(limit = 150): Promise<Result<HistWorkout[]>> {
   if (!supabase) return fail(NOT_CONFIGURED);
-  // "feedback" gibt es erst seit Migration 0007; ohne sie auf die älteren Spalten ausweichen,
-  // damit der Verlauf trotzdem lädt.
-  const variants = ['id, name, started_at, finished_at, feedback, ', 'id, name, started_at, finished_at, '];
+  // "feedback" gibt es erst seit Migration 0007, "calories"/"avg_heart_rate" erst seit
+  // Migration 0011; ohne sie auf die älteren Spalten ausweichen, damit der Verlauf
+  // trotzdem lädt, auch wenn eine Migration noch nicht ausgeführt wurde.
+  const variants = [
+    'id, name, started_at, finished_at, feedback, calories, avg_heart_rate, ',
+    'id, name, started_at, finished_at, feedback, ',
+    'id, name, started_at, finished_at, ',
+  ];
   let data: unknown[] | null = null;
   let lastError = '';
   for (const cols of variants) {
@@ -182,6 +190,8 @@ export async function fetchHistory(limit = 150): Promise<Result<HistWorkout[]>> 
       startedAt: w.started_at,
       finishedAt: w.finished_at,
       feedback: w.feedback ?? null,
+      calories: w.calories ?? null,
+      avgHeartRate: w.avg_heart_rate ?? null,
       exercises: [...w.fit_workout_exercises]
         .sort((a, b) => a.position - b.position)
         .map((e) => ({
@@ -354,6 +364,9 @@ interface StretchHistoryRow {
   feeling_before: number | null;
   feeling_after: number | null;
   note: string | null;
+  /** Fehlt in Datenbanken ohne Migration 0011. */
+  calories?: number | null;
+  avg_heart_rate?: number | null;
   fit_stretch_items: {
     stretch_exercise_id: string;
     position: number;
@@ -366,17 +379,31 @@ interface StretchHistoryRow {
 /** Abgeschlossene Stretching-Sessions mit ihren Übungen, neueste zuerst. */
 export async function fetchStretchHistory(limit = 150): Promise<Result<HistStretchSession[]>> {
   if (!supabase) return fail(NOT_CONFIGURED);
-  const { data, error } = await supabase
-    .from('fit_stretch_sessions')
-    .select(
-      'id, started_at, finished_at, feeling_before, feeling_after, note, ' +
-        'fit_stretch_items(stretch_exercise_id, position, side, hold_seconds, sets)',
-    )
-    .not('finished_at', 'is', null)
-    .order('started_at', { ascending: false })
-    .limit(limit);
-  if (error) return fail(error.message);
-  const rows = (data ?? []) as unknown as StretchHistoryRow[];
+  // "calories"/"avg_heart_rate" gibt es erst seit Migration 0011; ohne sie auf die
+  // ältere Spaltenliste ausweichen, damit der Verlauf trotzdem lädt.
+  const variants = [
+    'id, started_at, finished_at, feeling_before, feeling_after, note, calories, avg_heart_rate, ' +
+      'fit_stretch_items(stretch_exercise_id, position, side, hold_seconds, sets)',
+    'id, started_at, finished_at, feeling_before, feeling_after, note, ' +
+      'fit_stretch_items(stretch_exercise_id, position, side, hold_seconds, sets)',
+  ];
+  let data: unknown[] | null = null;
+  let lastError = '';
+  for (const cols of variants) {
+    const res = await supabase
+      .from('fit_stretch_sessions')
+      .select(cols)
+      .not('finished_at', 'is', null)
+      .order('started_at', { ascending: false })
+      .limit(limit);
+    if (!res.error) {
+      data = res.data;
+      break;
+    }
+    lastError = res.error.message;
+  }
+  if (data === null) return fail(lastError);
+  const rows = data as unknown as StretchHistoryRow[];
   return {
     ok: true,
     data: rows.map((s) => ({
@@ -386,6 +413,8 @@ export async function fetchStretchHistory(limit = 150): Promise<Result<HistStret
       feelingBefore: s.feeling_before,
       feelingAfter: s.feeling_after,
       note: s.note,
+      calories: s.calories ?? null,
+      avgHeartRate: s.avg_heart_rate ?? null,
       items: [...s.fit_stretch_items]
         .sort((a, b) => a.position - b.position)
         .map((it) => ({
@@ -618,6 +647,57 @@ export async function flushFootballOutbox(store: Store): Promise<{ sent: number;
 export async function deleteFootballSession(id: string): Promise<Result<null>> {
   if (!supabase) return fail(NOT_CONFIGURED);
   const { error } = await supabase.from('fit_football_sessions').delete().eq('id', id);
+  if (error) return fail(error.message);
+  return { ok: true, data: null };
+}
+
+
+// ---------------------------------------------------------------------------
+// Bereichsübergreifender Apple-Health-Import: schreibt nachträglich Kalorien/Puls
+// (bei Fußball auch Distanz) in bereits bestehende Einträge. Siehe lib/healthImport.ts
+// für die Zuordnungslogik (welcher Eintrag bekommt welche Werte).
+
+/** Ergänzt Kalorien/Ø Puls eines bestehenden Trainings; nur übergebene Felder werden gesetzt. */
+export async function updateWorkoutHealth(
+  id: string,
+  patch: { calories?: number; avgHeartRate?: number },
+): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const row: Record<string, number> = {};
+  if (patch.calories !== undefined) row.calories = patch.calories;
+  if (patch.avgHeartRate !== undefined) row.avg_heart_rate = patch.avgHeartRate;
+  if (Object.keys(row).length === 0) return { ok: true, data: null };
+  const { error } = await supabase.from('fit_workouts').update(row).eq('id', id);
+  if (error) return fail(error.message);
+  return { ok: true, data: null };
+}
+
+/** Ergänzt Kalorien/Ø Puls einer bestehenden Stretching-Session; nur übergebene Felder werden gesetzt. */
+export async function updateStretchHealth(
+  id: string,
+  patch: { calories?: number; avgHeartRate?: number },
+): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const row: Record<string, number> = {};
+  if (patch.calories !== undefined) row.calories = patch.calories;
+  if (patch.avgHeartRate !== undefined) row.avg_heart_rate = patch.avgHeartRate;
+  if (Object.keys(row).length === 0) return { ok: true, data: null };
+  const { error } = await supabase.from('fit_stretch_sessions').update(row).eq('id', id);
+  if (error) return fail(error.message);
+  return { ok: true, data: null };
+}
+
+/** Ergänzt Distanz/Kalorien/Ø Puls eines bestehenden Fußball-Eintrags; nur übergebene Felder werden gesetzt. */
+export async function updateFootballHealth(
+  id: string,
+  patch: { distanceKm?: number; calories?: number; avgHeartRate?: number },
+): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const row: Record<string, number | string> = { source: 'apple_health' };
+  if (patch.distanceKm !== undefined) row.distance_km = patch.distanceKm;
+  if (patch.calories !== undefined) row.calories = patch.calories;
+  if (patch.avgHeartRate !== undefined) row.avg_heart_rate = patch.avgHeartRate;
+  const { error } = await supabase.from('fit_football_sessions').update(row).eq('id', id);
   if (error) return fail(error.message);
   return { ok: true, data: null };
 }

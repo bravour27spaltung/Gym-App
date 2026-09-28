@@ -61,6 +61,9 @@ export interface HistStretchSession {
   feelingAfter: number | null;
   note: string | null;
   items: HistStretchItem[];
+  /** Nachträglich per Apple-Health-Import befüllt; sonst nicht gesetzt/null. */
+  calories?: number | null;
+  avgHeartRate?: number | null;
 }
 
 export interface HistFootballSession {

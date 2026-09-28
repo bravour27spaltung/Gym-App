@@ -6,6 +6,11 @@
  * sich testen lässt, ohne den Browser zu brauchen, und auch mit sehr großen Exporten
  * (mehrere hundert MB) zurechtkommt.
  *
+ * Der Export wird genau einmal geparst (parseRelevantRecords) und danach für beliebig
+ * viele Zeitfenster wiederverwendet (summarizeWindow) – wichtig, wenn an einem Tag
+ * gleich mehrere Einheiten (Training, Stretching, Fußball) abgeglichen werden sollen,
+ * ohne den Text mehrfach zu durchsuchen.
+ *
  * Vereinfachungen, die für Hobby-Tracking reichen, aber keine sportwissenschaftliche
  * Präzision beanspruchen:
  *  - Bevorzugt Datensätze einer Quelle mit "watch" im Namen (Apple Watch); gibt es
@@ -22,7 +27,12 @@ const RECORD_RE = /<Record\b[^>]*\/>/g;
 const ATTR_RE = /([\w:-]+)="([^"]*)"/g;
 const TYPE_RE = /type="([^"]*)"/;
 
-const RELEVANT_TYPES = new Set([
+export type RelevantHealthType =
+  | 'HKQuantityTypeIdentifierDistanceWalkingRunning'
+  | 'HKQuantityTypeIdentifierActiveEnergyBurned'
+  | 'HKQuantityTypeIdentifierHeartRate';
+
+const RELEVANT_TYPES = new Set<RelevantHealthType>([
   'HKQuantityTypeIdentifierDistanceWalkingRunning',
   'HKQuantityTypeIdentifierActiveEnergyBurned',
   'HKQuantityTypeIdentifierHeartRate',
@@ -59,6 +69,44 @@ function toKcal(value: number, unit: string): number {
   return value; // 'kcal'/'Cal' oder unbekannt: unverändert übernehmen
 }
 
+export interface HealthRecord {
+  type: RelevantHealthType;
+  /** Bereits in km bzw. kcal bzw. bpm umgerechnet. */
+  value: number;
+  startMs: number;
+  isWatch: boolean;
+}
+
+/**
+ * Durchsucht den kompletten Export-Text einmal nach den drei relevanten Record-Typen
+ * (Distanz, aktive Kalorien, Herzfrequenz) und gibt sie chronologisch sortiert zurück.
+ * Alles andere (Schritte, Schlaf, Mindful Minutes, …) wird ignoriert.
+ */
+export function parseRelevantRecords(xmlText: string): HealthRecord[] {
+  const records: HealthRecord[] = [];
+  RECORD_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = RECORD_RE.exec(xmlText))) {
+    const tag = m[0];
+    const type = TYPE_RE.exec(tag)?.[1] as RelevantHealthType | undefined;
+    if (!type || !RELEVANT_TYPES.has(type)) continue;
+
+    const attrs = parseAttrs(tag);
+    const startMs = attrs.startDate ? parseAppleHealthDate(attrs.startDate) : null;
+    if (startMs === null) continue;
+    const raw = Number(attrs.value);
+    if (!Number.isFinite(raw)) continue;
+
+    let value = raw;
+    if (type === 'HKQuantityTypeIdentifierDistanceWalkingRunning') value = toKm(raw, attrs.unit ?? 'km');
+    else if (type === 'HKQuantityTypeIdentifierActiveEnergyBurned') value = toKcal(raw, attrs.unit ?? 'kcal');
+
+    records.push({ type, value, startMs, isWatch: isWatchSource(attrs.sourceName ?? '') });
+  }
+  records.sort((a, b) => a.startMs - b.startMs);
+  return records;
+}
+
 export interface HealthWindowSummary {
   distanceKm: number | null;
   calories: number | null;
@@ -66,10 +114,6 @@ export interface HealthWindowSummary {
 }
 
 type Bucket = { watch: number[]; other: number[] };
-
-function newBucket(): Bucket {
-  return { watch: [], other: [] };
-}
 
 /** Bevorzugt Watch-Quellen; nur wenn es keine gibt, werden alle Quellen verwendet. */
 function pick(b: Bucket): number[] {
@@ -79,44 +123,22 @@ function pick(b: Bucket): number[] {
 const sum = (xs: number[]): number => xs.reduce((a, b) => a + b, 0);
 
 /**
- * Summiert/mittelt alle relevanten Health-Records, deren Startzeit ins halboffene
- * Fenster [startedAt, startedAt + minutes) fällt. xmlText ist der volle Inhalt der
- * export.xml. Ein Feld ist null, wenn im Fenster keine passenden Datensätze liegen.
+ * Summiert/mittelt aus bereits geparsten Records alle Werte, deren Startzeit ins
+ * halboffene Fenster [from, to) fällt. Records sind chronologisch sortiert (siehe
+ * parseRelevantRecords), daher wird nur der relevante Ausschnitt durchlaufen.
  */
-export function summarizeAppleHealthWindow(
-  xmlText: string,
-  startedAt: Date,
-  minutes: number,
-): HealthWindowSummary {
-  const from = startedAt.getTime();
-  const to = from + minutes * 60_000;
+export function summarizeWindow(records: HealthRecord[], from: number, to: number): HealthWindowSummary {
+  const distance: Bucket = { watch: [], other: [] };
+  const energy: Bucket = { watch: [], other: [] };
+  const hr: Bucket = { watch: [], other: [] };
 
-  const distance = newBucket();
-  const energy = newBucket();
-  const hr = newBucket();
-
-  RECORD_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = RECORD_RE.exec(xmlText))) {
-    const tag = m[0];
-    const type = TYPE_RE.exec(tag)?.[1];
-    if (!type || !RELEVANT_TYPES.has(type)) continue;
-
-    const attrs = parseAttrs(tag);
-    const startMs = attrs.startDate ? parseAppleHealthDate(attrs.startDate) : null;
-    if (startMs === null || startMs < from || startMs >= to) continue;
-
-    const value = Number(attrs.value);
-    if (!Number.isFinite(value)) continue;
-    const bucket = isWatchSource(attrs.sourceName ?? '') ? 'watch' : 'other';
-
-    if (type === 'HKQuantityTypeIdentifierDistanceWalkingRunning') {
-      distance[bucket].push(toKm(value, attrs.unit ?? 'km'));
-    } else if (type === 'HKQuantityTypeIdentifierActiveEnergyBurned') {
-      energy[bucket].push(toKcal(value, attrs.unit ?? 'kcal'));
-    } else if (type === 'HKQuantityTypeIdentifierHeartRate') {
-      hr[bucket].push(value);
-    }
+  for (const r of records) {
+    if (r.startMs < from) continue;
+    if (r.startMs >= to) break; // sortiert: alles Weitere liegt auch dahinter
+    const bucket = r.isWatch ? 'watch' : 'other';
+    if (r.type === 'HKQuantityTypeIdentifierDistanceWalkingRunning') distance[bucket].push(r.value);
+    else if (r.type === 'HKQuantityTypeIdentifierActiveEnergyBurned') energy[bucket].push(r.value);
+    else if (r.type === 'HKQuantityTypeIdentifierHeartRate') hr[bucket].push(r.value);
   }
 
   const distanceValues = pick(distance);
@@ -128,4 +150,20 @@ export function summarizeAppleHealthWindow(
     calories: energyValues.length > 0 ? Math.round(sum(energyValues)) : null,
     avgHeartRate: hrValues.length > 0 ? Math.round(sum(hrValues) / hrValues.length) : null,
   };
+}
+
+/**
+ * Bequemlichkeitsfunktion für einen einzelnen Abgleich (z. B. im Fußball-Formular):
+ * parst den Export und wertet direkt ein Fenster aus. Für mehrere Fenster aus demselben
+ * Export bitte parseRelevantRecords einmal aufrufen und summarizeWindow wiederverwenden
+ * (siehe HealthImportSheet), sonst wird der ggf. sehr große Text mehrfach durchsucht.
+ */
+export function summarizeAppleHealthWindow(
+  xmlText: string,
+  startedAt: Date,
+  minutes: number,
+): HealthWindowSummary {
+  const from = startedAt.getTime();
+  const to = from + minutes * 60_000;
+  return summarizeWindow(parseRelevantRecords(xmlText), from, to);
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { CombinedHistoryScreen } from './components/CombinedHistoryScreen';
 import { FootballHistoryScreen } from './components/FootballHistoryScreen';
 import { FootballScreen } from './components/FootballScreen';
+import { HealthImportSheet } from './components/HealthImportSheet';
 import { HistoryScreen } from './components/HistoryScreen';
 import { musclesOfDay } from './components/PlanEditor';
 import { PlansScreen } from './components/PlansScreen';
@@ -38,6 +39,9 @@ import {
   syncFootballPayload,
   syncPayload,
   syncStretchPayload,
+  updateFootballHealth,
+  updateStretchHealth,
+  updateWorkoutHealth,
   verifyLoginCode,
 } from './lib/api';
 import {
@@ -50,6 +54,7 @@ import {
   type Plan,
 } from './lib/plan';
 import { buildFootballPayload, type FootballEntryInput } from './lib/football';
+import type { HealthImportMatch } from './lib/healthImport';
 import { normalizeCode } from './lib/authErrors';
 import { nextPlanDay } from './lib/rotation';
 import {
@@ -140,6 +145,9 @@ export function App() {
   );
   const [footballPending, setFootballPending] = useState(() => store.loadFootballOutbox().length);
   const [footballBusy, setFootballBusy] = useState(false);
+
+  // Bereichsübergreifender Apple-Health-Import (Training, Stretching, Fußball).
+  const [healthImportOpen, setHealthImportOpen] = useState(false);
 
   useEffect(() => {
     if (!stretchLoaded.current) {
@@ -420,6 +428,31 @@ export function App() {
     const next = footballHistory.filter((s) => s.id !== id);
     setFootballHistory(next);
     store.saveFootballHistory(next);
+  }
+
+  /**
+   * Schreibt die im Health-Import ausgewählten Treffer in die jeweilige Tabelle
+   * (Training, Stretching oder Fußball) und lädt danach den Verlauf neu, damit die
+   * neuen Werte überall (inkl. lokalem Zwischenspeicher) ankommen. Bricht bei einem
+   * einzelnen Fehler nicht ab, sammelt aber die Fehlermeldungen.
+   */
+  async function applyHealthImport(matches: HealthImportMatch[]) {
+    const errors: string[] = [];
+    for (const m of matches) {
+      const { patch } = m;
+      let res: { ok: boolean; error?: string };
+      if (m.candidate.kind === 'workout') res = await updateWorkoutHealth(m.candidate.id, patch);
+      else if (m.candidate.kind === 'stretch') res = await updateStretchHealth(m.candidate.id, patch);
+      else res = await updateFootballHealth(m.candidate.id, patch);
+      if (!res.ok) errors.push(res.error ?? 'unbekannter Fehler');
+    }
+    const ok = matches.length - errors.length;
+    setNotice(
+      errors.length === 0
+        ? `${ok} Eintrag/Einträge mit Apple-Health-Werten ergänzt.`
+        : `${ok} von ${matches.length} ergänzt, ${errors.length} fehlgeschlagen: ${errors[0]}`,
+    );
+    await sync();
   }
 
   // Name und Muskeln je Übung: Katalog plus eigene Übungen, die noch nicht in der Datenbank sind.
@@ -763,6 +796,14 @@ export function App() {
     return (
       <main>
         <div className="screen" style={{ paddingBottom: 0 }}>
+          <header className="pagehead">
+            <h1>Verlauf</h1>
+            <IconButton
+              icon="folder"
+              label="Apple Health importieren"
+              onClick={() => setHealthImportOpen(true)}
+            />
+          </header>
           <nav className="chips" role="tablist" aria-label="Verlauf-Ansicht">
             {(
               [
@@ -792,6 +833,15 @@ export function App() {
         {historyFilter === 'football' && <FootballHistoryScreen sessions={footballHistory} />}
         {historyFilter === 'all' && (
           <CombinedHistoryScreen workouts={mergedHistory} stretches={stretchHistory} footballs={footballHistory} />
+        )}
+        {healthImportOpen && (
+          <HealthImportSheet
+            workouts={mergedHistory}
+            stretches={stretchHistory}
+            footballs={footballHistory}
+            onClose={() => setHealthImportOpen(false)}
+            onApply={applyHealthImport}
+          />
         )}
         {tabs}
       </main>
