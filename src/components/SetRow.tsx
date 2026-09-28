@@ -1,8 +1,13 @@
 import { useEffect, useRef } from 'react';
+import { fmtShortYear } from '../lib/format';
 import type { LoggedSet } from '../lib/progression';
-import { FRACTIONS, composeWeight, formatKg, kgText, roundKg, splitWeight, totalLoad, type Fraction } from '../lib/weight';
+import type { SetHistoryEntry } from '../lib/stats';
+import { composeWeight, formatKg, kgText, splitWeight, totalLoad, type Fraction } from '../lib/weight';
 import type { DraftSet } from '../lib/workout';
-import { Icon, NumberInput } from './ui';
+import { Icon, NumberInput, WheelPicker } from './ui';
+
+/** Nachkommastellen-Optionen als Rad, zweistellig ("00", "25", "50", "75"). */
+const FRACTION_STEPS = { min: 0, max: 75, step: 25 } as const;
 
 function setLabel(set: DraftSet, index: number): string {
   return set.type === 'warmup' ? `Aufwärmsatz ${index}` : `Satz ${index}`;
@@ -10,6 +15,12 @@ function setLabel(set: DraftSet, index: number): string {
 
 function previousText(previous: LoggedSet | null): string | null {
   return previous ? `${previous.reps} × ${kgText(previous.weightKg)} kg` : null;
+}
+
+/** "31.08.26  7 × 5,00 kg" bzw. ohne Gewicht nur "31.08.26  10×". */
+function historyLine(entry: SetHistoryEntry): string {
+  const date = fmtShortYear(new Date(entry.at).getTime());
+  return entry.weightKg > 0 ? `${date} · ${entry.reps} × ${kgText(entry.weightKg)} kg` : `${date} · ${entry.reps}×`;
 }
 
 /** Ganze Kilo und Bruchteil getrennt; Werte außerhalb des 0,25-Rasters fallen auf "ganz" zurück. */
@@ -62,6 +73,8 @@ interface EditorProps {
   index: number;
   set: DraftSet;
   previous: LoggedSet | null;
+  /** Bisherige Werte dieser genauen Satz-Position, neueste zuerst. */
+  history: SetHistoryEntry[];
   equipmentKg: number | null;
   onWeight: (kg: number) => void;
   onReps: (reps: number) => void;
@@ -78,6 +91,7 @@ export function SetEditor({
   index,
   set,
   previous,
+  history,
   equipmentKg,
   onWeight,
   onReps,
@@ -113,43 +127,30 @@ export function SetEditor({
 
       <div className="fx-field">
         <span className="fx-flabel">Gewicht</span>
-        <div className="fx-stepper">
-          <button
-            type="button"
-            aria-label={`${label}: 1 kg weniger`}
-            disabled={set.weightKg <= 0}
-            onClick={() => onWeight(roundKg(set.weightKg - 1))}
-          >
-            −
-          </button>
-          <div className="fx-input">
-            <NumberInput
-              kind="kg"
-              blankZero={!set.done}
-              placeholder="0"
-              className="bigin"
-              label={`${label}: Gewicht in kg`}
-              value={set.weightKg}
-              onCommit={onWeight}
-            />
-            <span className="unit">kg</span>
-          </div>
-          <button type="button" aria-label={`${label}: 1 kg mehr`} onClick={() => onWeight(roundKg(set.weightKg + 1))}>
-            +
-          </button>
-        </div>
-        <div className="fx-fractions" role="group" aria-label="Nachkommastellen">
-          {FRACTIONS.map((f) => (
-            <button
-              key={f}
-              type="button"
-              className={f === fraction ? 'chip on' : 'chip'}
-              aria-pressed={f === fraction}
-              onClick={() => onWeight(composeWeight(wholeKg, f))}
-            >
-              {f === 0 ? '+0' : `+${kgText(f)}`}
-            </button>
-          ))}
+        <div className="fx-weightwheels">
+          <WheelPicker
+            label={`${label}: ganze Kilo`}
+            value={wholeKg}
+            min={0}
+            max={250}
+            step={1}
+            onCommit={(w) => onWeight(composeWeight(w, fraction))}
+          />
+          <span className="wheel-sep" aria-hidden="true">
+            ,
+          </span>
+          <WheelPicker
+            label={`${label}: Nachkommastellen`}
+            value={fraction * 100}
+            min={FRACTION_STEPS.min}
+            max={FRACTION_STEPS.max}
+            step={FRACTION_STEPS.step}
+            format={(n) => String(n).padStart(2, '0')}
+            onCommit={(f) => onWeight(composeWeight(wholeKg, (f / 100) as Fraction))}
+          />
+          <span className="wheel-unit" aria-hidden="true">
+            kg
+          </span>
         </div>
         {showTotal && <small className="fx-total">Σ {formatKg(totalLoad(set.weightKg, equipmentKg))} inkl. Stange/Maschine</small>}
       </div>
@@ -183,6 +184,19 @@ export function SetEditor({
           </button>
         </div>
       </div>
+
+      {history.length > 0 && (
+        <details className="fx-history">
+          <summary>
+            <Icon name="clock" size={14} /> Verlauf · {history.length}×
+          </summary>
+          <ul>
+            {history.map((h) => (
+              <li key={h.at}>{historyLine(h)}</li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {set.done ? (
         <>

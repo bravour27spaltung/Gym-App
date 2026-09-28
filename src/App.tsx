@@ -374,6 +374,7 @@ export function App() {
         <WorkoutScreen
           draft={draft}
           exercises={exercises}
+          history={mergedHistory}
           onUpdate={(fn) => setDraft((d) => (d ? fn(d) : d))}
           loadLast={loadLast}
           onFinish={() => void finish()}

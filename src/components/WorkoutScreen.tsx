@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ExerciseListItem, LastInfo } from '../lib/storage';
+import type { HistWorkout } from '../lib/stats';
 import { startRest } from '../lib/timer';
 import { unlockAudio } from '../lib/sound';
 import {
@@ -26,6 +27,8 @@ import { Icon } from './ui';
 interface Props {
   draft: Draft;
   exercises: ExerciseListItem[];
+  /** Abgeschlossene Trainings, für die Satz-Historie ("Verlauf") im Editor. */
+  history: HistWorkout[];
   /** Ändert den Entwurf; die Funktion bekommt immer den aktuellen Stand. */
   onUpdate: (fn: (d: Draft) => Draft) => void;
   loadLast: (exerciseId: string, isNew: boolean) => Promise<LastInfo>;
@@ -97,6 +100,7 @@ function firstOpenExercise(draft: Draft): DraftExercise | undefined {
 export function WorkoutScreen({
   draft,
   exercises,
+  history,
   onUpdate,
   loadLast,
   onFinish,
@@ -248,6 +252,7 @@ export function WorkoutScreen({
           <ExerciseCard
             key={current.id}
             exercise={current}
+            history={history}
             activeSetId={activeSet?.id ?? null}
             onSelect={setSelectedSetId}
             onSetWeight={(setId, kg) => onUpdate((d) => updateSetWeight(d, current.id, setId, kg))}

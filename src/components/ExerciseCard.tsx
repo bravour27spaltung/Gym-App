@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { formatClock } from '../lib/timer';
+import { setSlotHistory, type HistWorkout } from '../lib/stats';
 import { formatKg } from '../lib/weight';
 import { describeLastSets, type DraftExercise, type DraftSet } from '../lib/workout';
 import { SetEditor, SetLine } from './SetRow';
@@ -8,6 +9,8 @@ import { EquipmentField, Icon } from './ui';
 
 interface Props {
   exercise: DraftExercise;
+  /** Abgeschlossene Trainings, für die Satz-Historie ("Verlauf") im Editor. */
+  history: HistWorkout[];
   /** Satz, dessen Editor offen ist; null = alle Sätze erledigt oder keiner gewählt. */
   activeSetId: string | null;
   onSelect: (setId: string | null) => void;
@@ -81,6 +84,7 @@ export function ExerciseCard(props: Props) {
           index={idx}
           set={set}
           previous={previous}
+          history={setSlotHistory(props.history, e.exerciseId, set.type, idx)}
           equipmentKg={e.equipmentKg}
           onWeight={(kg) => props.onSetWeight(set.id, kg)}
           onReps={(reps) => props.onUpdateSet(set.id, { reps })}

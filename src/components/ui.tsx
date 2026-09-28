@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { kgText, parseKg, roundKg } from '../lib/weight';
 
 /** Kleine Symbole (24-px-Raster, Linien), ohne externe Bibliothek. */
@@ -280,6 +280,101 @@ export function NumberInput(props: {
         if (e.key === 'Enter') e.currentTarget.blur();
       }}
     />
+  );
+}
+
+/** Höhe einer Zeile im Zahlenrad (px), auch in styles.css verwendet (.wheel-track height = 3x). */
+export const WHEEL_ITEM_H = 44;
+const WHEEL_VISIBLE = 3;
+const WHEEL_SETTLE_MS = 90;
+
+function clampIndex(i: number, count: number): number {
+  return Math.max(0, Math.min(count - 1, i));
+}
+
+/**
+ * Zahlenrad zum Scrollen/Ziehen statt Plus-/Minus-Tasten und Texteingabe. Die Mitte
+ * zeigt den aktuellen Wert; ein Tipp auf eine andere Zeile springt direkt dorthin.
+ * Wird der `value` von außen geändert (z. B. Vorbelegung), richtet sich das Rad neu
+ * aus, außer der Nutzer scrollt gerade selbst (sonst würde ein Wisch abgebrochen).
+ */
+export function WheelPicker(props: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format?: (n: number) => string;
+  onCommit: (n: number) => void;
+}) {
+  const { label, value, min, max, step, format, onCommit } = props;
+  const count = Math.max(1, Math.round((max - min) / step) + 1);
+  const valueToIndex = (v: number) => clampIndex(Math.round((v - min) / step), count);
+  const indexToValue = (i: number) => Math.round((min + i * step) * 1000) / 1000;
+
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [index, setIndex] = useState(() => valueToIndex(value));
+  const interacting = useRef(false);
+  const settleTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (interacting.current) return;
+    const i = valueToIndex(value);
+    setIndex(i);
+    trackRef.current?.scrollTo({ top: i * WHEEL_ITEM_H, behavior: 'auto' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, min, max, step]);
+
+  function commitIndex(i: number) {
+    const clamped = clampIndex(i, count);
+    setIndex(clamped);
+    const v = indexToValue(clamped);
+    if (v !== value) onCommit(v);
+  }
+
+  function handleScroll() {
+    interacting.current = true;
+    window.clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(() => {
+      interacting.current = false;
+      const top = trackRef.current?.scrollTop ?? 0;
+      commitIndex(Math.round(top / WHEEL_ITEM_H));
+    }, WHEEL_SETTLE_MS);
+  }
+
+  return (
+    <div className="wheel" role="group" aria-label={label}>
+      <div className="wheel-highlight" aria-hidden="true" />
+      <div
+        ref={trackRef}
+        className="wheel-track"
+        style={{ height: WHEEL_ITEM_H * WHEEL_VISIBLE }}
+        onScroll={handleScroll}
+      >
+        <div className="wheel-pad" style={{ height: WHEEL_ITEM_H }} aria-hidden="true" />
+        {Array.from({ length: count }, (_, i) => {
+          const v = indexToValue(i);
+          const on = i === index;
+          return (
+            <button
+              key={i}
+              type="button"
+              className={on ? 'wheel-item on' : 'wheel-item'}
+              style={{ height: WHEEL_ITEM_H }}
+              tabIndex={-1}
+              aria-hidden={!on}
+              onClick={() => {
+                commitIndex(i);
+                trackRef.current?.scrollTo({ top: i * WHEEL_ITEM_H, behavior: 'smooth' });
+              }}
+            >
+              {format ? format(v) : String(v)}
+            </button>
+          );
+        })}
+        <div className="wheel-pad" style={{ height: WHEEL_ITEM_H }} aria-hidden="true" />
+      </div>
+    </div>
   );
 }
 

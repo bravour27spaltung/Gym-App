@@ -10,6 +10,7 @@ import {
   muscleSets,
   musclePoints,
   payloadToHist,
+  setSlotHistory,
   summarizeWorkout,
   trainedMuscles,
   weakestMuscle,
@@ -104,6 +105,46 @@ describe('Verlauf einer Übung', () => {
     const pts = exercisePoints(list, 'bench');
     expect(pts.map((p) => p.workoutId)).toEqual(['a', 'b']);
     expect(pts[1].topLoadKg).toBe(62.5);
+  });
+});
+
+describe('Historie einer Satz-Position', () => {
+  function workoutWithTypes(id: string, day: number, sets: { type: 'warmup' | 'working'; weightKg: number; reps: number }[]): HistWorkout {
+    return { id, name: 'Push', startedAt: d(day), finishedAt: end(day), exercises: [{ exerciseId: 'bench', equipmentKg: null, sets }] };
+  }
+
+  it('liefert die Werte des 2. Arbeitssatzes, neueste zuerst', () => {
+    const list = [
+      workoutWithTypes('a', 1, [{ type: 'working', weightKg: 60, reps: 8 }, { type: 'working', weightKg: 60, reps: 7 }]),
+      workoutWithTypes('b', 8, [{ type: 'working', weightKg: 62.5, reps: 8 }, { type: 'working', weightKg: 62.5, reps: 8 }]),
+    ];
+    const hist = setSlotHistory(list, 'bench', 'working', 2);
+    expect(hist).toEqual([
+      { at: d(8), reps: 8, weightKg: 62.5 },
+      { at: d(1), reps: 7, weightKg: 60 },
+    ]);
+  });
+
+  it('überspringt Trainings ohne Satz an dieser Position, statt eine Lücke zu zeigen', () => {
+    const list = [
+      workoutWithTypes('a', 1, [{ type: 'working', weightKg: 60, reps: 8 }]),
+      workoutWithTypes('b', 8, [{ type: 'working', weightKg: 62.5, reps: 8 }, { type: 'working', weightKg: 62.5, reps: 6 }]),
+    ];
+    expect(setSlotHistory(list, 'bench', 'working', 2)).toEqual([{ at: d(8), reps: 6, weightKg: 62.5 }]);
+  });
+
+  it('begrenzt auf `limit` Einträge', () => {
+    const list = [1, 2, 3, 4, 5, 6, 7].map((day) =>
+      workoutWithTypes(String(day), day, [{ type: 'working', weightKg: 60, reps: 8 }]),
+    );
+    expect(setSlotHistory(list, 'bench', 'working', 1, 3)).toHaveLength(3);
+  });
+
+  it('liefert nichts für eine andere Übung oder einen anderen Satz-Typ', () => {
+    const list = [workoutWithTypes('a', 1, [{ type: 'warmup', weightKg: 20, reps: 10 }])];
+    expect(setSlotHistory(list, 'row', 'working', 1)).toEqual([]);
+    expect(setSlotHistory(list, 'bench', 'working', 1)).toEqual([]);
+    expect(setSlotHistory(list, 'bench', 'warmup', 1)).toEqual([{ at: d(1), reps: 10, weightKg: 20 }]);
   });
 });
 

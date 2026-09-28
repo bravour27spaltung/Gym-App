@@ -146,6 +146,42 @@ export function sortNewestFirst(list: HistWorkout[]): HistWorkout[] {
 }
 
 // ---------------------------------------------------------------------------
+// Historie einer einzelnen Satz-Position
+
+export interface SetHistoryEntry {
+  /** Trainingsbeginn (ISO), zur Anzeige des Datums. */
+  at: string;
+  reps: number;
+  weightKg: number;
+}
+
+/**
+ * Bisherige Werte für genau diese Satz-Position (z. B. der 2. Arbeitssatz) derselben
+ * Übung, aus abgeschlossenen Trainings; neueste zuerst. `indexInType` ist 1-basiert und
+ * zählt nur Sätze desselben Typs (Aufwärmen bzw. Arbeitssatz). Trainings, die an dieser
+ * Position keinen Satz dieses Typs haben (z. B. weniger Sätze gemacht), werden
+ * übersprungen, nicht als Lücke gezählt.
+ */
+export function setSlotHistory(
+  workouts: HistWorkout[],
+  exerciseId: string,
+  type: 'warmup' | 'working',
+  indexInType: number,
+  limit = 5,
+): SetHistoryEntry[] {
+  const out: SetHistoryEntry[] = [];
+  for (const w of sortNewestFirst(workouts)) {
+    const ex = w.exercises.find((e) => e.exerciseId === exerciseId);
+    if (!ex) continue;
+    const set = ex.sets.filter((s) => s.type === type)[indexInType - 1];
+    if (!set) continue;
+    out.push({ at: w.startedAt, reps: set.reps, weightKg: set.weightKg });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Verlauf einer Übung
 
 export interface ExercisePoint {

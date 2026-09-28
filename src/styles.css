@@ -2373,24 +2373,121 @@ button.tile:disabled {
   outline-offset: 0;
 }
 
-.fx-fractions {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-  margin-top: 8px;
+/* Zahlenrad (Gewicht): scrollen/wischen statt Plus-/Minus-Tasten */
+.fx-weightwheels {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px 0;
 }
 
-.fx-fractions .chip {
-  min-width: 0;
-  height: 36px;
-  padding: 0 4px;
+.wheel {
+  position: relative;
+  flex: 1;
+  max-width: 88px;
+}
+
+.wheel-highlight {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 44px;
+  transform: translateY(-50%);
+  border-radius: 12px;
   background: var(--surface-3);
-  font-size: 0.85rem;
+  pointer-events: none;
 }
 
-.fx-fractions .chip.on {
-  background: var(--accent);
-  color: var(--accent-text);
+.wheel-track {
+  position: relative;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to bottom, transparent 0, black 28%, black 72%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 28%, black 72%, transparent 100%);
+}
+
+.wheel-track::-webkit-scrollbar {
+  display: none;
+}
+
+.wheel-pad {
+  flex: none;
+  scroll-snap-align: none;
+}
+
+.wheel-item {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.15rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.wheel-item.on {
+  color: var(--text);
+  font-size: 1.6rem;
+  font-weight: 800;
+}
+
+.wheel-sep,
+.wheel-unit {
+  flex: none;
+  color: var(--muted);
+  font-size: 1.6rem;
+  font-weight: 800;
+}
+
+.wheel-unit {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+/* Verlauf: bisherige Werte genau dieser Satz-Position, aufklappbar */
+.fx-history {
+  margin: 4px 0 12px;
+}
+
+.fx-history summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.fx-history summary::-webkit-details-marker {
+  display: none;
+}
+
+.fx-history ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fx-history li {
+  padding: 5px 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 
 .fx-total {
