@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { CombinedHistoryScreen } from './components/CombinedHistoryScreen';
+import { FootballHistoryScreen } from './components/FootballHistoryScreen';
+import { FootballScreen } from './components/FootballScreen';
 import { HistoryScreen } from './components/HistoryScreen';
 import { musclesOfDay } from './components/PlanEditor';
 import { PlansScreen } from './components/PlansScreen';
@@ -13,7 +15,9 @@ import { WeeklyReviewScreen } from './components/WeeklyReview';
 import {
   archivePlan,
   archiveStretchPlan,
+  deleteFootballSession,
   fetchExercises,
+  fetchFootballHistory,
   fetchHistory,
   fetchLastPlanDayId,
   fetchLastSets,
@@ -21,6 +25,7 @@ import {
   fetchStretchExercises,
   fetchStretchHistory,
   fetchStretchPlans,
+  flushFootballOutbox,
   flushOutbox,
   flushStretchOutbox,
   getSessionEmail,
@@ -30,6 +35,7 @@ import {
   sendLoginLink,
   signIn,
   signOut,
+  syncFootballPayload,
   syncPayload,
   syncStretchPayload,
   verifyLoginCode,
@@ -43,6 +49,7 @@ import {
   visibleExercises,
   type Plan,
 } from './lib/plan';
+import { buildFootballPayload, type FootballEntryInput } from './lib/football';
 import { normalizeCode } from './lib/authErrors';
 import { nextPlanDay } from './lib/rotation';
 import {
@@ -67,6 +74,7 @@ import { num1 } from './lib/format';
 import {
   browserStore,
   type ExerciseListItem,
+  type HistFootballSession,
   type HistStretchSession,
   type LastInfo,
   type StretchExerciseListItem,
@@ -123,8 +131,15 @@ export function App() {
   const [stretchImporting, setStretchImporting] = useState(false);
   const [confirmDeletePlanId, setConfirmDeletePlanId] = useState<string | null>(null);
   const stretchLoaded = useRef(false);
-  // Verlauf: Gym-Einheiten (Default), Dehnen oder beides gemeinsam chronologisch.
-  const [historyFilter, setHistoryFilter] = useState<'gym' | 'stretch' | 'all'>('gym');
+  // Verlauf: Gym-Einheiten (Default), Dehnen, Fußball oder alles gemeinsam chronologisch.
+  const [historyFilter, setHistoryFilter] = useState<'gym' | 'stretch' | 'football' | 'all'>('gym');
+
+  // Fußball: eigener, einfacher Bereich (kein Draft, nur Formular plus Ausgangskorb).
+  const [footballHistory, setFootballHistory] = useState<HistFootballSession[]>(() =>
+    store.loadFootballHistory(),
+  );
+  const [footballPending, setFootballPending] = useState(() => store.loadFootballOutbox().length);
+  const [footballBusy, setFootballBusy] = useState(false);
 
   useEffect(() => {
     if (!stretchLoaded.current) {
@@ -201,6 +216,16 @@ export function App() {
     if (stretchPlansRes.ok) {
       setStretchPlans(stretchPlansRes.data);
       store.saveStretchPlans(stretchPlansRes.data);
+    }
+
+    // Fußball: eigener Bereich, eigener Sync (gleiches Muster wie oben).
+    const footballRes = await flushFootballOutbox(store);
+    setFootballPending(footballRes.pending);
+    if (footballRes.sent > 0) setNotice(`${footballRes.sent} Fußball-Eintrag/Einträge gespeichert.`);
+    const footballHist = await fetchFootballHistory();
+    if (footballHist.ok) {
+      setFootballHistory(footballHist.data);
+      store.saveFootballHistory(footballHist.data);
     }
   }, [store, refreshPlans]);
 
@@ -365,6 +390,38 @@ export function App() {
     store.saveStretchPlans(next);
   }
 
+  /** Speichert einen Fußball-Eintrag: offline in den Ausgangskorb, sonst direkt senden. */
+  async function saveFootball(input: FootballEntryInput) {
+    const payload = buildFootballPayload(input);
+    if (!payload) return;
+    setFootballBusy(true);
+    let saved = store.enqueueFootball(payload);
+    if (!saved) {
+      const res = await syncFootballPayload(payload);
+      saved = res.ok;
+    }
+    if (!saved) {
+      setFootballBusy(false);
+      setNotice('Speichern fehlgeschlagen. Bitte später erneut versuchen.');
+      return;
+    }
+    setFootballPending(store.loadFootballOutbox().length);
+    setFootballBusy(false);
+    void sync();
+  }
+
+  /** Löscht einen Fußball-Eintrag endgültig. */
+  async function handleDeleteFootball(id: string) {
+    const res = await deleteFootballSession(id);
+    if (!res.ok) {
+      setNotice(`Löschen fehlgeschlagen: ${res.error}`);
+      return;
+    }
+    const next = footballHistory.filter((s) => s.id !== id);
+    setFootballHistory(next);
+    store.saveFootballHistory(next);
+  }
+
   // Name und Muskeln je Übung: Katalog plus eigene Übungen, die noch nicht in der Datenbank sind.
   const exerciseMeta = useMemo(() => {
     const meta: Record<string, ExerciseMeta> = {};
@@ -478,6 +535,11 @@ export function App() {
     setHistory([]);
     setPending(0);
     setLastPlanDayId(null);
+    // resetRemoteData löscht serverseitig auch fit_football_sessions (siehe resetSteps).
+    store.saveFootballHistory([]);
+    store.saveFootballOutbox([]);
+    setFootballHistory([]);
+    setFootballPending(0);
     setNotice('Testdaten und Logs zurückgesetzt.');
     void sync();
     return null;
@@ -680,6 +742,23 @@ export function App() {
     );
   }
 
+  if (screen === 'football') {
+    return (
+      <main>
+        <FootballScreen
+          history={footballHistory}
+          pending={footballPending}
+          busy={footballBusy}
+          notice={notice}
+          onSave={(input) => void saveFootball(input)}
+          onSync={() => void sync()}
+          onDelete={(id) => void handleDeleteFootball(id)}
+        />
+        {tabs}
+      </main>
+    );
+  }
+
   if (screen === 'history') {
     return (
       <main>
@@ -689,6 +768,7 @@ export function App() {
               [
                 ['gym', 'Gym'],
                 ['stretch', 'Dehnen'],
+                ['football', 'Fußball'],
                 ['all', 'Alle'],
               ] as const
             ).map(([key, label]) => (
@@ -709,8 +789,9 @@ export function App() {
         {historyFilter === 'stretch' && (
           <StretchHistoryScreen sessions={stretchHistory} nameOf={stretchNameOf} />
         )}
+        {historyFilter === 'football' && <FootballHistoryScreen sessions={footballHistory} />}
         {historyFilter === 'all' && (
-          <CombinedHistoryScreen workouts={mergedHistory} stretches={stretchHistory} />
+          <CombinedHistoryScreen workouts={mergedHistory} stretches={stretchHistory} footballs={footballHistory} />
         )}
         {tabs}
       </main>

@@ -2,6 +2,7 @@ import type { Plan } from './plan';
 import type { LoggedSet } from './progression';
 import type { HistWorkout } from './stats';
 import type { StretchDraft, StretchPayload, StretchPlan } from './stretch';
+import type { FootballKind, FootballPayload } from './football';
 import type { Draft, WorkoutPayload } from './workout';
 
 /**
@@ -62,6 +63,16 @@ export interface HistStretchSession {
   items: HistStretchItem[];
 }
 
+export interface HistFootballSession {
+  id: string;
+  /** "YYYY-MM-DD". */
+  playedOn: string;
+  kind: FootballKind;
+  minutes: number;
+  rpe: number;
+  note: string | null;
+}
+
 const KEYS = {
   draft: 'gym.draft.v1',
   outbox: 'gym.outbox.v1',
@@ -76,6 +87,8 @@ const KEYS = {
   stretchExercises: 'gym.stretchExercises.v1',
   stretchHistory: 'gym.stretchHistory.v1',
   stretchPlans: 'gym.stretchPlans.v1',
+  footballOutbox: 'gym.footballOutbox.v1',
+  footballHistory: 'gym.footballHistory.v1',
 } as const;
 
 export function createStore(storage: KeyValueStorage | null) {
@@ -202,6 +215,20 @@ export function createStore(storage: KeyValueStorage | null) {
 
     loadStretchPlans: () => read<StretchPlan[]>(KEYS.stretchPlans, []),
     saveStretchPlans: (items: StretchPlan[]) => write(KEYS.stretchPlans, items),
+
+    // Fußball: eigener, einfacher Bereich (kein Draft, nur Ausgangskorb plus Verlauf).
+    loadFootballOutbox: () => read<FootballPayload[]>(KEYS.footballOutbox, []),
+    saveFootballOutbox: (items: FootballPayload[]) => write(KEYS.footballOutbox, items),
+    enqueueFootball(p: FootballPayload): boolean {
+      const items = read<FootballPayload[]>(KEYS.footballOutbox, []).filter(
+        (x) => x.session.id !== p.session.id,
+      );
+      items.push(p);
+      return write(KEYS.footballOutbox, items);
+    },
+
+    loadFootballHistory: () => read<HistFootballSession[]>(KEYS.footballHistory, []),
+    saveFootballHistory: (items: HistFootballSession[]) => write(KEYS.footballHistory, items),
   };
 }
 

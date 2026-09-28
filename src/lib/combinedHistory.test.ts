@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { combineHistory } from './combinedHistory';
 import type { HistWorkout } from './stats';
-import type { HistStretchSession } from './storage';
+import type { HistFootballSession, HistStretchSession } from './storage';
 
 function workout(id: string, startedAt: string): HistWorkout {
   return { id, name: 'Push', startedAt, finishedAt: startedAt, exercises: [] };
@@ -9,6 +9,10 @@ function workout(id: string, startedAt: string): HistWorkout {
 
 function stretch(id: string, startedAt: string): HistStretchSession {
   return { id, startedAt, finishedAt: startedAt, feelingBefore: null, feelingAfter: null, note: null, items: [] };
+}
+
+function football(id: string, playedOn: string): HistFootballSession {
+  return { id, playedOn, kind: 'training', minutes: 60, rpe: 6, note: null };
 }
 
 describe('combineHistory', () => {
@@ -31,5 +35,13 @@ describe('combineHistory', () => {
 
   it('leere Listen ergeben eine leere Übersicht', () => {
     expect(combineHistory([], [])).toEqual([]);
+  });
+
+  it('reiht Fußball-Einträge chronologisch mit ein', () => {
+    const workouts = [workout('w1', '2026-09-01T10:00:00.000Z')];
+    const stretches = [stretch('s1', '2026-09-02T10:00:00.000Z')];
+    const footballs = [football('f1', '2026-09-03T00:00:00.000Z')];
+    const combined = combineHistory(workouts, stretches, footballs);
+    expect(combined.map((e) => e.kind)).toEqual(['football', 'stretch', 'workout']);
   });
 });

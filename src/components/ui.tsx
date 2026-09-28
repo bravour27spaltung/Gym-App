@@ -53,6 +53,13 @@ const PATHS = {
   trend: <path d="m22 7-8.5 8.5-5-5L2 17M16 7h6v6" />,
   table: <path d="M3 5h18v14H3zM3 10h18M9 5v14" />,
   folder: <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />,
+  football: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m12 6.8 3.4 2.5-1.3 4.1H9.9l-1.3-4.1Z" />
+      <path d="M12 6.8V3.5M15.4 9.3l3.3-1.1M14.1 13.4l2 3.3M9.9 13.4l-2 3.3M8.6 9.3l-3.3-1.1" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;
@@ -188,13 +195,14 @@ export function AppBar(props: {
   );
 }
 
-export type Tab = 'home' | 'stretch' | 'history' | 'plans';
+export type Tab = 'home' | 'stretch' | 'football' | 'history' | 'plans';
 
 /** Untere Navigation (Training / Stretching / Verlauf / Pläne). */
 export function TabBar(props: { active: Tab; onChange: (tab: Tab) => void }) {
   const tabs: { key: Tab; label: string; icon: IconName }[] = [
     { key: 'home', label: 'Training', icon: 'dumbbell' },
     { key: 'stretch', label: 'Stretching', icon: 'flame' },
+    { key: 'football', label: 'Fußball', icon: 'football' },
     { key: 'history', label: 'Verlauf', icon: 'chart' },
     { key: 'plans', label: 'Pläne', icon: 'list' },
   ];

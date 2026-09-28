@@ -47,6 +47,18 @@ export function fmtShortYear(ms: number): string {
   return new Date(ms).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 
+/** Reines Datum "YYYY-MM-DD" (lokale Zeitzone, kein UTC-Umweg wie bei toISOString). */
+export function isoDate(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+/** Heutiges Datum als "YYYY-MM-DD". */
+export function todayIso(): string {
+  return isoDate(new Date());
+}
+
 /** "10:05" */
 export function fmtTime(iso: string | number): string {
   return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });

@@ -5,9 +5,11 @@ import { resetSteps } from './reset';
 import { plansFromRows } from './plan';
 import type { StretchPayload, StretchPlan, StretchSide } from './stretch';
 import { STRETCH_CATALOG, STRETCH_PLAN_CATALOG } from './stretchCatalog';
+import type { FootballKind, FootballPayload } from './football';
 import type { HistWorkout } from './stats';
 import type {
   ExerciseListItem,
+  HistFootballSession,
   HistStretchSession,
   LastInfo,
   Store,
@@ -537,4 +539,73 @@ export async function importStretchCatalog(): Promise<Result<{ exercises: number
   }
 
   return { ok: true, data: { exercises: exerciseRows.length, plans: planRows.length } };
+}
+
+
+// ---------------------------------------------------------------------------
+// Fußball: eigener, einfacher Bereich (eine Zeile pro Einheit/Spiel, kein Draft).
+
+interface FootballRow {
+  id: string;
+  played_on: string;
+  kind: FootballKind;
+  minutes: number;
+  rpe: number;
+  note: string | null;
+}
+
+/** Fußball-Einträge, neueste zuerst. */
+export async function fetchFootballHistory(limit = 200): Promise<Result<HistFootballSession[]>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { data, error } = await supabase
+    .from('fit_football_sessions')
+    .select('id, played_on, kind, minutes, rpe, note')
+    .order('played_on', { ascending: false })
+    .limit(limit);
+  if (error) return fail(error.message);
+  const rows = (data ?? []) as unknown as FootballRow[];
+  return {
+    ok: true,
+    data: rows.map((r) => ({
+      id: r.id,
+      playedOn: r.played_on,
+      kind: r.kind,
+      minutes: r.minutes,
+      rpe: r.rpe,
+      note: r.note,
+    })),
+  };
+}
+
+/**
+ * Schreibt einen Fußball-Eintrag. Upsert über die Client-ID, ein Sync-Versuch kann
+ * deshalb gefahrlos wiederholt werden.
+ */
+export async function syncFootballPayload(p: FootballPayload): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { error } = await supabase.from('fit_football_sessions').upsert([p.session], { onConflict: 'id' });
+  if (error) return fail(`fit_football_sessions: ${error.message}`);
+  return { ok: true, data: null };
+}
+
+/** Versucht alle Fußball-Einträge im Ausgangskorb zu senden; Fehlgeschlagene bleiben liegen. */
+export async function flushFootballOutbox(store: Store): Promise<{ sent: number; pending: number }> {
+  const items = store.loadFootballOutbox();
+  const remaining: FootballPayload[] = [];
+  let sent = 0;
+  for (const item of items) {
+    const res = await syncFootballPayload(item);
+    if (res.ok) sent += 1;
+    else remaining.push(item);
+  }
+  if (sent > 0) store.saveFootballOutbox(remaining);
+  return { sent, pending: remaining.length };
+}
+
+/** Löscht einen Fußball-Eintrag endgültig. */
+export async function deleteFootballSession(id: string): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { error } = await supabase.from('fit_football_sessions').delete().eq('id', id);
+  if (error) return fail(error.message);
+  return { ok: true, data: null };
 }
