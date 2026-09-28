@@ -446,6 +446,16 @@ interface StretchPlanDbRow {
   }[];
 }
 
+/** Archiviert (löscht "weich") eine Dehn-Vorlage; abgeschlossene Sessions bleiben erhalten. */
+export async function archiveStretchPlan(planId: string): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { error } = await supabase
+    .from('fit_stretch_plans')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('id', planId);
+  return error ? fail(error.message) : { ok: true, data: null };
+}
+
 /** Gespeicherte Dehn-Vorlagen mit ihren Übungen, in Anlegereihenfolge. */
 export async function fetchStretchPlans(): Promise<Result<StretchPlan[]>> {
   if (!supabase) return fail(NOT_CONFIGURED);

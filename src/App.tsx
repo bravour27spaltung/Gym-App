@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { CombinedHistoryScreen } from './components/CombinedHistoryScreen';
 import { HistoryScreen } from './components/HistoryScreen';
 import { musclesOfDay } from './components/PlanEditor';
 import { PlansScreen } from './components/PlansScreen';
 import { ResetData } from './components/ResetData';
 import { StretchHistoryScreen } from './components/StretchHistoryScreen';
 import { StretchScreen } from './components/StretchScreen';
-import { Icon, TabBar, type Tab } from './components/ui';
+import { Icon, IconButton, TabBar, type Tab } from './components/ui';
 import { WorkoutSummaryScreen } from './components/WorkoutSummary';
 import { WorkoutScreen } from './components/WorkoutScreen';
 import { WeeklyReviewScreen } from './components/WeeklyReview';
 import {
   archivePlan,
+  archiveStretchPlan,
   fetchExercises,
   fetchHistory,
   fetchLastPlanDayId,
@@ -119,7 +121,10 @@ export function App() {
   const [stretchBusy, setStretchBusy] = useState(false);
   const [stretchPlans, setStretchPlans] = useState<StretchPlan[]>(() => store.loadStretchPlans());
   const [stretchImporting, setStretchImporting] = useState(false);
+  const [confirmDeletePlanId, setConfirmDeletePlanId] = useState<string | null>(null);
   const stretchLoaded = useRef(false);
+  // Verlauf: Gym-Einheiten (Default), Dehnen oder beides gemeinsam chronologisch.
+  const [historyFilter, setHistoryFilter] = useState<'gym' | 'stretch' | 'all'>('gym');
 
   useEffect(() => {
     if (!stretchLoaded.current) {
@@ -346,6 +351,18 @@ export function App() {
       setNotice(`Import fehlgeschlagen: ${res.error}`);
     }
     setStretchImporting(false);
+  }
+
+  /** Löscht (archiviert) eine Dehn-Vorlage; bereits geloggte Sessions bleiben unberührt. */
+  async function handleArchiveStretchPlan(planId: string) {
+    const res = await archiveStretchPlan(planId);
+    if (!res.ok) {
+      setNotice(`Löschen fehlgeschlagen: ${res.error}`);
+      return;
+    }
+    const next = stretchPlans.filter((p) => p.id !== planId);
+    setStretchPlans(next);
+    store.saveStretchPlans(next);
   }
 
   // Name und Muskeln je Übung: Katalog plus eigene Übungen, die noch nicht in der Datenbank sind.
@@ -613,7 +630,37 @@ export function App() {
                       <button type="button" className="btn compact" onClick={() => startStretchPlan(p)}>
                         Starten
                       </button>
+                      <IconButton
+                        icon="trash"
+                        label={`${p.name} löschen`}
+                        tone="danger"
+                        onClick={() => setConfirmDeletePlanId(p.id)}
+                      />
                     </div>
+                    {confirmDeletePlanId === p.id && (
+                      <div className="banner" role="alertdialog" aria-label={`${p.name} löschen`}>
+                        <p>„{p.name}" löschen? Bereits geloggte Sessions bleiben erhalten.</p>
+                        <div className="row">
+                          <button
+                            type="button"
+                            className="btn danger compact"
+                            onClick={() => {
+                              setConfirmDeletePlanId(null);
+                              void handleArchiveStretchPlan(p.id);
+                            }}
+                          >
+                            Löschen
+                          </button>
+                          <button
+                            type="button"
+                            className="btn compact"
+                            onClick={() => setConfirmDeletePlanId(null)}
+                          >
+                            Abbrechen
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -628,7 +675,6 @@ export function App() {
             </>
           )}
         </div>
-        <StretchHistoryScreen sessions={stretchHistory} nameOf={stretchNameOf} />
         {tabs}
       </main>
     );
@@ -637,7 +683,35 @@ export function App() {
   if (screen === 'history') {
     return (
       <main>
-        <HistoryScreen workouts={mergedHistory} meta={exerciseMeta} />
+        <div className="screen" style={{ paddingBottom: 0 }}>
+          <nav className="chips" role="tablist" aria-label="Verlauf-Ansicht">
+            {(
+              [
+                ['gym', 'Gym'],
+                ['stretch', 'Dehnen'],
+                ['all', 'Alle'],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={historyFilter === key}
+                className={historyFilter === key ? 'chip on' : 'chip'}
+                onClick={() => setHistoryFilter(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+        </div>
+        {historyFilter === 'gym' && <HistoryScreen workouts={mergedHistory} meta={exerciseMeta} />}
+        {historyFilter === 'stretch' && (
+          <StretchHistoryScreen sessions={stretchHistory} nameOf={stretchNameOf} />
+        )}
+        {historyFilter === 'all' && (
+          <CombinedHistoryScreen workouts={mergedHistory} stretches={stretchHistory} />
+        )}
         {tabs}
       </main>
     );
