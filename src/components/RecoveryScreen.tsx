@@ -2,7 +2,13 @@ import { useState } from 'react';
 import { parseRelevantRecords, summarizeWindow } from '../lib/appleHealthImport';
 import { fmtDay, todayIso } from '../lib/format';
 import { recoveryWindowForDate } from '../lib/healthImport';
-import { prsAnchor, type RecoveryEntryInput, type RecoverySource } from '../lib/recovery';
+import {
+  computeRecoveryBaseline,
+  computeRecoveryScore,
+  prsAnchor,
+  type RecoveryEntryInput,
+  type RecoverySource,
+} from '../lib/recovery';
 import type { HistRecoveryEntry } from '../lib/storage';
 import { Icon, IconButton, MetricField } from './ui';
 
@@ -82,7 +88,21 @@ export function RecoveryScreen({ history, pending, busy, notice, onSave, onSync,
   const [healthNotice, setHealthNotice] = useState<string | null>(null);
 
   const valid = date.trim() !== '';
-  const alreadyLogged = history.some((h) => h.date === date);
+  const existingForDate = history.find((h) => h.date === date) ?? null;
+  const alreadyLogged = existingForDate !== null;
+  // Direktes Feedback für den bereits gespeicherten Tag, ohne extra in den Verlauf zu
+  // wechseln – gleiche Berechnung wie im Verlauf-Tab (siehe lib/recovery.ts).
+  const scoreForDate = existingForDate
+    ? computeRecoveryScore(
+        {
+          perceivedRecovery: existingForDate.perceivedRecovery,
+          hrvMs: existingForDate.hrvMs,
+          restingHr: existingForDate.restingHr,
+          sleepHours: existingForDate.sleepHours,
+        },
+        computeRecoveryBaseline(history, existingForDate.date),
+      )
+    : null;
 
   function resetForm() {
     setPerceivedRecovery(DEFAULT_PRS);
@@ -175,8 +195,15 @@ export function RecoveryScreen({ history, pending, busy, notice, onSave, onSync,
         </label>
         {alreadyLogged && (
           <p className="muted newex-hint">
-            Für diesen Tag gibt es bereits einen Eintrag. Ein zweiter würde beim Speichern abgelehnt –
-            lösche den bestehenden zuerst weiter unten, wenn du ihn korrigieren willst.
+            Für diesen Tag gibt es bereits einen Eintrag
+            {scoreForDate ? (
+              <>
+                {' '}
+                · Recovery Score <strong>{scoreForDate.score}/100</strong>
+              </>
+            ) : null}
+            . Ein zweiter würde beim Speichern abgelehnt – lösche den bestehenden zuerst weiter unten, wenn du
+            ihn korrigieren willst.
           </p>
         )}
 
@@ -263,12 +290,17 @@ export function RecoveryScreen({ history, pending, busy, notice, onSave, onSync,
         <>
           <h2 className="section-title">Letzte Einträge</h2>
           <ul className="exlist">
-            {history.slice(0, 8).map((h) => (
+            {history.slice(0, 8).map((h) => {
+              const s = computeRecoveryScore(
+                { perceivedRecovery: h.perceivedRecovery, hrvMs: h.hrvMs, restingHr: h.restingHr, sleepHours: h.sleepHours },
+                computeRecoveryBaseline(history, h.date),
+              );
+              return (
               <li key={h.id}>
                 <div className="exrow static">
                   <span className="exrow-text">
                     <strong>
-                      {fmtDay(h.date)} · Recovery {h.perceivedRecovery}/10
+                      {fmtDay(h.date)} · {s.score}/100 · Recovery {h.perceivedRecovery}/10
                     </strong>
                     <small>
                       {prsAnchor(h.perceivedRecovery)}
@@ -306,7 +338,8 @@ export function RecoveryScreen({ history, pending, busy, notice, onSave, onSync,
                   </div>
                 )}
               </li>
-            ))}
+              );
+            })}
           </ul>
         </>
       )}

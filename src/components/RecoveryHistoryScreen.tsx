@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { fmtDay, num1 } from '../lib/format';
 import { computeRecoveryBaseline, computeRecoveryScore, prsAnchor } from '../lib/recovery';
 import type { HistRecoveryEntry } from '../lib/storage';
@@ -8,7 +9,19 @@ interface Props {
   entries: HistRecoveryEntry[];
 }
 
-/** Verlauf der Recovery-Einträge: Kennzahlen, PRS-Diagramm, chronologische Liste. */
+/**
+ * Grobe Orientierung, keine klinische Schwelle: der Score ist eine heuristische
+ * Gewichtung (siehe lib/recovery.ts), keine validierte Diagnose. Nutzt die schon
+ * vorhandenen semantischen Farben (--accent/--warn/--danger, styles.css) statt
+ * neuer Klassen – lokal über die CSS-Var im .hero-Block umgeschaltet.
+ */
+function scoreTone(score: number): { color: string; label: string } {
+  if (score >= 70) return { color: 'var(--accent)', label: 'Gut erholt' };
+  if (score >= 45) return { color: 'var(--warn)', label: 'Mäßig erholt' };
+  return { color: 'var(--danger)', label: 'Niedrig – heute vorsichtig angehen' };
+}
+
+/** Verlauf der Recovery-Einträge: Recovery Score prominent oben, Kennzahlen, PRS-Diagramm, Liste. */
 export function RecoveryHistoryScreen({ entries }: Props) {
   if (entries.length === 0) {
     return (
@@ -54,6 +67,8 @@ export function RecoveryHistoryScreen({ entries }: Props) {
   }
   const latest = chrono[chrono.length - 1];
   const latestScore = scoreById.get(latest.id)!;
+  const tone = scoreTone(latestScore.score);
+  const missingBaseline = latestScore.parts.hrv === null && latestScore.parts.restingHr === null;
 
   return (
     <div className="screen">
@@ -61,54 +76,62 @@ export function RecoveryHistoryScreen({ entries }: Props) {
         <h1>Recovery-Verlauf</h1>
       </header>
 
-      <StatGrid
-        columns={3}
-        items={[
-          { label: 'Recovery Score', value: `${latestScore.score}/100` },
-          { label: 'Ø Recovery', value: `${num1(avgPrs)}/10` },
-          { label: 'Ø Schlaf', value: avgSleep !== null ? `${num1(avgSleep)} h` : '–' },
-        ]}
-      />
-      <p className="muted">
-        Recovery Score ({fmtDay(latest.date)}): gewichtete Mischung aus PRS
-        {latestScore.parts.hrv !== null ? ', HRV-Abweichung von deiner Baseline' : ''}
-        {latestScore.parts.restingHr !== null ? ', Ruhepuls-Abweichung' : ''}
-        {latestScore.parts.sleep !== null ? ', Schlafdauer' : ''}. Ohne genug Baseline-Tage (mind. 4 der letzten 7)
-        fließen HRV/Ruhepuls noch nicht ein.
-      </p>
-      {avgHrv !== null && (
-        <p className="muted">
-          Ø HRV (SDNN) über {withHrv.length} {withHrv.length === 1 ? 'Tag' : 'Tage'} mit Health-Daten:{' '}
-          {num1(avgHrv)} ms. Aussagekräftig ist die Entwicklung über mehrere Wochen (Rolling-Baseline), nicht
-          der einzelne Tageswert.
+      <section className="hero" style={{ '--accent': tone.color } as CSSProperties}>
+        <p className="eyebrow">Recovery Score · {fmtDay(latest.date)}</p>
+        <h2>
+          {latestScore.score}
+          <span style={{ fontSize: '1rem', fontWeight: 600, marginLeft: 8 }}>/100 · {tone.label}</span>
+        </h2>
+        <p className="hero-sub">
+          Gewichtete Mischung aus PRS
+          {latestScore.parts.hrv !== null ? ', HRV-Abweichung von deiner Baseline' : ''}
+          {latestScore.parts.restingHr !== null ? ', Ruhepuls-Abweichung' : ''}
+          {latestScore.parts.sleep !== null ? ', Schlafdauer' : ''}.
+          {missingBaseline
+            ? ' Noch keine 4 Baseline-Tage für HRV/Ruhepuls – der Score stützt sich vorerst auf PRS und Schlaf.'
+            : ''}
         </p>
-      )}
+        <StatGrid
+          columns={3}
+          items={[
+            { label: 'Ø Recovery', value: `${num1(avgPrs)}/10` },
+            { label: 'Ø Schlaf', value: avgSleep !== null ? `${num1(avgSleep)} h` : '–' },
+            { label: 'Ø HRV', value: avgHrv !== null ? `${num1(avgHrv)} ms` : '–' },
+          ]}
+        />
+      </section>
 
       <h2 className="section-title">Wie erholt (0–10)</h2>
       <LineChart points={points} format={(v) => num1(v)} label="Perceived Recovery Status, 0 bis 10" />
 
+      <h2 className="section-title">Verlauf</h2>
       <ul className="exlist">
-        {entries.map((h) => (
-          <li key={h.id}>
-            <div className="exrow static">
-              <span className="exrow-text">
-                <strong>
-                  {fmtDay(h.date)} · Score {scoreById.get(h.id)!.score}/100 · Recovery {h.perceivedRecovery}/10
-                </strong>
-                <small>
-                  {prsAnchor(h.perceivedRecovery)}
-                  {h.soreness !== null ? ` · Muskelkater ${h.soreness}/5` : ''}
-                  {h.stress !== null ? ` · Stress ${h.stress}/5` : ''}
-                  {h.sleepQuality !== null ? ` · Schlafqualität ${h.sleepQuality}/5` : ''}
-                  {h.hrvMs !== null ? ` · HRV ${h.hrvMs.toFixed(1)} ms` : ''}
-                  {h.restingHr !== null ? ` · Ruhepuls ${h.restingHr} bpm` : ''}
-                  {h.sleepHours !== null ? ` · ${h.sleepHours.toFixed(1)} h Schlaf` : ''}
-                  {h.note ? ` · ${h.note}` : ''}
-                </small>
-              </span>
-            </div>
-          </li>
-        ))}
+        {entries.map((h) => {
+          const s = scoreById.get(h.id)!;
+          const t = scoreTone(s.score);
+          return (
+            <li key={h.id}>
+              <div className="exrow static">
+                <span className="exrow-text">
+                  <strong>
+                    {fmtDay(h.date)} · <span style={{ color: t.color, fontWeight: 800 }}>{s.score}/100</span> ·
+                    Recovery {h.perceivedRecovery}/10
+                  </strong>
+                  <small>
+                    {prsAnchor(h.perceivedRecovery)}
+                    {h.soreness !== null ? ` · Muskelkater ${h.soreness}/5` : ''}
+                    {h.stress !== null ? ` · Stress ${h.stress}/5` : ''}
+                    {h.sleepQuality !== null ? ` · Schlafqualität ${h.sleepQuality}/5` : ''}
+                    {h.hrvMs !== null ? ` · HRV ${h.hrvMs.toFixed(1)} ms` : ''}
+                    {h.restingHr !== null ? ` · Ruhepuls ${h.restingHr} bpm` : ''}
+                    {h.sleepHours !== null ? ` · ${h.sleepHours.toFixed(1)} h Schlaf` : ''}
+                    {h.note ? ` · ${h.note}` : ''}
+                  </small>
+                </span>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
