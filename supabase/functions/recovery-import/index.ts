@@ -16,7 +16,14 @@
 //     "date": "2026-09-29",
 //     "hrv_ms": 45.3,            // optional, bereits gemittelt (Shortcuts kann das direkt)
 //     "resting_hr": 52,          // optional, bereits gemittelt
-//     "sleep_samples": [         // optional, ungefiltert – die Funktion filtert selbst
+//     "sleep_hours": 7.5,        // optional, bereits fertig summiert (z.B. via Shortcuts
+//                                // "Statistik berechnen" -> Summe der Dauer). Hat Vorrang
+//                                // vor sleep_samples, falls beides mitgeschickt wird.
+//     "sleep_samples": [         // optional, ungefiltert – nur relevant als Fallback, wenn
+//                                // sleep_hours fehlt. Shortcuts liefert beim Einbetten
+//                                // einer Health-Messungen-Liste in ein Wörterbuch keine
+//                                // Rohdaten mit Zeitstempeln mehr (nur Text), daher ist
+//                                // sleep_hours der praktikablere Weg von dort.
 //       { "start": "2026-09-28T21:03:00Z", "end": "2026-09-28T21:40:00Z", "value": "HKCategoryValueSleepAnalysisAsleepCore" },
 //       ...
 //     ]
@@ -92,7 +99,8 @@ Deno.serve(async (req: Request) => {
 
   const hrvMs = numOrNull(body.hrv_ms, 0, 300);
   const restingHr = numOrNull(body.resting_hr, 30, 120);
-  const sleepHours = sumSleepHours(body.sleep_samples);
+  const sleepHours =
+    typeof body.sleep_hours === 'number' ? numOrNull(body.sleep_hours, 0, 16) : sumSleepHours(body.sleep_samples);
 
   const { data: existing, error: selectError } = await supabase
     .from('fit_recovery_entries')
