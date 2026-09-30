@@ -1,5 +1,5 @@
 import { fmtDay, num1 } from '../lib/format';
-import { prsAnchor } from '../lib/recovery';
+import { computeRecoveryBaseline, computeRecoveryScore, prsAnchor } from '../lib/recovery';
 import type { HistRecoveryEntry } from '../lib/storage';
 import { LineChart, type ChartPoint } from './Chart';
 import { Icon, StatGrid } from './ui';
@@ -39,6 +39,22 @@ export function RecoveryHistoryScreen({ entries }: Props) {
   const avgSleep =
     withSleep.length > 0 ? withSleep.reduce((n, h) => n + (h.sleepHours ?? 0), 0) / withSleep.length : null;
 
+  // Score je Tag gegen die Baseline aus den 7 Tagen davor (siehe computeRecoveryBaseline);
+  // ohne genug Baseline-Werte stützt er sich zunächst allein auf PRS/Schlaf.
+  const scoreById = new Map<string, ReturnType<typeof computeRecoveryScore>>();
+  for (const h of entries) {
+    const baseline = computeRecoveryBaseline(entries, h.date);
+    scoreById.set(
+      h.id,
+      computeRecoveryScore(
+        { perceivedRecovery: h.perceivedRecovery, hrvMs: h.hrvMs, restingHr: h.restingHr, sleepHours: h.sleepHours },
+        baseline,
+      ),
+    );
+  }
+  const latest = chrono[chrono.length - 1];
+  const latestScore = scoreById.get(latest.id)!;
+
   return (
     <div className="screen">
       <header className="pagehead">
@@ -48,11 +64,18 @@ export function RecoveryHistoryScreen({ entries }: Props) {
       <StatGrid
         columns={3}
         items={[
-          { label: 'Einträge', value: String(entries.length) },
+          { label: 'Recovery Score', value: `${latestScore.score}/100` },
           { label: 'Ø Recovery', value: `${num1(avgPrs)}/10` },
           { label: 'Ø Schlaf', value: avgSleep !== null ? `${num1(avgSleep)} h` : '–' },
         ]}
       />
+      <p className="muted">
+        Recovery Score ({fmtDay(latest.date)}): gewichtete Mischung aus PRS
+        {latestScore.parts.hrv !== null ? ', HRV-Abweichung von deiner Baseline' : ''}
+        {latestScore.parts.restingHr !== null ? ', Ruhepuls-Abweichung' : ''}
+        {latestScore.parts.sleep !== null ? ', Schlafdauer' : ''}. Ohne genug Baseline-Tage (mind. 4 der letzten 7)
+        fließen HRV/Ruhepuls noch nicht ein.
+      </p>
       {avgHrv !== null && (
         <p className="muted">
           Ø HRV (SDNN) über {withHrv.length} {withHrv.length === 1 ? 'Tag' : 'Tage'} mit Health-Daten:{' '}
@@ -70,7 +93,7 @@ export function RecoveryHistoryScreen({ entries }: Props) {
             <div className="exrow static">
               <span className="exrow-text">
                 <strong>
-                  {fmtDay(h.date)} · Recovery {h.perceivedRecovery}/10
+                  {fmtDay(h.date)} · Score {scoreById.get(h.id)!.score}/100 · Recovery {h.perceivedRecovery}/10
                 </strong>
                 <small>
                   {prsAnchor(h.perceivedRecovery)}
