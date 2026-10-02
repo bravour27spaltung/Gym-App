@@ -8,11 +8,14 @@ import {
   type Sample,
 } from '../../supabase/functions/football-import/parse';
 import {
+  describeRangeSummary,
   describeWatchWindow,
+  summarizeWatchSamples,
   visibleWatchWindows,
   watchShortcutUrl,
   watchWindowToForm,
   WATCH_SHORTCUT_NAME,
+  type WatchSample,
   type WatchWindow,
 } from './footballWatch';
 import type { HistFootballSession } from './storage';
@@ -237,6 +240,62 @@ describe('visibleWatchWindows', () => {
     const noStart = session({ startedAt: null });
     const otherDay = session({ startedAt: new Date(2026, 8, 28, 19, 0).toISOString() });
     expect(visibleWatchWindows([win()], [noStart, otherDay], now)).toHaveLength(1);
+  });
+});
+
+describe('summarizeWatchSamples', () => {
+  const from = T0;
+  const to = T0 + 90 * MIN;
+  const s = (kind: WatchSample['kind'], offsetMin: number, value: number, lenMin = 0): WatchSample => ({
+    kind,
+    startMs: T0 + offsetMin * MIN,
+    endMs: T0 + (offsetMin + lenMin) * MIN,
+    value,
+  });
+
+  it('mittelt Puls, nimmt das Maximum und summiert Schritte und Distanz nur im gewählten Zeitraum', () => {
+    const samples = [
+      s('hr', -30, 90), // davor
+      s('hr', 5, 120),
+      s('hr', 40, 150),
+      s('hr', 85, 130),
+      s('hr', 120, 100), // danach
+      s('steps', 10, 300, 2),
+      s('steps', 60, 450, 2),
+      s('steps', -5, 999, 2), // davor
+      s('distance', 10, 0.25, 2),
+      s('distance', 60, 0.35, 2),
+    ];
+    expect(summarizeWatchSamples(samples, from, to)).toEqual({
+      hrSamples: 3,
+      avgHeartRate: 133,
+      maxHeartRate: 150,
+      steps: 750,
+      distanceKm: 0.6,
+    });
+  });
+
+  it('lässt Felder ohne Werte im Zeitraum null (kein Raten)', () => {
+    expect(summarizeWatchSamples([s('hr', 200, 140)], from, to)).toEqual({
+      hrSamples: 0,
+      avgHeartRate: null,
+      maxHeartRate: null,
+      steps: null,
+      distanceKm: null,
+    });
+  });
+
+  it('ignoriert unplausible Herzfrequenzwerte', () => {
+    const r = summarizeWatchSamples([s('hr', 5, 500), s('hr', 10, 0), s('hr', 15, 140)], from, to);
+    expect(r.hrSamples).toBe(1);
+    expect(r.avgHeartRate).toBe(140);
+  });
+
+  it('beschreibt nur vorhandene Werte', () => {
+    expect(describeRangeSummary({ hrSamples: 7, avgHeartRate: 135, maxHeartRate: 168, steps: 6200, distanceKm: 5.12 })).toBe(
+      'Ø 135 / max 168 bpm (7 Messwerte) · 5,1 km · 6.200 Schritte',
+    );
+    expect(describeRangeSummary({ hrSamples: 0, avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null })).toBe('');
   });
 });
 

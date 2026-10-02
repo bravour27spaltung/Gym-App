@@ -7,6 +7,12 @@ Trainingsfenster und legt sie in `fit_football_watch_windows` ab. Im Fußball-Ta
 sie als Vorschlag („Apple Watch erkannt“): ein Tipp übernimmt Startzeit, Dauer, Ø Puls und
 Distanz ins Formular. Art der Einheit und RPE trägst du weiterhin selbst ein.
 
+**Zeitraum selbst wählen:** Die Funktion speichert zusätzlich alle Rohwerte in `fit_health_samples`
+(Upsert, keine Dopplung). Im Formular stellst du Datum, Startzeit und Dauer selbst ein und tippst auf
+„Werte aus Apple Watch berechnen“: Ø/Max-Puls, Distanz und Schritte werden für genau diesen Zeitraum
+aus den Rohwerten berechnet (`summarizeWatchSamples`). Das ist der Weg, wenn die Zeiten jedes Mal
+anders sind oder die automatische Erkennung danebenliegt. Die Vorschläge bleiben als Abkürzung bestehen.
+
 ## Welche Daten
 
 | Wert | Verwendung | Hinweis |
@@ -24,7 +30,7 @@ Unterschätzung.
 
 ## Einrichtung (einmalig)
 
-1. **Migration** `supabase/migrations/0013_football_watch_windows.sql` im SQL-Editor von Supabase ausführen.
+1. **Migrationen** `supabase/migrations/0013_football_watch_windows.sql` und `0014_health_samples.sql` nacheinander im SQL-Editor von Supabase ausführen.
 2. **Token und Nutzer-ID festlegen.** Token erzeugen: `openssl rand -hex 32`. Die Nutzer-ID steht in Supabase unter
    Authentication → Users (deine UUID).
 3. **Secrets setzen und deployen** (Supabase CLI, Projekt verlinkt):
@@ -53,7 +59,7 @@ Ausgabe stimmt.
 Für **jeden der drei Werte** (Herzfrequenz, Schritte, Distanz Gehen + Laufen) dieselbe Abfolge:
 
 1. **Health-Werte finden**: Typ = Herzfrequenz (bzw. Schritte / Gehen + Laufen Distanz), Startdatum
-   „liegt in den letzten 2 Tagen“, **Quelle = deine Apple Watch** (sonst zählen iPhone-Schritte doppelt
+   „liegt in den letzten 7 Tagen“, **Quelle = deine Apple Watch** (sonst zählen iPhone-Schritte doppelt
    bzw. außerhalb des Trainings mit), sortiert nach Startdatum, älteste zuerst.
 2. **Für jedes Element wiederholen**:
    - **Datum formatieren** auf „Start-Datum“ des Elements, Format **ISO 8601** (enthält die Zeitzone, das ist Pflicht)

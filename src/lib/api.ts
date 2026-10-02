@@ -6,7 +6,7 @@ import { plansFromRows } from './plan';
 import type { StretchPayload, StretchPlan, StretchSide } from './stretch';
 import { STRETCH_CATALOG, STRETCH_PLAN_CATALOG } from './stretchCatalog';
 import type { FootballKind, FootballPayload, FootballSource } from './football';
-import type { WatchWindow } from './footballWatch';
+import type { WatchSample, WatchWindow } from './footballWatch';
 import type { RecoveryPayload, RecoverySource } from './recovery';
 import type { HistWorkout } from './stats';
 import type {
@@ -728,6 +728,39 @@ export async function fetchFootballWatchWindows(limit = 30): Promise<Result<Watc
       distanceKm: r.distance_km === null ? null : Number(r.distance_km),
       sessionId: r.session_id,
       dismissed: r.dismissed,
+    })),
+  };
+}
+
+interface HealthSampleRow {
+  kind: 'hr' | 'steps' | 'distance';
+  start_at: string;
+  end_at: string;
+  value: number | string;
+}
+
+/**
+ * Rohwerte der Apple Watch, deren Start im Zeitraum liegt (befüllt die Edge Function
+ * football-import); die Auswertung für den gewählten Zeitraum macht summarizeWatchSamples.
+ */
+export async function fetchHealthSamples(fromMs: number, toMs: number): Promise<Result<WatchSample[]>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { data, error } = await supabase
+    .from('fit_health_samples')
+    .select('kind, start_at, end_at, value')
+    .gte('start_at', new Date(fromMs).toISOString())
+    .lte('start_at', new Date(toMs).toISOString())
+    .order('start_at', { ascending: true })
+    .limit(5000);
+  if (error) return fail(error.message);
+  const rows = (data ?? []) as unknown as HealthSampleRow[];
+  return {
+    ok: true,
+    data: rows.map((r) => ({
+      kind: r.kind,
+      startMs: new Date(r.start_at).getTime(),
+      endMs: new Date(r.end_at).getTime(),
+      value: Number(r.value),
     })),
   };
 }

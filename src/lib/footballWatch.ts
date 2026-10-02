@@ -20,6 +20,67 @@ export interface WatchWindow {
   dismissed: boolean;
 }
 
+/** Ein Rohwert aus fit_health_samples (hr: bpm, steps: Anzahl, distance: km). */
+export interface WatchSample {
+  kind: 'hr' | 'steps' | 'distance';
+  startMs: number;
+  endMs: number;
+  value: number;
+}
+
+export interface WatchRangeSummary {
+  hrSamples: number;
+  avgHeartRate: number | null;
+  maxHeartRate: number | null;
+  steps: number | null;
+  distanceKm: number | null;
+}
+
+/**
+ * Wertet einen selbst gewählten Zeitraum [fromMs, toMs] aus den Rohwerten aus: Ø/Max-Puls
+ * aus den Herzfrequenz-Messwerten (nur 30–220 bpm), Schritte und Distanz als Summe der
+ * Samples, deren Start im Zeitraum liegt. Ohne passende Werte bleibt das Feld null.
+ * Der Puls-Mittelwert ist der einfache Mittelwert der Einzelmessungen, nicht zeitgewichtet.
+ */
+export function summarizeWatchSamples(samples: WatchSample[], fromMs: number, toMs: number): WatchRangeSummary {
+  const hr: number[] = [];
+  let steps = 0;
+  let stepCount = 0;
+  let distance = 0;
+  let distanceCount = 0;
+  for (const s of samples) {
+    if (s.startMs < fromMs || s.startMs > toMs) continue;
+    if (s.kind === 'hr') {
+      if (s.value >= 30 && s.value <= 220) hr.push(s.value);
+    } else if (s.kind === 'steps' && s.startMs < toMs) {
+      steps += s.value;
+      stepCount += 1;
+    } else if (s.kind === 'distance' && s.startMs < toMs) {
+      distance += s.value;
+      distanceCount += 1;
+    }
+  }
+  return {
+    hrSamples: hr.length,
+    avgHeartRate: hr.length > 0 ? Math.round(hr.reduce((a, b) => a + b, 0) / hr.length) : null,
+    maxHeartRate: hr.length > 0 ? Math.round(Math.max(...hr)) : null,
+    steps: stepCount > 0 ? Math.round(steps) : null,
+    distanceKm: distanceCount > 0 ? Math.round(distance * 100) / 100 : null,
+  };
+}
+
+/** "Ø 135 / max 168 bpm (7 Messwerte) · 5,1 km · 6.200 Schritte" (nur vorhandene Werte). */
+export function describeRangeSummary(r: WatchRangeSummary): string {
+  const parts: string[] = [];
+  if (r.avgHeartRate !== null) {
+    const max = r.maxHeartRate !== null ? ` / max ${r.maxHeartRate}` : '';
+    parts.push(`Ø ${r.avgHeartRate}${max} bpm (${r.hrSamples} Messwerte)`);
+  }
+  if (r.distanceKm !== null) parts.push(`${r.distanceKm.toLocaleString('de-DE', { maximumFractionDigits: 1 })} km`);
+  if (r.steps !== null) parts.push(`${r.steps.toLocaleString('de-DE')} Schritte`);
+  return parts.join(' · ');
+}
+
 /** Name des iOS-Kurzbefehls, den der Button im Fußball-Tab startet (siehe supabase/functions/football-import/README.md). */
 export const WATCH_SHORTCUT_NAME = 'Fussball-Import';
 

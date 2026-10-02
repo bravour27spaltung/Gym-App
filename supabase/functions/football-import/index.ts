@@ -21,7 +21,7 @@
 // SUPABASE_URL und SUPABASE_SERVICE_ROLE_KEY stellt Supabase automatisch bereit.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { detectWindows, parseSamples, type WatchWindow } from './parse.ts';
+import { detectWindows, parseSamples, type Sample, type WatchWindow } from './parse.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -42,6 +42,46 @@ function safeEqual(a: string, b: string): boolean {
   let diff = x.length ^ y.length;
   for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
   return diff === 0;
+}
+
+const UPSERT_CHUNK = 500;
+
+/**
+ * Speichert die Rohwerte (Upsert über Nutzer/Art/Start/Ende, wiederholbar ohne Dopplung),
+ * damit die App beliebige Zeiträume auswerten kann. Doppelte Schlüssel im selben Aufruf
+ * werden vorher zusammengefasst, sonst lehnt Postgres das Upsert ab. Herzfrequenzwerte
+ * außerhalb von 30–220 bpm werden nicht gespeichert.
+ */
+async function storeSamples(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  userId: string,
+  hr: Sample[],
+  steps: Sample[],
+  distance: Sample[],
+): Promise<{ count: number; error: string | null }> {
+  const rows = new Map<string, Record<string, unknown>>();
+  const add = (kind: string, samples: Sample[]) => {
+    for (const s of samples) {
+      if (s.value < 0) continue;
+      if (kind === 'hr' && (s.value < 30 || s.value > 220)) continue;
+      const startAt = new Date(s.startMs).toISOString();
+      const endAt = new Date(s.endMs).toISOString();
+      rows.set(`${kind}|${startAt}|${endAt}`, { user_id: userId, kind, start_at: startAt, end_at: endAt, value: s.value });
+    }
+  };
+  add('hr', hr);
+  add('steps', steps);
+  add('distance', distance);
+
+  const all = [...rows.values()];
+  for (let i = 0; i < all.length; i += UPSERT_CHUNK) {
+    const { error } = await supabase
+      .from('fit_health_samples')
+      .upsert(all.slice(i, i + UPSERT_CHUNK), { onConflict: 'user_id,kind,start_at,end_at' });
+    if (error) return { count: 0, error: error.message };
+  }
+  return { count: all.length, error: null };
 }
 
 interface ExistingRow {
@@ -84,9 +124,16 @@ Deno.serve(async (req: Request) => {
 
   const { windows, skipped } = detectWindows(hr.samples, steps.samples, distance.samples);
   const dry = new URL(req.url).searchParams.get('dry') === '1';
-  if (dry || windows.length === 0) return json({ ok: true, dry, windows, skipped, invalid, created: 0, updated: 0 });
+  if (dry) return json({ ok: true, dry, windows, skipped, invalid, created: 0, updated: 0 });
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+  const stored = await storeSamples(supabase, IMPORT_USER_ID, hr.samples, steps.samples, distance.samples);
+  if (stored.error) return json({ ok: false, error: stored.error }, 500);
+
+  if (windows.length === 0) {
+    return json({ ok: true, dry: false, windows, skipped, invalid, samplesStored: stored.count, created: 0, updated: 0 });
+  }
 
   // Bereits vorhandene Fenster, die sich zeitlich überlappen: so erzeugt ein erneuter
   // Aufruf (oder ein anderer Datenausschnitt desselben Trainings) keine Dopplung.
@@ -137,5 +184,5 @@ Deno.serve(async (req: Request) => {
     created += 1;
   }
 
-  return json({ ok: true, dry: false, windows, skipped, invalid, created, updated, alreadyUsed });
+  return json({ ok: true, dry: false, windows, skipped, invalid, samplesStored: stored.count, created, updated, alreadyUsed });
 });

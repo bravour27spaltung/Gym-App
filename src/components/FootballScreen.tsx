@@ -1,7 +1,16 @@
 import { useState } from 'react';
 import { summarizeAppleHealthWindow } from '../lib/appleHealthImport';
 import { fmtDay, todayIso } from '../lib/format';
-import { describeWatchWindow, watchShortcutUrl, watchWindowToForm, type WatchWindow } from '../lib/footballWatch';
+import type { Result } from '../lib/api';
+import {
+  describeRangeSummary,
+  describeWatchWindow,
+  summarizeWatchSamples,
+  watchShortcutUrl,
+  watchWindowToForm,
+  type WatchSample,
+  type WatchWindow,
+} from '../lib/footballWatch';
 import {
   FOOTBALL_KINDS,
   footballKindLabel,
@@ -18,6 +27,8 @@ interface Props {
   /** Von der Apple Watch erkannte Trainingsfenster, die noch als Vorschlag angeboten werden. */
   watchWindows: WatchWindow[];
   onDismissWatchWindow: (id: string) => void;
+  /** Lädt die Apple-Watch-Rohwerte, deren Start im gewählten Zeitraum liegt. */
+  onLoadSamples: (fromMs: number, toMs: number) => Promise<Result<WatchSample[]>>;
   pending: number;
   busy: boolean;
   notice: string | null;
@@ -42,6 +53,7 @@ export function FootballScreen({
   history,
   watchWindows,
   onDismissWatchWindow,
+  onLoadSamples,
   pending,
   busy,
   notice,
@@ -63,6 +75,8 @@ export function FootballScreen({
   const [source, setSource] = useState<FootballSource>('manual');
   const [watchWindowId, setWatchWindowId] = useState<string | null>(null);
   const [watchNotice, setWatchNotice] = useState<string | null>(null);
+  const [watchRangeBusy, setWatchRangeBusy] = useState(false);
+  const [watchRangeNotice, setWatchRangeNotice] = useState<string | null>(null);
 
   const [healthXml, setHealthXml] = useState<string | null>(null);
   const [healthFileName, setHealthFileName] = useState<string | null>(null);
@@ -83,6 +97,7 @@ export function FootballScreen({
     setSource('manual');
     setWatchWindowId(null);
     setWatchNotice(null);
+    setWatchRangeNotice(null);
     setHealthNotice(null);
   }
 
@@ -118,6 +133,32 @@ export function FootballScreen({
       watchWindowId,
     });
     resetForm();
+  }
+
+  /** Berechnet Ø Puls und Distanz für den im Formular gewählten Zeitraum (Datum, Startzeit, Dauer). */
+  async function applyWatchRange() {
+    if (startedAtTime.trim() === '' || !(minutes > 0)) return;
+    setWatchRangeBusy(true);
+    setWatchRangeNotice(null);
+    const fromMs = new Date(`${playedOn}T${startedAtTime}:00`).getTime();
+    const res = await onLoadSamples(fromMs, fromMs + minutes * 60_000);
+    setWatchRangeBusy(false);
+    if (!res.ok) {
+      setWatchRangeNotice(`Abruf fehlgeschlagen: ${res.error}`);
+      return;
+    }
+    const sum = summarizeWatchSamples(res.data, fromMs, fromMs + minutes * 60_000);
+    if (sum.avgHeartRate === null && sum.distanceKm === null) {
+      setWatchRangeNotice(
+        'Für diesen Zeitraum liegen keine Apple-Watch-Daten vor. Zuerst „Apple-Watch-Daten abrufen“ antippen und Datum, Startzeit und Dauer prüfen.',
+      );
+      return;
+    }
+    setAvgHeartRate(sum.avgHeartRate);
+    setDistanceKm(sum.distanceKm);
+    setCalories(null);
+    setSource('apple_health');
+    setWatchRangeNotice(`Übernommen: ${describeRangeSummary(sum)}. Bei Bedarf unten anpassen.`);
   }
 
   function handleHealthFile(file: File) {
@@ -296,11 +337,11 @@ export function FootballScreen({
           <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
         </label>
 
-        <details className="equipment">
-          <summary>Zusatzwerte (Distanz, Kalorien, Ø Puls) – optional, z. B. aus Apple Health</summary>
+        <details className="equipment" open>
+          <summary>Zusatzwerte (Distanz, Ø Puls) – optional, aus Apple Watch oder Health-Export</summary>
 
           <label className="field stack">
-            <span>Startzeit (für den Apple-Health-Abgleich)</span>
+            <span>Startzeit (für den Abgleich mit Apple Watch / Health)</span>
             <input
               className="text"
               type="time"
@@ -308,6 +349,22 @@ export function FootballScreen({
               onChange={(e) => setStartedAtTime(e.target.value)}
             />
           </label>
+
+          <div className="row wrap">
+            <button
+              type="button"
+              className="btn compact"
+              disabled={startedAtTime.trim() === '' || !(minutes > 0) || watchRangeBusy}
+              onClick={() => void applyWatchRange()}
+            >
+              <Icon name="heart" size={16} /> {watchRangeBusy ? 'Berechne …' : 'Werte aus Apple Watch berechnen'}
+            </button>
+          </div>
+          <p className="muted newex-hint">
+            Rechnet Ø/Max-Puls, Distanz und Schritte für den oben gewählten Zeitraum (Datum, Startzeit, Dauer) aus
+            den zuletzt abgerufenen Apple-Watch-Daten. Vorher „Apple-Watch-Daten abrufen“ antippen.
+          </p>
+          {watchRangeNotice && <p className="muted">{watchRangeNotice}</p>}
 
           <p className="muted newex-hint">
             Trägst du die Einheit nur nachträglich ein, ohne eine Aufzeichnung auf der Uhr zu starten? Health

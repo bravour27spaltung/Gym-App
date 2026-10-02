@@ -25,6 +25,7 @@ import {
   fetchExercises,
   fetchFootballHistory,
   fetchFootballWatchWindows,
+  fetchHealthSamples,
   fetchHistory,
   fetchLastPlanDayId,
   fetchLastSets,
@@ -983,6 +984,7 @@ export function App() {
           busy={footballBusy}
           notice={notice}
           onDismissWatchWindow={(id) => void handleDismissWatchWindow(id)}
+          onLoadSamples={fetchHealthSamples}
           onSave={(input) => void saveFootball(input)}
           onSync={() => void sync()}
           onDelete={(id) => void handleDeleteFootball(id)}
