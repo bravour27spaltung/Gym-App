@@ -85,13 +85,19 @@ export function describeRangeSummary(r: WatchRangeSummary): string {
 export const WATCH_SHORTCUT_NAME = 'Fussball-Import';
 
 /**
- * Link, der den Kurzbefehl startet und danach zurück in die App springt (x-callback-url).
- * Die App ist dabei geöffnet und das iPhone entsperrt, wie es das Lesen der Health-Daten
- * verlangt. x-error/x-cancel führen ebenfalls zurück, damit man nicht in den Kurzbefehlen hängen bleibt.
+ * Link, der den Kurzbefehl mit dem gewählten Zeitraum als Texteingabe startet:
+ * "<Start>|<Ende>" als ISO 8601 in UTC (z. B. 2026-10-01T17:00:00Z|2026-10-01T18:30:00Z).
+ * Der Kurzbefehl lädt dann nur diese Zeitspanne aus Health (statt ganzer Tage, was bei
+ * einer ganztägig getragenen Uhr tausende Werte wären). Die App ist dabei geöffnet und das
+ * iPhone entsperrt, wie es das Lesen der Health-Daten verlangt. Bewusst ohne x-callback-url:
+ * eine https-Rücksprungadresse würde in Safari statt in der Home-Bildschirm-App landen
+ * (andere Anmeldung, anderer Speicher); stattdessen wechselst du per Rücksprung-Link oben
+ * links zurück, die App rechnet dann automatisch.
  */
-export function watchShortcutUrl(returnUrl: string): string {
-  const back = encodeURIComponent(returnUrl);
-  return `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(WATCH_SHORTCUT_NAME)}&x-success=${back}&x-cancel=${back}&x-error=${back}`;
+export function watchShortcutUrl(fromMs: number, toMs: number): string {
+  const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const text = encodeURIComponent(`${iso(fromMs)}|${iso(toMs)}`);
+  return `shortcuts://run-shortcut?name=${encodeURIComponent(WATCH_SHORTCUT_NAME)}&input=text&text=${text}`;
 }
 
 /** Älter als so viele Tage werden Vorschläge nicht mehr angeboten. */

@@ -51,47 +51,43 @@ Unterschätzung.
 
 ## Der Kurzbefehl „Fussball-Import“
 
-Der Name muss genau `Fussball-Import` lauten (der Button in der App startet ihn per URL-Schema).
-**Hinweis:** Die Schritte unten habe ich nicht auf einem iPhone ausprobiert. Die Namen einzelner
-Aktionen und Filter können in deiner iOS-Version leicht abweichen; prüfe mit dem `?dry=1`-Test, ob die
-Ausgabe stimmt.
+Der Name muss genau `Fussball-Import` lauten (die App startet ihn per URL-Schema).
 
-Für **jeden der drei Werte** (Herzfrequenz, Schritte, Distanz Gehen + Laufen) dieselbe Abfolge:
+**Wichtig: Die Uhr wird ganztägig getragen.** Dann liegen pro Woche tausende Herzfrequenzwerte vor, und
+eine Schleife über alle Werte hängt in der Kurzbefehle-App. Deshalb lädt der Kurzbefehl **nur den Zeitraum,
+den du in der App gewählt hast** (Datum, Startzeit, Dauer). Die App übergibt ihn als Texteingabe
+`<Start>|<Ende>` (ISO 8601 in UTC, z. B. `2026-10-01T17:00:00Z|2026-10-01T18:30:00Z`). Damit sind es für
+90 Minuten nur wenige Dutzend Werte. Und die automatische Fenster-Erkennung ist standardmäßig aus (sie ginge
+bei ganztägigem Tragen nicht, siehe `detect` unten).
 
-1. **Health-Werte finden**: Typ = Herzfrequenz (bzw. Schritte / Gehen + Laufen Distanz), Startdatum
-   „liegt in den letzten 7 Tagen“, **Quelle = deine Apple Watch** (sonst zählen iPhone-Schritte doppelt
-   bzw. außerhalb des Trainings mit), sortiert nach Startdatum, älteste zuerst.
-2. **Für jedes Element wiederholen**:
-   - **Datum formatieren** auf „Start-Datum“ des Elements, Format **ISO 8601** (enthält die Zeitzone, das ist Pflicht)
-   - **Datum formatieren** auf „Enddatum“ des Elements, ebenfalls ISO 8601
-   - **Text**: `<Start>|<Ende>|<Wert des Elements>` (Wert = Eigenschaft „Wert“ des Health-Elements, mit Einheit)
-   - **Zur Variablen hinzufügen** (z. B. `hr`, `steps`, `distance`)
-3. Nach der Schleife: **Text kombinieren** (Variable, getrennt durch „Neue Zeile“) -> Variable `hrText` usw.
+Änderungen gegenüber der ersten Version („letzte 7 Tage“):
 
-Danach **Inhalt von URL abrufen**:
+1. Ganz oben: **Text teilen** (Split Text) auf die **Kurzbefehl-Eingabe**, Trennzeichen **Benutzerdefiniert** `|`.
+2. **Element aus Liste abrufen** (Get Item from List) → **Erstes Element**, danach **Daten aus Eingabe abrufen**
+   (Get Dates from Input) → **Variable festlegen** `von`.
+3. Dasselbe mit **Letztes Element** → Variable `bis`.
+4. In **allen drei** „Health-Werte suchen“-Aktionen den Datumsfilter ändern: statt „Startdatum liegt in den letzten 7 Tagen“
+   **„Startdatum liegt zwischen“ `von` und `bis`** (die beiden Variablen einsetzen). Quelle = deine Apple Watch bleibt.
+5. Bei **Schritte** den leeren Filter „Wert“ löschen.
+6. Header `x-import-token` mit deinem Token füllen (nicht den Kurzbefehl mit Token teilen).
 
-- URL: `https://<projekt>.supabase.co/functions/v1/football-import`
-- Methode **POST**, Header `x-import-token: <token>`
-- Anfragetext **JSON** mit drei Feldern vom Typ **Text**: `hr`, `steps`, `distance`
-  (Werte = die kombinierten Texte; Kurzbefehle maskieren Zeilenumbrüche im JSON selbst)
-- Optional: **Mitteilung anzeigen** mit dem Ergebnis (`created`/`updated`/`skipped`).
-
-Datums- und Zahlenformate liest `parse.ts` tolerant (ISO 8601 mit `+02:00`, `Z` oder `+0200`;
-Dezimalkomma oder -punkt; Distanz in km, m oder mi). Datum **ohne Zeitzone** wird abgelehnt und im Feld
-`invalid` gezählt, statt still falsch eingeordnet zu werden.
+Ohne Eingabe (z. B. direkt aus der Kurzbefehle-App gestartet) fehlt der Zeitraum. Dann am besten oben mit
+**Wenn** (If) die Eingabe prüfen und sonst **Nach Eingabe fragen** (Ask for Input) nutzen.
 
 ## Auslösen
 
-Health-Daten lesen darf ein Kurzbefehl nur, solange das iPhone **entsperrt** ist. Ein reiner
-Zeit-Trigger hilft deshalb nicht zuverlässig. Zwei Wege:
+Health-Daten lesen darf ein Kurzbefehl nur, solange das iPhone **entsperrt** ist. Im Fußball-Tab: Datum, Startzeit
+und Dauer einstellen, „Apple-Watch-Daten holen“ antippen (öffnet den Kurzbefehl mit dem Zeitraum), danach über den
+Rücksprung-Link oben links in der Statusleiste zurück in die App. Die App rechnet Ø/Max-Puls, Distanz und
+Schritte automatisch aus den gespeicherten Rohwerten (läuft die App danach nicht mehr, hilft „Nur berechnen“).
 
-1. **Button in der App (zuverlässig):** Im Fußball-Tab startet „Apple-Watch-Daten abrufen“ den
-   Kurzbefehl per `shortcuts://x-callback-url/run-shortcut` und springt danach zurück; die Vorschläge laden
-   beim Zurückkehren neu.
-2. **Automation „App öffnen“** (Kurzbefehle → Automation → App): läuft ohne Rückfrage, sobald du eine App
-   öffnest. Ob sich eine zum Home-Bildschirm hinzugefügte Web-App dort als App auswählen lässt, habe
-   ich nicht geprüft (vermutlich nicht). Alternative: Aktionstaste, Rückseiten-Tipp oder Home-Bildschirm-Symbol
-   für den Kurzbefehl.
+Bewusst **ohne** x-callback-url: Eine https-Rücksprungadresse würde in Safari statt in der Home-Bildschirm-App
+landen, mit anderer Anmeldung und anderem Speicher.
 
-Ein erneuter Aufruf erzeugt keine Dopplungen: überlappende Fenster werden aktualisiert, bereits in einen
-Eintrag übernommene bleiben unberührt.
+Ein erneuter Aufruf erzeugt keine Dopplungen (Upsert auf Art/Start/Ende).
+
+## Optional: Fenster-Erkennung (`"detect": true`)
+
+Nur sinnvoll, wenn die Uhr **nur im Training** getragen wird. Dann bilden zusammenhängende Herzfrequenzwerte
+(Lücke unter 45 min) eine Einheit; mindestens 20 min und 3 Messwerte, höchstens 4 h. Als Body-Feld
+`"detect": true` mitschicken. Die erkannten Fenster erscheinen im Fußball-Tab als „Apple Watch erkannt“.

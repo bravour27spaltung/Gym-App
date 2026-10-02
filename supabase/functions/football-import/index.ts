@@ -8,6 +8,8 @@
 // Header: x-import-token: <IMPORT_TOKEN>
 // Body (JSON), alle drei Felder optional, Format siehe parse.ts / README.md:
 //   { "hr": "<Start>|<Ende>|<Wert>\n...", "steps": "...", "distance": "..." }
+// Optional: "detect": true erkennt zusätzlich Trainingsfenster (nur sinnvoll, wenn die Uhr nur im
+// Training getragen wird); ohne das Feld werden nur die Rohwerte gespeichert.
 //
 // ?dry=1 liefert nur die erkannten Fenster, ohne etwas zu schreiben (zum Testen).
 //
@@ -122,7 +124,13 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  const { windows, skipped } = detectWindows(hr.samples, steps.samples, distance.samples);
+  // Fenster-Erkennung nur auf Wunsch (Body-Feld "detect": true): Wird die Uhr den ganzen Tag
+  // getragen, gibt es keine Lücken zwischen den Herzfrequenzwerten, und der Kurzbefehl schickt
+  // ohnehin nur den in der App gewählten Zeitraum. Standard ist daher: nur Rohwerte speichern.
+  const detect = body.detect === true;
+  const { windows, skipped } = detect
+    ? detectWindows(hr.samples, steps.samples, distance.samples)
+    : { windows: [], skipped: [] };
   const dry = new URL(req.url).searchParams.get('dry') === '1';
   if (dry) return json({ ok: true, dry, windows, skipped, invalid, created: 0, updated: 0 });
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { summarizeAppleHealthWindow } from '../lib/appleHealthImport';
 import { fmtDay, todayIso } from '../lib/format';
 import type { Result } from '../lib/api';
@@ -77,6 +77,18 @@ export function FootballScreen({
   const [watchNotice, setWatchNotice] = useState<string | null>(null);
   const [watchRangeBusy, setWatchRangeBusy] = useState(false);
   const [watchRangeNotice, setWatchRangeNotice] = useState<string | null>(null);
+  /** true, solange der Kurzbefehl läuft: beim Zurückkehren in die App wird automatisch gerechnet. */
+  const awaitingWatch = useRef(false);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || !awaitingWatch.current) return;
+      awaitingWatch.current = false;
+      void applyWatchRange();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  });
 
   const [healthXml, setHealthXml] = useState<string | null>(null);
   const [healthFileName, setHealthFileName] = useState<string | null>(null);
@@ -84,6 +96,8 @@ export function FootballScreen({
   const [healthNotice, setHealthNotice] = useState<string | null>(null);
 
   const valid = playedOn.trim() !== '' && minutes > 0;
+  const rangeFromMs = new Date(`${playedOn}T${startedAtTime}:00`).getTime();
+  const rangeReady = startedAtTime.trim() !== '' && minutes > 0 && Number.isFinite(rangeFromMs);
 
   function resetForm() {
     setKind('training');
@@ -220,12 +234,6 @@ export function FootballScreen({
         </p>
       )}
 
-      <div className="row wrap">
-        <a className="btn compact" href={watchShortcutUrl(window.location.href)}>
-          <Icon name="heart" size={16} /> Apple-Watch-Daten abrufen
-        </a>
-      </div>
-
       {watchWindows.length > 0 && (
         <>
           <h2 className="section-title">Apple Watch erkannt</h2>
@@ -351,18 +359,35 @@ export function FootballScreen({
           </label>
 
           <div className="row wrap">
+            {rangeReady ? (
+              <a
+                className="btn compact primary"
+                href={watchShortcutUrl(rangeFromMs, rangeFromMs + minutes * 60_000)}
+                onClick={() => {
+                  awaitingWatch.current = true;
+                }}
+              >
+                <Icon name="heart" size={16} /> Apple-Watch-Daten holen
+              </a>
+            ) : (
+              <button type="button" className="btn compact" disabled>
+                <Icon name="heart" size={16} /> Apple-Watch-Daten holen
+              </button>
+            )}
             <button
               type="button"
               className="btn compact"
-              disabled={startedAtTime.trim() === '' || !(minutes > 0) || watchRangeBusy}
+              disabled={!rangeReady || watchRangeBusy}
               onClick={() => void applyWatchRange()}
             >
-              <Icon name="heart" size={16} /> {watchRangeBusy ? 'Berechne …' : 'Werte aus Apple Watch berechnen'}
+              {watchRangeBusy ? 'Berechne …' : 'Nur berechnen'}
             </button>
           </div>
           <p className="muted newex-hint">
-            Rechnet Ø/Max-Puls, Distanz und Schritte für den oben gewählten Zeitraum (Datum, Startzeit, Dauer) aus
-            den zuletzt abgerufenen Apple-Watch-Daten. Vorher „Apple-Watch-Daten abrufen“ antippen.
+            Stelle Datum, Startzeit und Dauer ein und tippe auf „Apple-Watch-Daten holen“: Der Kurzbefehl lädt nur
+            diesen Zeitraum aus Health. Danach kommst du über den Rücksprung-Link oben links in der Statusleiste
+            zurück, die App rechnet Ø/Max-Puls, Distanz und Schritte dann automatisch. „Nur berechnen“ nutzt bereits
+            abgerufene Daten.
           </p>
           {watchRangeNotice && <p className="muted">{watchRangeNotice}</p>}
 

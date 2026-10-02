@@ -300,14 +300,19 @@ describe('summarizeWatchSamples', () => {
 });
 
 describe('watchShortcutUrl', () => {
-  it('startet den Kurzbefehl per x-callback-url und führt bei Erfolg, Abbruch und Fehler zurück in die App', () => {
-    const url = watchShortcutUrl('https://gym.example.app/?tab=football');
-    const back = encodeURIComponent('https://gym.example.app/?tab=football');
-    expect(url.startsWith('shortcuts://x-callback-url/run-shortcut?')).toBe(true);
+  it('startet den Kurzbefehl mit "<Start>|<Ende>" (UTC, ohne Millisekunden) als Texteingabe', () => {
+    const from = Date.parse('2026-10-01T19:00:00+02:00');
+    const to = Date.parse('2026-10-01T20:30:00+02:00');
+    const url = watchShortcutUrl(from, to);
+    expect(url.startsWith('shortcuts://run-shortcut?')).toBe(true);
     expect(url).toContain(`name=${WATCH_SHORTCUT_NAME}`);
-    expect(url).toContain(`x-success=${back}`);
-    expect(url).toContain(`x-cancel=${back}`);
-    expect(url).toContain(`x-error=${back}`);
+    expect(url).toContain('input=text');
+    const text = new URL(url.replace('shortcuts://', 'https://x/')).searchParams.get('text');
+    expect(text).toBe('2026-10-01T17:00:00Z|2026-10-01T18:30:00Z');
+  });
+
+  it('verwendet keine x-callback-url (Rücksprung würde in Safari statt in der Home-Bildschirm-App landen)', () => {
+    expect(watchShortcutUrl(0, 60_000)).not.toContain('x-success');
   });
 });
 
