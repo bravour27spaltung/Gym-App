@@ -47,6 +47,8 @@ export interface FootballEntryInput {
   calories?: number | null;
   avgHeartRate?: number | null;
   source?: FootballSource;
+  /** Vorschlag der Apple Watch, aus dem die Werte stammen (wird nach dem Speichern verknüpft). */
+  watchWindowId?: string | null;
 }
 
 export interface FootballPayload {

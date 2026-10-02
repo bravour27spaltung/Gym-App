@@ -6,6 +6,7 @@ import { plansFromRows } from './plan';
 import type { StretchPayload, StretchPlan, StretchSide } from './stretch';
 import { STRETCH_CATALOG, STRETCH_PLAN_CATALOG } from './stretchCatalog';
 import type { FootballKind, FootballPayload, FootballSource } from './football';
+import type { WatchWindow } from './footballWatch';
 import type { RecoveryPayload, RecoverySource } from './recovery';
 import type { HistWorkout } from './stats';
 import type {
@@ -686,6 +687,76 @@ export async function flushFootballOutbox(store: Store): Promise<{ sent: number;
   }
   if (sent > 0) store.saveFootballOutbox(remaining);
   return { sent, pending: remaining.length, error };
+}
+
+interface WatchWindowRow {
+  id: string;
+  started_at: string;
+  ended_at: string;
+  hr_samples: number;
+  avg_heart_rate: number | null;
+  max_heart_rate: number | null;
+  steps: number | null;
+  distance_km: number | null;
+  session_id: string | null;
+  dismissed: boolean;
+}
+
+/**
+ * Von der Apple Watch erkannte Trainingsfenster (befüllt die Edge Function football-import),
+ * neueste zuerst. Welche davon noch als Vorschlag erscheinen, entscheidet visibleWatchWindows.
+ */
+export async function fetchFootballWatchWindows(limit = 30): Promise<Result<WatchWindow[]>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { data, error } = await supabase
+    .from('fit_football_watch_windows')
+    .select('id, started_at, ended_at, hr_samples, avg_heart_rate, max_heart_rate, steps, distance_km, session_id, dismissed')
+    .order('started_at', { ascending: false })
+    .limit(limit);
+  if (error) return fail(error.message);
+  const rows = (data ?? []) as unknown as WatchWindowRow[];
+  return {
+    ok: true,
+    data: rows.map((r) => ({
+      id: r.id,
+      startedAt: r.started_at,
+      endedAt: r.ended_at,
+      hrSamples: r.hr_samples,
+      avgHeartRate: r.avg_heart_rate,
+      maxHeartRate: r.max_heart_rate,
+      steps: r.steps,
+      distanceKm: r.distance_km === null ? null : Number(r.distance_km),
+      sessionId: r.session_id,
+      dismissed: r.dismissed,
+    })),
+  };
+}
+
+/** Markiert einen Vorschlag als in einen Fußball-Eintrag übernommen. */
+export async function linkFootballWatchWindow(id: string, sessionId: string): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { error } = await supabase.from('fit_football_watch_windows').update({ session_id: sessionId }).eq('id', id);
+  if (error) return fail(error.message);
+  return { ok: true, data: null };
+}
+
+/** Blendet einen Vorschlag dauerhaft aus (z. B. kein Fußball, Uhr nur so getragen). */
+export async function dismissFootballWatchWindow(id: string): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { error } = await supabase.from('fit_football_watch_windows').update({ dismissed: true }).eq('id', id);
+  if (error) return fail(error.message);
+  return { ok: true, data: null };
+}
+
+/** Gibt Vorschläge frei, die mit einem (gelöschten) Fußball-Eintrag verknüpft waren. */
+export async function unlinkFootballWatchWindows(sessionId: string): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { error } = await supabase
+    .from('fit_football_watch_windows')
+    .update({ session_id: null })
+    .eq('session_id', sessionId);
+  if (error) return fail(error.message);
+  return { ok: true, data: null };
 }
 
 /** Löscht einen Fußball-Eintrag endgültig. */

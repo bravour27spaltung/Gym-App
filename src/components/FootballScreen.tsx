@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { summarizeAppleHealthWindow } from '../lib/appleHealthImport';
 import { fmtDay, todayIso } from '../lib/format';
+import { describeWatchWindow, watchShortcutUrl, watchWindowToForm, type WatchWindow } from '../lib/footballWatch';
 import {
   FOOTBALL_KINDS,
   footballKindLabel,
@@ -14,6 +15,9 @@ import { Icon, IconButton, MetricField } from './ui';
 
 interface Props {
   history: HistFootballSession[];
+  /** Von der Apple Watch erkannte Trainingsfenster, die noch als Vorschlag angeboten werden. */
+  watchWindows: WatchWindow[];
+  onDismissWatchWindow: (id: string) => void;
   pending: number;
   busy: boolean;
   notice: string | null;
@@ -34,7 +38,17 @@ const DEFAULT_MINUTES = 90;
  * letzten Einträge stehen darunter zum Nachschauen und Löschen; die volle Auswertung
  * mit Diagramm ist im Verlauf-Tab.
  */
-export function FootballScreen({ history, pending, busy, notice, onSave, onSync, onDelete }: Props) {
+export function FootballScreen({
+  history,
+  watchWindows,
+  onDismissWatchWindow,
+  pending,
+  busy,
+  notice,
+  onSave,
+  onSync,
+  onDelete,
+}: Props) {
   const [playedOn, setPlayedOn] = useState(() => todayIso());
   const [startedAtTime, setStartedAtTime] = useState('');
   const [kind, setKind] = useState<FootballKind>('training');
@@ -47,6 +61,8 @@ export function FootballScreen({ history, pending, busy, notice, onSave, onSync,
   const [calories, setCalories] = useState<number | null>(null);
   const [avgHeartRate, setAvgHeartRate] = useState<number | null>(null);
   const [source, setSource] = useState<FootballSource>('manual');
+  const [watchWindowId, setWatchWindowId] = useState<string | null>(null);
+  const [watchNotice, setWatchNotice] = useState<string | null>(null);
 
   const [healthXml, setHealthXml] = useState<string | null>(null);
   const [healthFileName, setHealthFileName] = useState<string | null>(null);
@@ -65,12 +81,42 @@ export function FootballScreen({ history, pending, busy, notice, onSave, onSync,
     setCalories(null);
     setAvgHeartRate(null);
     setSource('manual');
+    setWatchWindowId(null);
+    setWatchNotice(null);
     setHealthNotice(null);
+  }
+
+  /** Übernimmt Startzeit, Dauer, Ø Puls und Distanz eines Apple-Watch-Vorschlags ins Formular. */
+  function applyWatchWindow(w: WatchWindow) {
+    const v = watchWindowToForm(w);
+    setPlayedOn(v.playedOn);
+    setStartedAtTime(v.startedAtTime);
+    setMinutes(v.minutes);
+    setAvgHeartRate(v.avgHeartRate);
+    setDistanceKm(v.distanceKm);
+    setCalories(null);
+    setSource('apple_health');
+    setWatchWindowId(w.id);
+    setWatchNotice(
+      `Von der Apple Watch übernommen: ${describeWatchWindow(w)}. Jetzt noch Art der Einheit und RPE eintragen.`,
+    );
   }
 
   function submit() {
     if (!valid) return;
-    onSave({ playedOn, startedAtTime, kind, minutes, rpe, note, distanceKm, calories, avgHeartRate, source });
+    onSave({
+      playedOn,
+      startedAtTime,
+      kind,
+      minutes,
+      rpe,
+      note,
+      distanceKm,
+      calories,
+      avgHeartRate,
+      source,
+      watchWindowId,
+    });
     resetForm();
   }
 
@@ -133,7 +179,52 @@ export function FootballScreen({ history, pending, busy, notice, onSave, onSync,
         </p>
       )}
 
+      <div className="row wrap">
+        <a className="btn compact" href={watchShortcutUrl(window.location.href)}>
+          <Icon name="heart" size={16} /> Apple-Watch-Daten abrufen
+        </a>
+      </div>
+
+      {watchWindows.length > 0 && (
+        <>
+          <h2 className="section-title">Apple Watch erkannt</h2>
+          <ul className="exlist">
+            {watchWindows.map((w) => (
+              <li key={w.id}>
+                <div className="exrow static">
+                  <span className="exrow-text">
+                    <strong>{fmtDay(w.startedAt)}</strong>
+                    <small>{describeWatchWindow(w)}</small>
+                  </span>
+                  <button
+                    type="button"
+                    className={watchWindowId === w.id ? 'btn compact primary' : 'btn compact'}
+                    onClick={() => applyWatchWindow(w)}
+                  >
+                    Übernehmen
+                  </button>
+                  <IconButton
+                    icon="x"
+                    label={`Vorschlag vom ${fmtDay(w.startedAt)} ausblenden`}
+                    onClick={() => onDismissWatchWindow(w.id)}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="muted newex-hint">
+            Ohne gestartete Aufzeichnung misst die Uhr die Herzfrequenz nur alle paar Minuten; Ø und Max
+            beruhen auf wenigen Messwerten, Dauer und Distanz sind Näherungen. Deine RPE bleibt die Hauptgröße.
+          </p>
+        </>
+      )}
+
       <div className="card">
+        {watchNotice && (
+          <p className="notice" role="status">
+            {watchNotice}
+          </p>
+        )}
         <label className="field stack">
           <span>Datum</span>
           <input
