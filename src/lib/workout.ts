@@ -35,6 +35,14 @@ export interface DraftExercise {
   primaryMuscles?: string[];
   secondaryMuscles?: string[];
   plannedSets: number;
+  /**
+   * ID der Planübung, aus der diese Übung gestartet wurde; fehlt bei freiem Training und bei
+   * Übungen, die erst im Training hinzugefügt wurden. Grundlage, um Änderungen der Satzzahl
+   * am Ende in den Plan zu übernehmen.
+   */
+  planExerciseId?: string;
+  /** Hatte die Übung beim Start Aufwärmsätze? Vergleichsbasis für "Aufwärmsätze geändert". */
+  warmupAtStart?: boolean;
   /** Ziel-RIR aus dem Plan (nur Anzeige); null = keine Vorgabe. */
   targetRir: number | null;
   restSeconds: number;
@@ -57,6 +65,8 @@ export interface Draft {
   restEndsAt?: number | null;
   /** Wie lief's? Freiwillig, wird beim Speichern-Dialog abgefragt; null = nicht beantwortet. */
   feedback?: Feedback | null;
+  /** Übung im Fokus (Draft-ID der Übung), damit sie nach "Zum Home-Menü" wieder dieselbe ist. */
+  focusExerciseId?: string | null;
 }
 
 export interface ExerciseInput {
@@ -73,6 +83,8 @@ export interface ExerciseInput {
   primaryMuscles?: string[];
   secondaryMuscles?: string[];
   plannedSets?: number;
+  /** Planübung, aus der diese Übung stammt (nur beim Start aus einem Plan). */
+  planExerciseId?: string;
   targetRir?: number | null;
   restSeconds?: number;
   lastSets?: LoggedSet[];
@@ -129,6 +141,8 @@ export function addExercise(draft: Draft, input: ExerciseInput): Draft {
     primaryMuscles: input.primaryMuscles ?? [],
     secondaryMuscles: input.secondaryMuscles ?? [],
     plannedSets,
+    ...(input.planExerciseId ? { planExerciseId: input.planExerciseId } : {}),
+    warmupAtStart: false,
     targetRir: input.targetRir ?? null,
     restSeconds: input.restSeconds ?? 120,
     sets,
@@ -141,6 +155,11 @@ export function addExercise(draft: Draft, input: ExerciseInput): Draft {
 /** Setzt das Feedback ("Wie lief's?") des laufenden Trainings; null hebt die Auswahl wieder auf. */
 export function setFeedback(draft: Draft, feedback: Feedback | null): Draft {
   return { ...draft, feedback };
+}
+
+/** Merkt sich die Übung im Fokus im Entwurf (übersteht Home-Menü und Neuladen). */
+export function setFocusExercise(draft: Draft, exId: string | null): Draft {
+  return draft.focusExerciseId === exId ? draft : { ...draft, focusExerciseId: exId };
 }
 
 export function updateExercise(
@@ -305,6 +324,15 @@ export function addWarmups(draft: Draft, exId: string, level: 'full' | 'short'):
     }));
     return { ...e, sets: [...doneWarmups, ...fresh, ...working] };
   });
+}
+
+/**
+ * Hält fest, ob die Übung jetzt Aufwärmsätze hat; ab hier zählt jede Abweichung als
+ * Änderung während des Trainings. Aufruf direkt nach dem Anlegen aus dem Plan, weil
+ * "Aufwärmen" im Plan nicht immer Sätze ergibt (z. B. ohne bekanntes Gewicht).
+ */
+export function markWarmupAtStart(draft: Draft, exId: string): Draft {
+  return mapEx(draft, exId, (e) => ({ ...e, warmupAtStart: e.sets.some((s) => s.type === 'warmup') }));
 }
 
 /** Abgehakte Sätze einer Übung im Format der Progressionslogik. */

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ExerciseListItem, LastInfo } from '../lib/storage';
 import type { HistWorkout } from '../lib/stats';
+import { describePlanChange, planChangesFromDraft } from '../lib/plan';
 import { startRest } from '../lib/timer';
 import { unlockAudio } from '../lib/sound';
 import {
@@ -10,6 +11,7 @@ import {
   removeExercise,
   removeSet,
   setFeedback,
+  setFocusExercise,
   toggleDone,
   updateExercise,
   updateSet,
@@ -23,7 +25,7 @@ import {
 import { AddExercise } from './AddExercise';
 import { ExerciseCard } from './ExerciseCard';
 import { RestTimer } from './RestTimer';
-import { Icon } from './ui';
+import { Icon, IconButton } from './ui';
 
 interface Props {
   draft: Draft;
@@ -33,8 +35,11 @@ interface Props {
   /** Ändert den Entwurf; die Funktion bekommt immer den aktuellen Stand. */
   onUpdate: (fn: (d: Draft) => Draft) => void;
   loadLast: (exerciseId: string, isNew: boolean) => Promise<LastInfo>;
-  onFinish: () => void;
+  /** Beenden und speichern; `applyPlanChanges` = geänderte Sätze/Aufwärmen in den Plan übernehmen. */
+  onFinish: (opts: { applyPlanChanges: boolean }) => void;
   onDiscard: () => void;
+  /** Zum Home-Menü, ohne das Training zu beenden (Entwurf, Pause und Timer laufen weiter). */
+  onHome: () => void;
   busy: boolean;
   /** Kurzer Hinweis zu Beginn ("Schwachstelle: …"); null = nichts anzuzeigen. */
   weakSpotHint?: string | null;
@@ -106,6 +111,7 @@ export function WorkoutScreen({
   loadLast,
   onFinish,
   onDiscard,
+  onHome,
   busy,
   weakSpotHint,
   onDismissWeakSpotHint,
@@ -113,8 +119,16 @@ export function WorkoutScreen({
   const [adding, setAdding] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // Änderungen an Sätzen/Aufwärmen gegenüber dem Plan; standardmäßig werden sie übernommen.
+  const planChanges = useMemo(() => planChangesFromDraft(draft), [draft]);
+  const [applyPlan, setApplyPlan] = useState(true);
   // Die Übung im Fokus wird festgehalten, damit sie nicht wegspringt, wenn ihr letzter Satz fertig ist.
-  const [currentId, setCurrentId] = useState<string | null>(() => firstOpenExercise(draft)?.id ?? null);
+  const [currentId, setCurrentId] = useState<string | null>(() => {
+    // Nach "Zum Home-Menü" oder einem Neuladen wieder dieselbe Übung wie zuvor.
+    const saved = draft.focusExerciseId;
+    if (saved && draft.exercises.some((e) => e.id === saved)) return saved;
+    return firstOpenExercise(draft)?.id ?? null;
+  });
   const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
   const minutes = useElapsedMinutes(draft.startedAt);
   // Eine Pause, die vor über 10 Minuten endete, gilt als erledigt (z. B. nach langem Neuladen).
@@ -123,14 +137,21 @@ export function WorkoutScreen({
   const setRest = (ms: number | null) => onUpdate((d) => ({ ...d, restEndsAt: ms }));
   useWakeLock();
 
+  /** Setzt die Übung im Fokus und merkt sie sich im Entwurf. */
+  function setFocus(id: string | null) {
+    setCurrentId(id);
+    onUpdate((d) => setFocusExercise(d, id));
+  }
+
   // Neu hinzugefügte Übung sofort in den Fokus nehmen.
   const prevCount = useRef(draft.exercises.length);
   useEffect(() => {
     if (draft.exercises.length > prevCount.current) {
-      setCurrentId(draft.exercises[draft.exercises.length - 1].id);
+      setFocus(draft.exercises[draft.exercises.length - 1].id);
       setSelectedSetId(null);
     }
     prevCount.current = draft.exercises.length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.exercises]);
 
   const { done: doneCount, total: totalCount } = workoutProgress(draft);
@@ -146,7 +167,7 @@ export function WorkoutScreen({
     : undefined;
 
   function focusExercise(id: string) {
-    setCurrentId(id);
+    setFocus(id);
     setSelectedSetId(null);
   }
 
@@ -176,6 +197,7 @@ export function WorkoutScreen({
   return (
     <div className="workout">
       <header className="appbar workout-bar">
+        <IconButton icon="home" label="Zum Home-Menü (Training läuft weiter)" onClick={onHome} />
         <div className="workout-title">
           <h1>{draft.name}</h1>
           <p>
@@ -268,7 +290,7 @@ export function WorkoutScreen({
             onEquipment={(kg) => onUpdate((d) => updateExercise(d, current.id, { equipmentKg: kg }))}
             onRemove={() => {
               onUpdate((d) => removeExercise(d, current.id));
-              setCurrentId(null);
+              setFocus(null);
               setSelectedSetId(null);
             }}
             next={
@@ -319,7 +341,25 @@ export function WorkoutScreen({
                     ))}
                   </div>
                 </div>
-                <button type="button" className="btn primary block" disabled={busy} onClick={onFinish}>
+                {planChanges.length > 0 && (
+                  <label className="plan-sync">
+                    <input
+                      type="checkbox"
+                      checked={applyPlan}
+                      onChange={(ev) => setApplyPlan(ev.target.checked)}
+                    />
+                    <span>
+                      <strong>Plan anpassen</strong>
+                      <small>{planChanges.map(describePlanChange).join(' · ')}</small>
+                    </span>
+                  </label>
+                )}
+                <button
+                  type="button"
+                  className="btn primary block"
+                  disabled={busy}
+                  onClick={() => onFinish({ applyPlanChanges: applyPlan && planChanges.length > 0 })}
+                >
                   {busy ? 'Speichere …' : 'Speichern'}
                 </button>
               </>

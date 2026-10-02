@@ -1,6 +1,6 @@
 import { supabase } from '../supabase';
 import { translateAuthError } from './authErrors';
-import type { Plan, PlanDbRow, PlanRows } from './plan';
+import type { Plan, PlanDbRow, PlanPatch, PlanRows } from './plan';
 import { resetSteps } from './reset';
 import { plansFromRows } from './plan';
 import type { StretchPayload, StretchPlan, StretchSide } from './stretch';
@@ -253,6 +253,34 @@ export async function savePlanRows(rows: PlanRows): Promise<Result<null>> {
   return { ok: true, data: null };
 }
 
+/**
+ * Schickt im Training geänderte Satzzahlen/Aufwärmen an die Planübungen. Es werden nur die
+ * betroffenen Felder dieser Zeilen geschrieben (kein Upsert des ganzen Plans), ein Wiederholen
+ * ist gefahrlos. Fehlgeschlagene bleiben liegen; ein Fehler blockiert nie das Speichern des
+ * Trainings, weil das in einem eigenen Ausgangskorb liegt.
+ */
+export async function flushPlanPatches(store: Store): Promise<{ sent: number; pending: number; error: string | null }> {
+  const items = store.loadPlanPatches();
+  if (items.length === 0) return { sent: 0, pending: 0, error: null };
+  if (!supabase) return { sent: 0, pending: items.length, error: NOT_CONFIGURED };
+  const remaining: PlanPatch[] = [];
+  let sent = 0;
+  let error: string | null = null;
+  for (const item of items) {
+    const fields: { sets?: number; warmup?: boolean } = {};
+    if (item.sets !== undefined) fields.sets = item.sets;
+    if (item.warmup !== undefined) fields.warmup = item.warmup;
+    const { error: err } = await supabase.from('fit_plan_exercises').update(fields).eq('id', item.planExerciseId);
+    if (err) {
+      remaining.push(item);
+      error = `fit_plan_exercises: ${err.message}`;
+      console.error(`flushPlanPatches: ${err.message}`);
+    } else sent += 1;
+  }
+  if (sent > 0) store.savePlanPatches(remaining);
+  return { sent, pending: remaining.length, error };
+}
+
 export async function archivePlan(planId: string): Promise<Result<null>> {
   if (!supabase) return fail(NOT_CONFIGURED);
   const { error } = await supabase
@@ -299,17 +327,22 @@ export async function syncPayload(p: WorkoutPayload): Promise<Result<null>> {
 }
 
 /** Versucht alle Trainings im Ausgangskorb zu senden; Fehlgeschlagene bleiben liegen. */
-export async function flushOutbox(store: Store): Promise<{ sent: number; pending: number }> {
+export async function flushOutbox(store: Store): Promise<{ sent: number; pending: number; error: string | null }> {
   const items = store.loadOutbox();
   const remaining = [];
   let sent = 0;
+  let error: string | null = null;
   for (const item of items) {
     const res = await syncPayload(item);
     if (res.ok) sent += 1;
-    else remaining.push(item);
+    else {
+      remaining.push(item);
+      error = res.error;
+      console.error(`flushOutbox: ${res.error}`);
+    }
   }
   if (sent > 0) store.saveOutbox(remaining);
-  return { sent, pending: remaining.length };
+  return { sent, pending: remaining.length, error };
 }
 
 /**
@@ -451,17 +484,22 @@ export async function syncStretchPayload(p: StretchPayload): Promise<Result<null
 }
 
 /** Versucht alle Stretching-Sessions im Ausgangskorb zu senden; Fehlgeschlagene bleiben liegen. */
-export async function flushStretchOutbox(store: Store): Promise<{ sent: number; pending: number }> {
+export async function flushStretchOutbox(store: Store): Promise<{ sent: number; pending: number; error: string | null }> {
   const items = store.loadStretchOutbox();
   const remaining = [];
   let sent = 0;
+  let error: string | null = null;
   for (const item of items) {
     const res = await syncStretchPayload(item);
     if (res.ok) sent += 1;
-    else remaining.push(item);
+    else {
+      remaining.push(item);
+      error = res.error;
+      console.error(`flushStretchOutbox: ${res.error}`);
+    }
   }
   if (sent > 0) store.saveStretchOutbox(remaining);
-  return { sent, pending: remaining.length };
+  return { sent, pending: remaining.length, error };
 }
 
 interface StretchPlanDbRow {
@@ -632,17 +670,22 @@ export async function syncFootballPayload(p: FootballPayload): Promise<Result<nu
 }
 
 /** Versucht alle Fußball-Einträge im Ausgangskorb zu senden; Fehlgeschlagene bleiben liegen. */
-export async function flushFootballOutbox(store: Store): Promise<{ sent: number; pending: number }> {
+export async function flushFootballOutbox(store: Store): Promise<{ sent: number; pending: number; error: string | null }> {
   const items = store.loadFootballOutbox();
   const remaining: FootballPayload[] = [];
   let sent = 0;
+  let error: string | null = null;
   for (const item of items) {
     const res = await syncFootballPayload(item);
     if (res.ok) sent += 1;
-    else remaining.push(item);
+    else {
+      remaining.push(item);
+      error = res.error;
+      console.error(`flushFootballOutbox: ${res.error}`);
+    }
   }
   if (sent > 0) store.saveFootballOutbox(remaining);
-  return { sent, pending: remaining.length };
+  return { sent, pending: remaining.length, error };
 }
 
 /** Löscht einen Fußball-Eintrag endgültig. */
@@ -781,17 +824,22 @@ export async function syncRecoveryPayload(p: RecoveryPayload): Promise<Result<nu
 }
 
 /** Versucht alle Recovery-Einträge im Ausgangskorb zu senden; Fehlgeschlagene bleiben liegen. */
-export async function flushRecoveryOutbox(store: Store): Promise<{ sent: number; pending: number }> {
+export async function flushRecoveryOutbox(store: Store): Promise<{ sent: number; pending: number; error: string | null }> {
   const items = store.loadRecoveryOutbox();
   const remaining: RecoveryPayload[] = [];
   let sent = 0;
+  let error: string | null = null;
   for (const item of items) {
     const res = await syncRecoveryPayload(item);
     if (res.ok) sent += 1;
-    else remaining.push(item);
+    else {
+      remaining.push(item);
+      error = res.error;
+      console.error(`flushRecoveryOutbox: ${res.error}`);
+    }
   }
   if (sent > 0) store.saveRecoveryOutbox(remaining);
-  return { sent, pending: remaining.length };
+  return { sent, pending: remaining.length, error };
 }
 
 /** Löscht einen Recovery-Eintrag endgültig. */

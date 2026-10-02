@@ -4,6 +4,7 @@ import {
   addExercise,
   addWarmups,
   createDraft,
+  markWarmupAtStart,
   newId,
   type Draft,
   type NewExerciseRow,
@@ -501,6 +502,7 @@ export function draftFromPlanDay(
       repMin: e.repMin,
       repMax: e.repMax,
       plannedSets: e.sets,
+      planExerciseId: e.id,
       targetRir: e.targetRir,
       restSeconds: e.restSeconds,
       equipment: e.newExercise?.equipment ?? null,
@@ -515,8 +517,110 @@ export function draftFromPlanDay(
       // Die erste Übung mit Aufwärmen bekommt die volle Rampe, spätere einen kurzen Satz.
       const added = draft.exercises[draft.exercises.length - 1];
       draft = addWarmups(draft, added.id, first ? 'full' : 'short');
+      // Vergleichsbasis: nur was hier tatsächlich entstanden ist, zählt später als "unverändert".
+      draft = markWarmupAtStart(draft, added.id);
       first = false;
     }
   }
   return draft;
+}
+
+// ---------------------------------------------------------------------------
+// Änderungen aus dem Training in den Plan übernehmen
+
+/** Obergrenze der Sätze je Planübung (siehe validatePlan). */
+const MAX_PLAN_SETS = 10;
+
+/** Änderung einer Planübung, wie sie im Training entstanden ist (mit Namen für die Anzeige). */
+export interface PlanChange {
+  planExerciseId: string;
+  name: string;
+  /** Arbeitssätze: Plan beim Start -> Stand beim Beenden. */
+  sets?: { from: number; to: number };
+  /** Aufwärmsätze vorhanden: beim Start -> beim Beenden. */
+  warmup?: { from: boolean; to: boolean };
+}
+
+/** Das, was in der Datenbank und im lokalen Plan überschrieben wird. */
+export interface PlanPatch {
+  planExerciseId: string;
+  sets?: number;
+  warmup?: boolean;
+}
+
+/**
+ * Vergleicht das beendete Training mit dem Plan, aus dem es gestartet wurde. Es zählen nur
+ * Änderungen, die im Training selbst passiert sind (Sätze hinzugefügt oder entfernt,
+ * Aufwärmsätze hinzugefügt oder alle entfernt) – nicht abgehakte Sätze: Wer einen geplanten
+ * Satz einfach nicht macht, ändert den Plan nicht, wer ihn mit "Entfernen" löscht, schon.
+ *
+ * Aufwärmsätze speichert der Plan nur als Ja/Nein ("Aufwärmen"), nicht als Anzahl; die
+ * Rampe wird beim Start neu vorgeschlagen.
+ */
+export function planChangesFromDraft(draft: Draft): PlanChange[] {
+  const changes: PlanChange[] = [];
+  for (const e of draft.exercises) {
+    if (!e.planExerciseId) continue;
+    const change: PlanChange = { planExerciseId: e.planExerciseId, name: e.name };
+
+    const working = e.sets.filter((s) => s.type === 'working').length;
+    // Ohne Arbeitssatz bleibt die Satzzahl des Plans, die Übung wurde dann eher übersprungen.
+    const target = Math.min(working, MAX_PLAN_SETS);
+    if (working >= 1 && target !== e.plannedSets) change.sets = { from: e.plannedSets, to: target };
+
+    // Ältere Entwürfe kennen den Startwert nicht: dann nichts ableiten.
+    if (e.warmupAtStart !== undefined) {
+      const hasWarmup = e.sets.some((s) => s.type === 'warmup');
+      if (hasWarmup !== e.warmupAtStart) change.warmup = { from: e.warmupAtStart, to: hasWarmup };
+    }
+
+    if (change.sets || change.warmup) changes.push(change);
+  }
+  return changes;
+}
+
+export function patchesFromChanges(changes: PlanChange[]): PlanPatch[] {
+  return changes.map((c) => ({
+    planExerciseId: c.planExerciseId,
+    ...(c.sets ? { sets: c.sets.to } : {}),
+    ...(c.warmup ? { warmup: c.warmup.to } : {}),
+  }));
+}
+
+/** Kurztext für die Anzeige, z. B. "Bankdrücken: 3 → 4 Sätze, Aufwärmen an". */
+export function describePlanChange(c: PlanChange): string {
+  const parts: string[] = [];
+  if (c.sets) parts.push(`${c.sets.from} → ${c.sets.to} Sätze`);
+  if (c.warmup) parts.push(c.warmup.to ? 'Aufwärmen an' : 'Aufwärmen aus');
+  return `${c.name}: ${parts.join(', ')}`;
+}
+
+/** Fasst Änderungen zusammen; je Planübung gilt der jeweils neueste Wert. */
+export function mergePlanPatches(existing: PlanPatch[], incoming: PlanPatch[]): PlanPatch[] {
+  const byId = new Map<string, PlanPatch>();
+  for (const p of [...existing, ...incoming]) {
+    byId.set(p.planExerciseId, { ...byId.get(p.planExerciseId), ...p });
+  }
+  return [...byId.values()];
+}
+
+/** Überschreibt Sätze und Aufwärmen der betroffenen Planübungen; alles andere bleibt unberührt. */
+export function applyPlanPatches(plans: Plan[], patches: PlanPatch[]): Plan[] {
+  if (patches.length === 0) return plans;
+  const byId = new Map(patches.map((p) => [p.planExerciseId, p] as const));
+  return plans.map((plan) => ({
+    ...plan,
+    days: plan.days.map((day) => ({
+      ...day,
+      exercises: day.exercises.map((ex) => {
+        const patch = byId.get(ex.id);
+        if (!patch) return ex;
+        return {
+          ...ex,
+          ...(patch.sets !== undefined ? { sets: patch.sets } : {}),
+          ...(patch.warmup !== undefined ? { warmup: patch.warmup } : {}),
+        };
+      }),
+    })),
+  }));
 }

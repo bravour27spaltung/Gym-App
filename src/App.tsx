@@ -12,6 +12,7 @@ import { ResetData } from './components/ResetData';
 import { StretchHistoryScreen } from './components/StretchHistoryScreen';
 import { StretchScreen } from './components/StretchScreen';
 import { Icon, IconButton, TabBar, type Tab } from './components/ui';
+import { WorkoutBanner } from './components/WorkoutBanner';
 import { WorkoutSummaryScreen } from './components/WorkoutSummary';
 import { WorkoutScreen } from './components/WorkoutScreen';
 import { WeeklyReviewScreen } from './components/WeeklyReview';
@@ -32,6 +33,7 @@ import {
   fetchStretchPlans,
   flushFootballOutbox,
   flushOutbox,
+  flushPlanPatches,
   flushRecoveryOutbox,
   flushStretchOutbox,
   getSessionEmail,
@@ -52,14 +54,19 @@ import {
   verifyLoginCode,
 } from './lib/api';
 import {
+  applyPlanPatches,
   draftFromPlanDay,
   markSaved,
+  mergePlanPatches,
+  patchesFromChanges,
+  planChangesFromDraft,
   planToRows,
   templateDay,
   visibleDays,
   visibleExercises,
   type Plan,
 } from './lib/plan';
+import { beep } from './lib/sound';
 import { buildFootballPayload, type FootballEntryInput } from './lib/football';
 import type { HealthImportMatch } from './lib/healthImport';
 import { buildRecoveryPayload, type RecoveryEntryInput } from './lib/recovery';
@@ -104,6 +111,9 @@ import {
 import { configError, supabase } from './supabase';
 
 
+/** Eine Pause, die vor über 10 Minuten endete, gilt als erledigt (wie im Trainings-Bildschirm). */
+const REST_STALE_MS = 10 * 60 * 1000;
+
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
   return Promise.race([p, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
 }
@@ -113,6 +123,9 @@ export function App() {
 
   const [email, setEmail] = useState<string | null | undefined>(undefined); // undefined = lädt
   const [draft, setDraft] = useState<Draft | null>(() => store.loadDraft());
+  // true = Training läuft weiter, aber das Home-Menü ist offen ("Zum Home-Menü"). Der Entwurf
+  // bleibt unverändert im Speicher; nach einem Neuladen öffnet das Training wieder direkt.
+  const [workoutMinimized, setWorkoutMinimized] = useState(false);
   const [exercises, setExercises] = useState<ExerciseListItem[]>(() => store.loadExercises());
   const [plans, setPlans] = useState<Plan[]>(() => store.loadPlans());
   // Erst nach dem ersten Laden (oder mit Zwischenspeicher) "noch kein Plan" anzeigen.
@@ -126,6 +139,10 @@ export function App() {
   const [starting, setStarting] = useState(false);
   const [pending, setPending] = useState(() => store.loadOutbox().length);
   const [notice, setNotice] = useState<string | null>(null);
+  // Letzter Fehler beim Senden aus einem der Ausgangskörbe (Training/Stretching/
+  // Fußball/Recovery); sonst bleibt ein fehlgeschlagener Sync unsichtbar, siehe
+  // flushOutbox & Co. in lib/api.ts, die Fehler zurückgeben statt zu werfen.
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   // Kurzer Hinweis beim Trainingsstart auf die Muskelgruppe mit den wenigsten Sätzen
@@ -174,6 +191,28 @@ export function App() {
     else store.clearStretchDraft();
   }, [stretchDraft, store]);
 
+  // Training läuft im Hintergrund (Home-Menü offen)?
+  const minimized = workoutMinimized && draft !== null;
+  const draftRestEndsAt = draft?.restEndsAt ?? null;
+
+  // Platz für die Fortsetzen-Leiste, damit sie keinen Inhalt verdeckt.
+  useEffect(() => {
+    document.body.classList.toggle('has-workout-banner', minimized);
+    return () => document.body.classList.remove('has-workout-banner');
+  }, [minimized]);
+
+  // Der Pausentimer lebt im Trainings-Bildschirm. Läuft das Training im Hintergrund weiter,
+  // meldet sich das Pausenende trotzdem mit dem Signalton.
+  useEffect(() => {
+    if (!minimized || draftRestEndsAt === null) return;
+    const left = draftRestEndsAt - Date.now();
+    const id = window.setTimeout(() => {
+      if (left > -REST_STALE_MS) beep();
+      setDraft((d) => (d && d.restEndsAt === draftRestEndsAt ? { ...d, restEndsAt: null } : d));
+    }, Math.max(0, left));
+    return () => window.clearTimeout(id);
+  }, [minimized, draftRestEndsAt]);
+
   // Entwurf bei jeder Änderung lokal sichern.
   useEffect(() => {
     if (!loaded.current) {
@@ -189,8 +228,10 @@ export function App() {
       const names = Object.fromEntries(known.map((x) => [x.id, x.name]));
       const res = await fetchPlans(names);
       if (res.ok) {
-        setPlans(res.data);
-        store.savePlans(res.data);
+        // Im Training geänderte Sätze/Aufwärmen, die noch nicht in der Datenbank sind, bleiben sichtbar.
+        const merged = applyPlanPatches(res.data, store.loadPlanPatches());
+        setPlans(merged);
+        store.savePlans(merged);
       }
       setPlansReady(true);
       return res;
@@ -199,14 +240,19 @@ export function App() {
   );
 
   const sync = useCallback(async () => {
+    setSyncError(null);
     const res = await flushOutbox(store);
     setPending(res.pending);
     if (res.sent > 0) setNotice(`${res.sent} Training(s) gespeichert.`);
+    if (res.error) setSyncError(res.error);
     const list = await fetchExercises();
     if (list.ok) {
       setExercises(list.data);
       store.saveExercises(list.data);
     }
+    // Erst die im Training geänderten Pläne senden, dann neu laden (sonst käme der alte Stand zurück).
+    const patchRes = await flushPlanPatches(store);
+    if (patchRes.error) setSyncError((prev) => prev ?? patchRes.error);
     await refreshPlans(list.ok ? list.data : store.loadExercises());
     const hist = await fetchHistory();
     if (hist.ok) {
@@ -226,6 +272,7 @@ export function App() {
     const stretchRes = await flushStretchOutbox(store);
     setStretchPending(stretchRes.pending);
     if (stretchRes.sent > 0) setNotice(`${stretchRes.sent} Stretching-Session(s) gespeichert.`);
+    if (stretchRes.error) setSyncError((prev) => prev ?? stretchRes.error);
     const stretchList = await fetchStretchExercises();
     if (stretchList.ok) {
       setStretchExercises(stretchList.data);
@@ -246,6 +293,7 @@ export function App() {
     const footballRes = await flushFootballOutbox(store);
     setFootballPending(footballRes.pending);
     if (footballRes.sent > 0) setNotice(`${footballRes.sent} Fußball-Eintrag/Einträge gespeichert.`);
+    if (footballRes.error) setSyncError((prev) => prev ?? footballRes.error);
     const footballHist = await fetchFootballHistory();
     if (footballHist.ok) {
       setFootballHistory(footballHist.data);
@@ -256,6 +304,7 @@ export function App() {
     const recoveryRes = await flushRecoveryOutbox(store);
     setRecoveryPending(recoveryRes.pending);
     if (recoveryRes.sent > 0) setNotice(`${recoveryRes.sent} Recovery-Eintrag/Einträge gespeichert.`);
+    if (recoveryRes.error) setSyncError((prev) => prev ?? recoveryRes.error);
     const recoveryHist = await fetchRecoveryHistory();
     if (recoveryHist.ok) {
       setRecoveryHistory(recoveryHist.data);
@@ -302,12 +351,13 @@ export function App() {
     [store],
   );
 
-  async function finish() {
+  async function finish(opts: { applyPlanChanges: boolean }) {
     if (!draft) return;
     const finishedAt = new Date();
     const payload = buildPayload(draft, finishedAt);
     if (!payload) {
       setDraft(null);
+      setWorkoutMinimized(false);
       setWeakSpotHint(null);
       return;
     }
@@ -333,6 +383,17 @@ export function App() {
     if (draft.planDayId) {
       store.setLastPlanDayId(draft.planDayId);
       setLastPlanDayId(draft.planDayId);
+    }
+    // Im Training hinzugefügte/entfernte Sätze und Aufwärmsätze überschreiben den Plan:
+    // sofort lokal (gilt auch offline schon beim nächsten Start), die Datenbank folgt in sync().
+    if (opts.applyPlanChanges) {
+      const patches = patchesFromChanges(planChangesFromDraft(draft));
+      if (patches.length > 0) {
+        store.savePlanPatches(mergePlanPatches(store.loadPlanPatches(), patches));
+        const nextPlans = applyPlanPatches(plans, patches);
+        setPlans(nextPlans);
+        store.savePlans(nextPlans);
+      }
     }
     // Auswertung direkt nach dem Speichern, auch offline (nur lokale Daten).
     const current = draftToHist(draft, finishedAt);
@@ -360,6 +421,7 @@ export function App() {
         : null,
     );
     setDraft(null);
+    setWorkoutMinimized(false);
     setWeakSpotHint(null);
     setPending(store.loadOutbox().length);
     setBusy(false);
@@ -575,7 +637,16 @@ export function App() {
     );
   }
 
+  /** Läuft schon ein Training, geht es dorthin zurück, statt es durch ein neues zu überschreiben. */
+  function resumeRunningWorkout(): boolean {
+    if (!draft) return false;
+    setNotice('Es läuft bereits ein Training. Beende es zuerst, um ein neues zu starten.');
+    setWorkoutMinimized(false);
+    return true;
+  }
+
   async function startFromPlan(plan: Plan, dayId: string) {
+    if (resumeRunningWorkout()) return;
     const day = plan.days.find((d) => d.id === dayId);
     if (!day) return;
     setStarting(true);
@@ -592,6 +663,7 @@ export function App() {
       ),
     );
     updateWeakSpotHint();
+    setWorkoutMinimized(false);
     setScreen('home');
     setStarting(false);
   }
@@ -627,6 +699,7 @@ export function App() {
     if (!res.ok) return `Zurücksetzen fehlgeschlagen: ${res.error}`;
     store.clearTrainingData();
     setDraft(null);
+    setWorkoutMinimized(false);
     setSummary(null);
     setWeeklyReview(null);
     setHistory([]);
@@ -677,7 +750,7 @@ export function App() {
 
   if (email === null) return <Login />;
 
-  if (draft) {
+  if (draft && !workoutMinimized) {
     return (
       <main>
         {notice && (
@@ -691,10 +764,15 @@ export function App() {
           history={mergedHistory}
           onUpdate={(fn) => setDraft((d) => (d ? fn(d) : d))}
           loadLast={loadLast}
-          onFinish={() => void finish()}
+          onFinish={(opts) => void finish(opts)}
           onDiscard={() => {
             setDraft(null);
             setWeakSpotHint(null);
+          }}
+          onHome={() => {
+            setNotice(null);
+            setScreen('home');
+            setWorkoutMinimized(true);
           }}
           busy={busy}
           weakSpotHint={weakSpotHint}
@@ -740,7 +818,14 @@ export function App() {
     );
   }
 
-  const tabs = editorOpen ? null : <TabBar active={screen} onChange={setScreen} />;
+  const tabs = (
+    <>
+      {draft && (
+        <WorkoutBanner draft={draft} low={editorOpen} onResume={() => setWorkoutMinimized(false)} />
+      )}
+      {editorOpen ? null : <TabBar active={screen} onChange={setScreen} />}
+    </>
+  );
 
   if (screen === 'stretch') {
     return (
@@ -981,6 +1066,12 @@ export function App() {
             <button type="button" className="link" onClick={() => void sync()}>
               Jetzt versuchen
             </button>
+            {syncError && (
+              <>
+                <br />
+                <small>Letzter Fehler: {syncError}</small>
+              </>
+            )}
           </p>
         )}
 
@@ -1079,8 +1170,10 @@ export function App() {
           type="button"
           className="addtile"
           onClick={() => {
+            if (resumeRunningWorkout()) return;
             setNotice(null);
             setDraft(createDraft('Freies Training', null, new Date()));
+            setWorkoutMinimized(false);
             updateWeakSpotHint();
           }}
         >

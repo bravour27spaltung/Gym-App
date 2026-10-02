@@ -2716,3 +2716,98 @@ button.tile:disabled {
 .timer.hold {
   margin-top: 12px;
 }
+
+/* ---------- Training läuft im Hintergrund (Home-Menü) ---------- */
+
+.workout-banner {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(62px + var(--safe-bottom) + 8px);
+  z-index: 29;
+  max-width: 616px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 18px;
+  text-align: left;
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+.workout-banner.low {
+  bottom: calc(12px + var(--safe-bottom));
+}
+
+.wb-icon {
+  flex: none;
+  display: inline-flex;
+}
+
+.wb-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wb-text strong,
+.wb-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-text small {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.wb-go {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+/* Platz, damit die Leiste keinen Inhalt verdeckt. */
+.has-workout-banner .screen {
+  padding-bottom: calc(172px + var(--safe-bottom));
+}
+
+.plan-sync {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  text-align: left;
+}
+
+.plan-sync input {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.plan-sync span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.plan-sync small {
+  color: var(--muted);
+  font-size: 0.85rem;
+}

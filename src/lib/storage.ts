@@ -1,4 +1,4 @@
-import type { Plan } from './plan';
+import type { Plan, PlanPatch } from './plan';
 import type { LoggedSet } from './progression';
 import type { HistWorkout } from './stats';
 import type { StretchDraft, StretchPayload, StretchPlan } from './stretch';
@@ -110,6 +110,7 @@ const KEYS = {
   history: 'gym.history.v1',
   exercises: 'gym.exercises.v1',
   plans: 'gym.plans.v1',
+  planPatches: 'gym.planPatches.v1',
   lastPlanDay: 'gym.lastPlanDay.v1',
   stretchDraft: 'gym.stretchDraft.v1',
   stretchOutbox: 'gym.stretchOutbox.v1',
@@ -212,6 +213,13 @@ export function createStore(storage: KeyValueStorage | null) {
 
     loadPlans: () => read<Plan[]>(KEYS.plans, []),
     savePlans: (items: Plan[]) => write(KEYS.plans, items),
+
+    /**
+     * Im Training geänderte Sätze/Aufwärmen, die noch nicht in der Datenbank sind. Wird beim
+     * Neuladen der Pläne wieder aufgelegt, damit eine Änderung offline nicht verschwindet.
+     */
+    loadPlanPatches: () => read<PlanPatch[]>(KEYS.planPatches, []),
+    savePlanPatches: (items: PlanPatch[]) => write(KEYS.planPatches, items),
 
     /** Zuletzt trainierter Plantag, Grundlage der Rotation (Push -> Pull -> Lower). */
     getLastPlanDayId: () => read<string | null>(KEYS.lastPlanDay, null),
