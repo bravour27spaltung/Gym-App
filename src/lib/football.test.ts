@@ -1,5 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { buildFootballPayload, footballKindLabel, footballLoad } from './football';
+import { buildFootballPayload, FOOTBALL_PRESETS, footballKindLabel, footballLoad, presetDate } from './football';
+
+describe('presetDate', () => {
+  const tue = FOOTBALL_PRESETS.find((p) => p.id === 'tue')!;
+  const sun = FOOTBALL_PRESETS.find((p) => p.id === 'sun')!;
+
+  it('liefert den letzten Dienstag bzw. Sonntag vor einem Freitag', () => {
+    const fri = new Date(2026, 9, 2, 14, 0); // Fr 2026-10-02
+    expect(presetDate(tue, fri)).toBe('2026-09-29');
+    expect(presetDate(sun, fri)).toBe('2026-09-27');
+  });
+
+  it('heute zählt erst, wenn die Startzeit erreicht ist', () => {
+    expect(presetDate(tue, new Date(2026, 9, 6, 10, 0))).toBe('2026-09-29'); // Di vormittags
+    expect(presetDate(tue, new Date(2026, 9, 6, 19, 30))).toBe('2026-10-06'); // Di ab 19:30
+    expect(presetDate(tue, new Date(2026, 9, 6, 22, 0))).toBe('2026-10-06');
+  });
+
+  it('kommt über Monatsgrenzen zurecht', () => {
+    expect(presetDate(sun, new Date(2026, 10, 3, 12, 0))).toBe('2026-11-01'); // Di 3.11. -> So 1.11.
+    expect(presetDate(sun, new Date(2026, 10, 1, 12, 0))).toBe('2026-10-25'); // So 1.11. vor 13:00 -> Vorwoche
+  });
+
+  it('die Schnellwahl entspricht Di 19:30–21:00 (90 min) und So 13:00–15:45 (165 min)', () => {
+    expect([tue.startTime, tue.minutes]).toEqual(['19:30', 90]);
+    expect([sun.startTime, sun.minutes]).toEqual(['13:00', 165]);
+  });
+});
 
 describe('footballLoad', () => {
   it('multipliziert Dauer und RPE (Session-RPE-Belastung)', () => {

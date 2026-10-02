@@ -13,6 +13,9 @@ import {
 } from '../lib/footballWatch';
 import {
   FOOTBALL_KINDS,
+  FOOTBALL_PRESETS,
+  presetDate,
+  type FootballPreset,
   footballKindLabel,
   footballLoad,
   type FootballEntryInput,
@@ -149,6 +152,15 @@ export function FootballScreen({
     resetForm();
   }
 
+  /** Schnellwahl: letzter passender Wochentermin (Datum, Startzeit, Dauer, Art). */
+  function applyPreset(p: FootballPreset) {
+    setPlayedOn(presetDate(p, new Date()));
+    setStartedAtTime(p.startTime);
+    setMinutes(p.minutes);
+    setKind(p.kind);
+    setWatchRangeNotice(null);
+  }
+
   /** Berechnet Ø Puls und Distanz für den im Formular gewählten Zeitraum (Datum, Startzeit, Dauer). */
   async function applyWatchRange() {
     if (startedAtTime.trim() === '' || !(minutes > 0)) return;
@@ -274,6 +286,17 @@ export function FootballScreen({
             {watchNotice}
           </p>
         )}
+        <div className="field stack">
+          <span>Schnellwahl</span>
+          <div className="chips" role="group" aria-label="Schnellwahl Termin">
+            {FOOTBALL_PRESETS.map((p) => (
+              <button key={p.id} type="button" className="chip" onClick={() => applyPreset(p)}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <label className="field stack">
           <span>Datum</span>
           <input

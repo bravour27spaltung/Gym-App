@@ -30,6 +30,43 @@ export function footballLoad(minutes: number, rpe: number): number {
 
 export type FootballSource = 'manual' | 'apple_health';
 
+/**
+ * Feste Wochentermine als Schnellwahl im Fußball-Formular: ein Tipp stellt Datum (letzter
+ * passender Termin), Startzeit, Dauer und Art ein. Hier anpassen, wenn sich die Zeiten ändern.
+ * weekday: 0 = Sonntag … 6 = Samstag (wie Date.getDay()).
+ */
+export interface FootballPreset {
+  id: string;
+  label: string;
+  weekday: number;
+  /** "HH:MM". */
+  startTime: string;
+  minutes: number;
+  kind: FootballKind;
+}
+
+export const FOOTBALL_PRESETS: FootballPreset[] = [
+  { id: 'tue', label: 'Di 19:30–21:00', weekday: 2, startTime: '19:30', minutes: 90, kind: 'training' },
+  { id: 'sun', label: 'So 13:00–15:45', weekday: 0, startTime: '13:00', minutes: 165, kind: 'match' },
+];
+
+/**
+ * Datum ("YYYY-MM-DD", lokale Zeit) des letzten Termins dieses Wochentags, dessen Startzeit
+ * schon vorbei ist (heute zählt, sobald die Startzeit erreicht ist).
+ */
+export function presetDate(preset: FootballPreset, now: Date): string {
+  const [h, m] = preset.startTime.split(':').map(Number);
+  for (let back = 0; back <= 7; back++) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back, h, m, 0, 0);
+    if (d.getDay() === preset.weekday && d.getTime() <= now.getTime()) {
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${d.getFullYear()}-${mm}-${dd}`;
+    }
+  }
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
 export interface FootballEntryInput {
   /** Datum im Format "YYYY-MM-DD". */
   playedOn: string;
