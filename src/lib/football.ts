@@ -30,41 +30,31 @@ export function footballLoad(minutes: number, rpe: number): number {
 
 export type FootballSource = 'manual' | 'apple_health';
 
-/**
- * Feste Wochentermine als Schnellwahl im Fußball-Formular: ein Tipp stellt Datum (letzter
- * passender Termin), Startzeit, Dauer und Art ein. Hier anpassen, wenn sich die Zeiten ändern.
- * weekday: 0 = Sonntag … 6 = Samstag (wie Date.getDay()).
- */
-export interface FootballPreset {
-  id: string;
-  label: string;
-  weekday: number;
-  /** "HH:MM". */
-  startTime: string;
-  minutes: number;
-  kind: FootballKind;
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+function timeToMinutes(time: string): number | null {
+  const m = time.match(TIME_RE);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
 }
 
-export const FOOTBALL_PRESETS: FootballPreset[] = [
-  { id: 'tue', label: 'Di 19:30–21:00', weekday: 2, startTime: '19:30', minutes: 90, kind: 'training' },
-  { id: 'sun', label: 'So 13:00–15:45', weekday: 0, startTime: '13:00', minutes: 165, kind: 'match' },
-];
+/** "HH:MM" plus Minuten, über Mitternacht hinweg ("23:30" + 60 = "00:30"); ungültige Zeit ergibt "". */
+export function addMinutesToTime(time: string, minutes: number): string {
+  const base = timeToMinutes(time);
+  if (base === null || !Number.isFinite(minutes)) return '';
+  const total = (((base + Math.round(minutes)) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
 
 /**
- * Datum ("YYYY-MM-DD", lokale Zeit) des letzten Termins dieses Wochentags, dessen Startzeit
- * schon vorbei ist (heute zählt, sobald die Startzeit erreicht ist).
+ * Minuten von Start bis Ende ("HH:MM"). Liegt das Ende nicht nach dem Start, gilt es als am
+ * Folgetag (13:00 bis 01:00 = 720 min); gleiche Zeiten ergeben 0. Ungültige Zeit ergibt NaN.
  */
-export function presetDate(preset: FootballPreset, now: Date): string {
-  const [h, m] = preset.startTime.split(':').map(Number);
-  for (let back = 0; back <= 7; back++) {
-    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back, h, m, 0, 0);
-    if (d.getDay() === preset.weekday && d.getTime() <= now.getTime()) {
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      return `${d.getFullYear()}-${mm}-${dd}`;
-    }
-  }
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+export function minutesBetweenTimes(start: string, end: string): number {
+  const a = timeToMinutes(start);
+  const b = timeToMinutes(end);
+  if (a === null || b === null) return NaN;
+  if (a === b) return 0;
+  return b > a ? b - a : b + 1440 - a;
 }
 
 export interface FootballEntryInput {

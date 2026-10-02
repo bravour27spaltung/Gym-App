@@ -12,10 +12,9 @@ import {
   type WatchWindow,
 } from '../lib/footballWatch';
 import {
+  addMinutesToTime,
   FOOTBALL_KINDS,
-  FOOTBALL_PRESETS,
-  presetDate,
-  type FootballPreset,
+  minutesBetweenTimes,
   footballKindLabel,
   footballLoad,
   type FootballEntryInput,
@@ -152,15 +151,6 @@ export function FootballScreen({
     resetForm();
   }
 
-  /** Schnellwahl: letzter passender Wochentermin (Datum, Startzeit, Dauer, Art). */
-  function applyPreset(p: FootballPreset) {
-    setPlayedOn(presetDate(p, new Date()));
-    setStartedAtTime(p.startTime);
-    setMinutes(p.minutes);
-    setKind(p.kind);
-    setWatchRangeNotice(null);
-  }
-
   /** Berechnet Ø Puls und Distanz für den im Formular gewählten Zeitraum (Datum, Startzeit, Dauer). */
   async function applyWatchRange() {
     if (startedAtTime.trim() === '' || !(minutes > 0)) return;
@@ -286,17 +276,6 @@ export function FootballScreen({
             {watchNotice}
           </p>
         )}
-        <div className="field stack">
-          <span>Schnellwahl</span>
-          <div className="chips" role="group" aria-label="Schnellwahl Termin">
-            {FOOTBALL_PRESETS.map((p) => (
-              <button key={p.id} type="button" className="chip" onClick={() => applyPreset(p)}>
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         <label className="field stack">
           <span>Datum</span>
           <input
@@ -307,6 +286,36 @@ export function FootballScreen({
             onChange={(e) => setPlayedOn(e.target.value)}
           />
         </label>
+
+        <div className="field stack">
+          <span>Zeitraum</span>
+          <div className="row wrap">
+            <label className="row">
+              <span className="unit">Von</span>
+              <input
+                className="text"
+                type="time"
+                aria-label="Startzeit"
+                value={startedAtTime}
+                onChange={(e) => setStartedAtTime(e.target.value)}
+              />
+            </label>
+            <label className="row">
+              <span className="unit">Bis</span>
+              <input
+                className="text"
+                type="time"
+                aria-label="Endzeit"
+                value={startedAtTime ? addMinutesToTime(startedAtTime, minutes) : ''}
+                disabled={startedAtTime.trim() === ''}
+                onChange={(e) => {
+                  const diff = minutesBetweenTimes(startedAtTime, e.target.value);
+                  if (Number.isFinite(diff) && diff > 0) setMinutes(Math.min(240, diff));
+                }}
+              />
+            </label>
+          </div>
+        </div>
 
         <div className="field stack">
           <span>Art der Einheit</span>
@@ -371,16 +380,6 @@ export function FootballScreen({
         <details className="equipment" open>
           <summary>Zusatzwerte (Distanz, Ø Puls) – optional, aus Apple Watch oder Health-Export</summary>
 
-          <label className="field stack">
-            <span>Startzeit (für den Abgleich mit Apple Watch / Health)</span>
-            <input
-              className="text"
-              type="time"
-              value={startedAtTime}
-              onChange={(e) => setStartedAtTime(e.target.value)}
-            />
-          </label>
-
           <div className="row wrap">
             {rangeReady ? (
               <a
@@ -407,8 +406,8 @@ export function FootballScreen({
             </button>
           </div>
           <p className="muted newex-hint">
-            Stelle Datum, Startzeit und Dauer ein und tippe auf „Apple-Watch-Daten holen“: Der Kurzbefehl lädt nur
-            diesen Zeitraum aus Health. Danach kommst du über den Rücksprung-Link oben links in der Statusleiste
+            Stelle oben Datum und Zeitraum (Von/Bis oder Dauer) frei ein und tippe auf „Apple-Watch-Daten holen“: Der
+            Kurzbefehl lädt nur diesen Zeitraum aus Health. Danach kommst du über den Rücksprung-Link oben links in der Statusleiste
             zurück, die App rechnet Ø/Max-Puls, Distanz und Schritte dann automatisch. „Nur berechnen“ nutzt bereits
             abgerufene Daten.
           </p>
