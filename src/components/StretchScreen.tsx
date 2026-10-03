@@ -1,17 +1,23 @@
 import { useEffect, useState } from 'react';
 import {
-  addStretchItem,
+  addStretchRounds,
   buildStretchPayload,
   clearQueue,
   consumeQueued,
+  DEFAULT_HOLD_SECONDS,
+  itemSummary,
+  plannedRounds,
   sideLabel,
+  type StretchAmount,
   type StretchDraft,
   type StretchExerciseInput,
+  type StretchRound,
   type StretchSide,
 } from '../lib/stretch';
 import type { StretchExerciseListItem } from '../lib/storage';
 import { AddStretchExercise } from './AddStretchExercise';
 import { HoldTimer } from './HoldTimer';
+import { RepsDone } from './RepsDone';
 import { Icon, IconButton } from './ui';
 
 interface Props {
@@ -23,7 +29,21 @@ interface Props {
   busy: boolean;
 }
 
-const SIDES: StretchSide[] = ['beidseitig', 'links', 'rechts'];
+const SIDES: StretchSide[] = ['beidseitig', 'links', 'rechts', 'mittig'];
+
+/** Laufende Übung: Ziel (Haltezeit oder Wiederholungen), Seite(n) und bereits fertige Durchgänge. */
+interface Running {
+  input: StretchExerciseInput;
+  /** Ziel-Haltezeit (Timer); null bei Wiederholungs-Übungen. */
+  holdSeconds: number | null;
+  /** Ziel-Wiederholungen (kein Timer); null bei Haltezeit-Übungen. */
+  reps: number | null;
+  side: StretchSide;
+  sets: number;
+  /** Aus einer Vorlage: wird nach den Durchgängen aus der Warteschlange genommen. */
+  fromQueue: boolean;
+  done: StretchRound[];
+}
 
 function useElapsedMinutes(startedAt: string): number {
   const [now, setNow] = useState(() => Date.now());
@@ -69,12 +89,11 @@ export function StretchScreen({ draft, stretchExercises, onUpdate, onFinish, onD
   const [confirming, setConfirming] = useState(false);
   const [feelingAfter, setFeelingAfter] = useState<number | null>(null);
   const [note, setNote] = useState('');
-  // Übung gewählt, Haltezeit-Timer läuft; erst nach "Fertig" wird sie zur Session hinzugefügt.
-  // fromQueue: Übung stammt aus einer importierten Vorlage und wird nach dem Timer aus der
-  // Warteschlange genommen statt manuell über AddStretchExercise gewählt zu werden.
-  const [running, setRunning] = useState<
-    { input: StretchExerciseInput; holdSeconds: number; side: StretchSide; fromQueue: boolean } | null
-  >(null);
+  // Übung gewählt, Durchgang läuft: je Seite (und Satz) ein eigener Timer bzw. eine eigene
+  // Wiederholungs-Abfrage; erst nach dem letzten Durchgang wird die Übung zur Session
+  // hinzugefügt. fromQueue: Übung stammt aus einer importierten Vorlage und wird danach aus
+  // der Warteschlange genommen statt manuell über AddStretchExercise gewählt zu werden.
+  const [running, setRunning] = useState<Running | null>(null);
   const minutes = useElapsedMinutes(draft.startedAt);
   const queue = draft.queue ?? [];
 
@@ -82,25 +101,57 @@ export function StretchScreen({ draft, stretchExercises, onUpdate, onFinish, onD
   useEffect(() => {
     if (running || adding || queue.length === 0) return;
     const head = queue[0];
-    setRunning({ input: head.input, holdSeconds: head.holdSeconds, side: head.side, fromQueue: true });
+    setRunning({
+      input: head.input,
+      holdSeconds: head.reps != null ? null : (head.holdSeconds ?? DEFAULT_HOLD_SECONDS),
+      reps: head.reps ?? null,
+      side: head.side,
+      sets: head.sets,
+      fromQueue: true,
+      done: [],
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queue, running, adding]);
 
-  function handlePick(input: StretchExerciseInput, holdSeconds: number) {
+  function handlePick(input: StretchExerciseInput, amount: StretchAmount) {
     setAdding(false);
-    setRunning({ input, holdSeconds, side: 'beidseitig', fromQueue: false });
+    setRunning({
+      input,
+      holdSeconds: amount.holdSeconds,
+      reps: amount.reps,
+      side: 'beidseitig',
+      sets: 1,
+      fromQueue: false,
+      done: [],
+    });
   }
 
-  function handleTimerFinish(actualSeconds: number) {
+  /** Übung mit den bisher absolvierten Durchgängen abschließen (leer = überspringen). */
+  function commit(r: Running, rounds: StretchRound[]) {
+    if (r.fromQueue) onUpdate((d) => consumeQueued(d, rounds));
+    else if (rounds.length > 0) onUpdate((d) => addStretchRounds(d, r.input, rounds));
+    setRunning(null);
+  }
+
+  /** Durchgang beendet: gemessene Sekunden bzw. Wiederholungen verbuchen, dann nächste Seite/Satz. */
+  function handleRoundFinish(value: number) {
     if (!running) return;
-    if (running.fromQueue) onUpdate((d) => consumeQueued(d, running.side, actualSeconds));
-    else onUpdate((d) => addStretchItem(d, running.input, running.side, actualSeconds));
-    setRunning(null);
+    const planned = plannedRounds(running.side, running.sets);
+    const current = planned[running.done.length];
+    if (!current) return;
+    const round: StretchRound = {
+      side: current.side,
+      holdSeconds: running.reps == null ? value : null,
+      reps: running.reps,
+    };
+    const done = [...running.done, round];
+    if (done.length >= planned.length) commit(running, done);
+    else setRunning({ ...running, done });
   }
 
-  function handleTimerCancel() {
-    if (running?.fromQueue) onUpdate((d) => ({ ...d, queue: (d.queue ?? []).slice(1) }));
-    setRunning(null);
+  /** Abbrechen: schon fertige Durchgänge bleiben erhalten, der laufende zählt nicht. */
+  function handleCancel() {
+    if (running) commit(running, running.done);
   }
 
   const payloadPreview = buildStretchPayload(draft, new Date(), feelingAfter, note);
@@ -158,9 +209,7 @@ export function StretchScreen({ draft, stretchExercises, onUpdate, onFinish, onD
                 <div className="exrow static">
                   <span className="exrow-text">
                     <strong>{it.name}</strong>
-                    <small>
-                      {sideLabel(it.side)} · {it.holdSeconds} s{it.sets > 1 ? ` × ${it.sets}` : ''}
-                    </small>
+                    <small>{itemSummary(it.side, it.holdSeconds, it.reps, it.sets)}</small>
                   </span>
                   <IconButton
                     icon="trash"
@@ -174,29 +223,58 @@ export function StretchScreen({ draft, stretchExercises, onUpdate, onFinish, onD
           </ul>
         )}
 
-        {running && (
-          <div className="card">
-            <h3>{running.input.name}</h3>
-            <div className="chips" role="group" aria-label="Seite">
-              {SIDES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className={running.side === s ? 'chip on' : 'chip'}
-                  aria-pressed={running.side === s}
-                  onClick={() => setRunning((r) => (r ? { ...r, side: s } : r))}
-                >
-                  {sideLabel(s)}
-                </button>
-              ))}
+        {running && (() => {
+          const planned = plannedRounds(running.side, running.sets);
+          const idx = Math.min(running.done.length, planned.length - 1);
+          const current = planned[idx];
+          const roundTitle = [
+            current.side === 'mittig' ? null : sideLabel(current.side),
+            running.sets > 1 ? `Satz ${current.set}/${running.sets}` : null,
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          return (
+            <div className="card">
+              <h3>{running.input.name}</h3>
+              {running.done.length === 0 && (
+                <div className="chips" role="group" aria-label="Seite">
+                  {SIDES.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className={running.side === s ? 'chip on' : 'chip'}
+                      aria-pressed={running.side === s}
+                      onClick={() => setRunning((r) => (r ? { ...r, side: s } : r))}
+                    >
+                      {sideLabel(s)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {roundTitle !== '' && (
+                <p className="round-head" aria-live="polite">
+                  {roundTitle}
+                  {planned.length > 1 && <small> · Durchgang {idx + 1} von {planned.length}</small>}
+                </p>
+              )}
+              {running.reps != null ? (
+                <RepsDone
+                  key={idx}
+                  reps={running.reps}
+                  onFinish={handleRoundFinish}
+                  onCancel={handleCancel}
+                />
+              ) : (
+                <HoldTimer
+                  key={idx}
+                  targetSeconds={running.holdSeconds ?? DEFAULT_HOLD_SECONDS}
+                  onFinish={handleRoundFinish}
+                  onCancel={handleCancel}
+                />
+              )}
             </div>
-            <HoldTimer
-              targetSeconds={running.holdSeconds}
-              onFinish={handleTimerFinish}
-              onCancel={handleTimerCancel}
-            />
-          </div>
-        )}
+          );
+        })()}
 
         {draft.items.length > 0 && !running && (
           <button type="button" className="addtile" onClick={() => setAdding(true)}>

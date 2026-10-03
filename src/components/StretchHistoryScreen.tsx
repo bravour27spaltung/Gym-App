@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { fmtDay, fmtTime } from '../lib/format';
 import type { HistStretchSession } from '../lib/storage';
-import { sideLabel } from '../lib/stretch';
+import { itemSummary } from '../lib/stretch';
 import { Icon, StatGrid } from './ui';
 
 interface Props {
@@ -84,9 +84,7 @@ export function StretchHistoryScreen({ sessions, nameOf }: Props) {
                         <div className="exrow static">
                           <span className="exrow-text">
                             <strong>{nameOf(it.stretchExerciseId)}</strong>
-                            <small>
-                              {sideLabel(it.side)} · {it.holdSeconds} s{it.sets > 1 ? ` × ${it.sets}` : ''}
-                            </small>
+                            <small>{itemSummary(it.side, it.holdSeconds, it.reps, it.sets)}</small>
                           </span>
                         </div>
                       </li>

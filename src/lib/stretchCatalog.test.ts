@@ -18,9 +18,17 @@ describe('STRETCH_CATALOG', () => {
     }
   });
 
-  it('hat eine positive Standard-Haltezeit je Übung', () => {
+  it('hat je Übung genau eine Standardmenge: Haltezeit (Timer) oder Wiederholungen', () => {
     for (const s of STRETCH_CATALOG) {
-      expect(s.holdSeconds).toBeGreaterThan(0);
+      const hold = s.holdSeconds ?? 0;
+      const reps = s.reps ?? 0;
+      expect(hold > 0 !== reps > 0).toBe(true);
+    }
+  });
+
+  it('nennt Wiederholungen nicht mehr im Namen (eigenes Feld)', () => {
+    for (const s of STRETCH_CATALOG) {
+      expect(s.name).not.toMatch(/Wdh/);
     }
   });
 });
@@ -38,6 +46,16 @@ describe('STRETCH_PLAN_CATALOG', () => {
       expect(p.items.length).toBeGreaterThan(0);
       for (const it of p.items) {
         expect(catalogIds.has(it.stretchId)).toBe(true);
+      }
+    }
+  });
+
+  it('lässt Vorlagen-Einträge mit Wiederholungen ohne Haltezeit und umgekehrt', () => {
+    for (const p of STRETCH_PLAN_CATALOG) {
+      for (const it of p.items) {
+        const ex = STRETCH_CATALOG.find((s) => s.id === it.stretchId)!;
+        expect(it.side).toBe(ex.side);
+        if (ex.reps != null) expect(it.holdSeconds).toBeUndefined();
       }
     }
   });

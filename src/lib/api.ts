@@ -3,8 +3,8 @@ import { translateAuthError } from './authErrors';
 import type { Plan, PlanDbRow, PlanPatch, PlanRows } from './plan';
 import { resetSteps } from './reset';
 import { plansFromRows } from './plan';
-import type { StretchPayload, StretchPlan, StretchSide } from './stretch';
-import { STRETCH_CATALOG, STRETCH_PLAN_CATALOG } from './stretchCatalog';
+import type { StretchPayload, StretchPlan, StretchPlanPayload, StretchSide } from './stretch';
+import { STRETCH_CATALOG, STRETCH_PLAN_CATALOG, type CatalogPlanItem } from './stretchCatalog';
 import type { FootballKind, FootballPayload, FootballSource } from './football';
 import type { WatchSample, WatchWindow } from './footballWatch';
 import type { RecoveryPayload, RecoverySource } from './recovery';
@@ -371,17 +371,33 @@ interface StretchExerciseRow {
   name_de: string;
   muscles: string[] | null;
   default_hold_seconds: number | null;
+  /** Fehlt in Datenbanken ohne Migration 0015. */
+  default_reps?: number | null;
 }
 
 export async function fetchStretchExercises(): Promise<Result<StretchExerciseListItem[]>> {
   if (!supabase) return fail(NOT_CONFIGURED);
-  const { data, error } = await supabase
-    .from('fit_stretch_exercises')
-    .select('id, name_de, muscles, default_hold_seconds')
-    .is('archived_at', null)
-    .order('name_de');
-  if (error) return fail(error.message);
-  const rows = (data ?? []) as unknown as StretchExerciseRow[];
+  // "default_reps" gibt es erst seit Migration 0015; ohne sie auf die ältere Spaltenliste
+  // ausweichen, damit die App trotzdem lädt.
+  let data: unknown[] | null = null;
+  let lastError = '';
+  for (const cols of [
+    'id, name_de, muscles, default_hold_seconds, default_reps',
+    'id, name_de, muscles, default_hold_seconds',
+  ]) {
+    const res = await supabase
+      .from('fit_stretch_exercises')
+      .select(cols)
+      .is('archived_at', null)
+      .order('name_de');
+    if (!res.error) {
+      data = res.data;
+      break;
+    }
+    lastError = res.error.message;
+  }
+  if (data === null) return fail(lastError);
+  const rows = data as unknown as StretchExerciseRow[];
   return {
     ok: true,
     data: rows.map((r) => ({
@@ -389,6 +405,7 @@ export async function fetchStretchExercises(): Promise<Result<StretchExerciseLis
       name: r.name_de,
       muscles: r.muscles ?? [],
       defaultHoldSeconds: r.default_hold_seconds === null ? null : Number(r.default_hold_seconds),
+      defaultReps: r.default_reps == null ? null : Number(r.default_reps),
     })),
   };
 }
@@ -407,7 +424,9 @@ interface StretchHistoryRow {
     stretch_exercise_id: string;
     position: number;
     side: StretchSide;
-    hold_seconds: number;
+    hold_seconds: number | null;
+    /** Fehlt in Datenbanken ohne Migration 0015. */
+    reps?: number | null;
     sets: number;
   }[];
 }
@@ -417,7 +436,10 @@ export async function fetchStretchHistory(limit = 150): Promise<Result<HistStret
   if (!supabase) return fail(NOT_CONFIGURED);
   // "calories"/"avg_heart_rate" gibt es erst seit Migration 0011; ohne sie auf die
   // ältere Spaltenliste ausweichen, damit der Verlauf trotzdem lädt.
+  // "reps" gibt es erst seit Migration 0015.
   const variants = [
+    'id, started_at, finished_at, feeling_before, feeling_after, note, calories, avg_heart_rate, ' +
+      'fit_stretch_items(stretch_exercise_id, position, side, hold_seconds, reps, sets)',
     'id, started_at, finished_at, feeling_before, feeling_after, note, calories, avg_heart_rate, ' +
       'fit_stretch_items(stretch_exercise_id, position, side, hold_seconds, sets)',
     'id, started_at, finished_at, feeling_before, feeling_after, note, ' +
@@ -457,6 +479,7 @@ export async function fetchStretchHistory(limit = 150): Promise<Result<HistStret
           stretchExerciseId: it.stretch_exercise_id,
           side: it.side,
           holdSeconds: it.hold_seconds,
+          reps: it.reps ?? null,
           sets: it.sets,
         })),
     })),
@@ -512,7 +535,9 @@ interface StretchPlanDbRow {
     stretch_exercise_id: string;
     position: number;
     side: StretchSide;
-    hold_seconds: number;
+    hold_seconds: number | null;
+    /** Fehlt in Datenbanken ohne Migration 0015. */
+    reps?: number | null;
     sets: number;
     archived_at: string | null;
   }[];
@@ -531,16 +556,26 @@ export async function archiveStretchPlan(planId: string): Promise<Result<null>> 
 /** Gespeicherte Dehn-Vorlagen mit ihren Übungen, in Anlegereihenfolge. */
 export async function fetchStretchPlans(): Promise<Result<StretchPlan[]>> {
   if (!supabase) return fail(NOT_CONFIGURED);
-  const { data, error } = await supabase
-    .from('fit_stretch_plans')
-    .select(
-      'id, name, archived_at, ' +
-        'fit_stretch_plan_items(id, stretch_exercise_id, position, side, hold_seconds, sets, archived_at)',
-    )
-    .is('archived_at', null)
-    .order('created_at');
-  if (error) return fail(error.message);
-  const rows = (data ?? []) as unknown as StretchPlanDbRow[];
+  // "reps" gibt es erst seit Migration 0015; ohne sie auf die ältere Spaltenliste ausweichen.
+  let data: unknown[] | null = null;
+  let lastError = '';
+  for (const itemCols of [
+    'id, stretch_exercise_id, position, side, hold_seconds, reps, sets, archived_at',
+    'id, stretch_exercise_id, position, side, hold_seconds, sets, archived_at',
+  ]) {
+    const res = await supabase
+      .from('fit_stretch_plans')
+      .select(`id, name, archived_at, fit_stretch_plan_items(${itemCols})`)
+      .is('archived_at', null)
+      .order('created_at');
+    if (!res.error) {
+      data = res.data;
+      break;
+    }
+    lastError = res.error.message;
+  }
+  if (data === null) return fail(lastError);
+  const rows = data as unknown as StretchPlanDbRow[];
   return {
     ok: true,
     data: rows.map((p) => ({
@@ -554,6 +589,7 @@ export async function fetchStretchPlans(): Promise<Result<StretchPlan[]>> {
           stretchExerciseId: it.stretch_exercise_id,
           side: it.side,
           holdSeconds: it.hold_seconds,
+          reps: it.reps ?? null,
           sets: it.sets,
         })),
     })),
@@ -561,32 +597,87 @@ export async function fetchStretchPlans(): Promise<Result<StretchPlan[]>> {
 }
 
 /**
+ * Speichert eine (neue oder bearbeitete) Dehn-Vorlage: neue eigene Übungen, Vorlage,
+ * Einträge. Die neuen Einträge werden zuerst geschrieben (Upsert über die Client-IDs),
+ * erst danach verschwinden die entfernten – bricht etwas ab, geht keine Vorlage verloren.
+ */
+export async function syncStretchPlan(p: StretchPlanPayload): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+
+  if (p.newExercises.length > 0) {
+    const { error } = await supabase.from('fit_stretch_exercises').upsert(p.newExercises, { onConflict: 'id' });
+    if (error) return fail(`fit_stretch_exercises: ${error.message}`);
+  }
+  {
+    const { error } = await supabase.from('fit_stretch_plans').upsert([p.plan], { onConflict: 'id' });
+    if (error) return fail(`fit_stretch_plans: ${error.message}`);
+  }
+  {
+    const { error } = await supabase.from('fit_stretch_plan_items').upsert(p.items, { onConflict: 'id' });
+    if (error) return fail(`fit_stretch_plan_items: ${error.message}`);
+  }
+  {
+    const keep = p.items.map((it) => it.id).join(',');
+    const { error } = await supabase
+      .from('fit_stretch_plan_items')
+      .delete()
+      .eq('plan_id', p.plan.id)
+      .not('id', 'in', `(${keep})`);
+    if (error) return fail(`fit_stretch_plan_items: ${error.message}`);
+  }
+  return { ok: true, data: null };
+}
+
+/** Menge eines Katalog-Vorlageneintrags: eigene Angabe, sonst Standard der Übung (Wdh. oder Haltezeit). */
+function catalogAmount(it: CatalogPlanItem): { hold_seconds: number | null; reps: number | null } {
+  const ex = STRETCH_CATALOG.find((s) => s.id === it.stretchId);
+  const reps = it.reps ?? (it.holdSeconds == null ? ex?.reps : undefined);
+  if (reps != null) return { hold_seconds: null, reps };
+  return { hold_seconds: it.holdSeconds ?? ex?.holdSeconds ?? 30, reps: null };
+}
+
+/**
  * Importiert den mitgelieferten Katalog häufiger Dehnübungen und fertiger Vorlagen
  * (Knopf in der App statt SQL-Skript). Feste IDs im Katalog machen die Übungen und
- * Vorlagen selbst idempotent (Upsert); die Vorlagen-Einträge werden je Vorlage neu
- * geschrieben, ein erneuter Import ersetzt sie also sauber statt sie zu verdoppeln.
+ * Vorlagen selbst idempotent (Upsert). Vorlagen, die es schon gibt, bleiben unangetastet,
+ * damit eigene Änderungen (Name, Reihenfolge, Seiten, Mengen) einen erneuten Import
+ * überstehen. Nur mit resetPlans werden ihre Einträge auf den Katalogstand zurückgesetzt.
  */
-export async function importStretchCatalog(): Promise<Result<{ exercises: number; plans: number }>> {
+export async function importStretchCatalog(
+  resetPlans = false,
+): Promise<Result<{ exercises: number; plans: number }>> {
   if (!supabase) return fail(NOT_CONFIGURED);
 
   const exerciseRows = STRETCH_CATALOG.map((s) => ({
     id: s.id,
     name_de: s.name,
     muscles: s.muscles,
-    default_hold_seconds: s.holdSeconds,
+    default_hold_seconds: s.reps != null ? null : (s.holdSeconds ?? null),
+    default_reps: s.reps ?? null,
   }));
   if (exerciseRows.length > 0) {
     const { error } = await supabase.from('fit_stretch_exercises').upsert(exerciseRows, { onConflict: 'id' });
     if (error) return fail(`fit_stretch_exercises: ${error.message}`);
   }
 
-  const planRows = STRETCH_PLAN_CATALOG.map((p) => ({ id: p.id, name: p.name }));
+  let catalogPlans = STRETCH_PLAN_CATALOG;
+  if (!resetPlans) {
+    const { data: existing, error } = await supabase
+      .from('fit_stretch_plans')
+      .select('id')
+      .in('id', STRETCH_PLAN_CATALOG.map((p) => p.id));
+    if (error) return fail(`fit_stretch_plans: ${error.message}`);
+    const have = new Set((existing ?? []).map((r) => (r as { id: string }).id));
+    catalogPlans = STRETCH_PLAN_CATALOG.filter((p) => !have.has(p.id));
+  }
+
+  const planRows = catalogPlans.map((p) => ({ id: p.id, name: p.name }));
   if (planRows.length > 0) {
     const { error } = await supabase.from('fit_stretch_plans').upsert(planRows, { onConflict: 'id' });
     if (error) return fail(`fit_stretch_plans: ${error.message}`);
   }
 
-  for (const plan of STRETCH_PLAN_CATALOG) {
+  for (const plan of catalogPlans) {
     const { error: delError } = await supabase
       .from('fit_stretch_plan_items')
       .delete()
@@ -600,8 +691,7 @@ export async function importStretchCatalog(): Promise<Result<{ exercises: number
       stretch_exercise_id: it.stretchId,
       position: i + 1,
       side: it.side,
-      hold_seconds:
-        it.holdSeconds ?? STRETCH_CATALOG.find((s) => s.id === it.stretchId)?.holdSeconds ?? 30,
+      ...catalogAmount(it),
       sets: it.sets ?? 1,
     }));
     const { error: insError } = await supabase.from('fit_stretch_plan_items').insert(itemRows);

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { StretchExerciseListItem } from '../lib/storage';
-import type { StretchExerciseInput } from '../lib/stretch';
+import { DEFAULT_HOLD_SECONDS, DEFAULT_REPS, defaultAmount, type StretchAmount, type StretchExerciseInput } from '../lib/stretch';
 import { newId } from '../lib/workout';
 import { MUSCLES, muscleLabel } from '../lib/muscles';
 import { MuscleFigure } from './MuscleFigure';
@@ -10,8 +10,11 @@ import { Icon, IconButton, Stepper } from './ui';
 interface Props {
   exercises: StretchExerciseListItem[];
   onClose: () => void;
-  /** Übung plus gewählte Haltezeit (Vorschlag für den folgenden Timer). */
-  onPick: (input: StretchExerciseInput, holdSeconds: number) => void;
+  /**
+   * Übung plus Menge: Haltezeit (Timer) oder Wiederholungen (ohne Timer). Bei vorhandenen
+   * Übungen gelten deren Standardwerte, sonst die oben gewählte Menge.
+   */
+  onPick: (input: StretchExerciseInput, amount: StretchAmount) => void;
 }
 
 function normalize(s: string): string {
@@ -19,7 +22,6 @@ function normalize(s: string): string {
 }
 
 const NO_GROUP = '_none';
-const DEFAULT_HOLD = 30;
 
 /** Übungen nach erstem Muskel gruppieren, in der Reihenfolge der Muskelliste. */
 function groupByMuscle(
@@ -46,12 +48,14 @@ function groupByMuscle(
 }
 
 /**
- * Dehnübung wählen oder neu anlegen. Anders als bei AddExercise gibt es keine Sätze/
- * Wiederholungen, nur eine Haltezeit als Vorschlag für den folgenden Timer.
+ * Dehnübung wählen oder neu anlegen. Statt Sätzen/Gewicht gibt es eine Menge: Haltezeit
+ * (Timer läuft) oder Wiederholungen (kein Timer, nur "Abgeschlossen").
  */
 export function AddStretchExercise({ exercises, onClose, onPick }: Props) {
   const [query, setQuery] = useState('');
-  const [holdSeconds, setHoldSeconds] = useState(DEFAULT_HOLD);
+  const [mode, setMode] = useState<'hold' | 'reps'>('hold');
+  const [holdSeconds, setHoldSeconds] = useState(DEFAULT_HOLD_SECONDS);
+  const [reps, setReps] = useState(DEFAULT_REPS);
   const [muscles, setMuscles] = useState<string[]>([]);
 
   const q = normalize(query);
@@ -62,15 +66,19 @@ export function AddStretchExercise({ exercises, onClose, onPick }: Props) {
   const groups = useMemo(() => groupByMuscle(matches), [matches]);
   const exact = exercises.some((x) => normalize(x.name) === q);
 
+  const chosen: StretchAmount =
+    mode === 'reps' ? { holdSeconds: null, reps } : { holdSeconds, reps: null };
+
   function pickExisting(x: StretchExerciseListItem) {
+    const hasDefault = x.defaultReps != null || x.defaultHoldSeconds != null;
     onPick(
       { stretchExerciseId: x.id, name: x.name, isNew: false, muscles: x.muscles },
-      x.defaultHoldSeconds ?? holdSeconds,
+      hasDefault ? defaultAmount(x) : chosen,
     );
   }
 
   function createCustom() {
-    onPick({ stretchExerciseId: newId(), name: query.trim(), isNew: true, muscles }, holdSeconds);
+    onPick({ stretchExerciseId: newId(), name: query.trim(), isNew: true, muscles }, chosen);
   }
 
   return (
@@ -93,16 +101,39 @@ export function AddStretchExercise({ exercises, onClose, onPick }: Props) {
           />
         </label>
         <div className="pick-config">
-          <span>Haltezeit</span>
-          <Stepper
-            label="Haltezeit in Sekunden"
-            value={holdSeconds}
-            min={5}
-            max={300}
-            onChange={setHoldSeconds}
-          />
-          <span>s</span>
+          <div className="chips" role="group" aria-label="Art der Übung">
+            <button
+              type="button"
+              className={mode === 'hold' ? 'chip on' : 'chip'}
+              aria-pressed={mode === 'hold'}
+              onClick={() => setMode('hold')}
+            >
+              Haltezeit
+            </button>
+            <button
+              type="button"
+              className={mode === 'reps' ? 'chip on' : 'chip'}
+              aria-pressed={mode === 'reps'}
+              onClick={() => setMode('reps')}
+            >
+              Wiederholungen
+            </button>
+          </div>
+          {mode === 'hold' ? (
+            <>
+              <Stepper label="Haltezeit in Sekunden" value={holdSeconds} min={5} max={300} onChange={setHoldSeconds} />
+              <span>s</span>
+            </>
+          ) : (
+            <>
+              <Stepper label="Wiederholungen" value={reps} min={1} max={50} onChange={setReps} />
+              <span>Wdh.</span>
+            </>
+          )}
         </div>
+        <p className="muted pick-hint">
+          Für eigene Übungen und Übungen ohne Standardwert. Wiederholungs-Übungen laufen ohne Timer.
+        </p>
       </div>
 
       <div className="sheet-scroll">
@@ -120,7 +151,7 @@ export function AddStretchExercise({ exercises, onClose, onPick }: Props) {
                       <small>
                         {[
                           ...x.muscles.slice(0, 2).map(muscleLabel),
-                          x.defaultHoldSeconds ? `${x.defaultHoldSeconds} s` : null,
+                          x.defaultReps ? `${x.defaultReps} Wdh.` : x.defaultHoldSeconds ? `${x.defaultHoldSeconds} s` : null,
                         ]
                           .filter(Boolean)
                           .join(' · ') || 'Ohne Zuordnung'}

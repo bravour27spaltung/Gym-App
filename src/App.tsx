@@ -10,6 +10,7 @@ import { RecoveryHistoryScreen } from './components/RecoveryHistoryScreen';
 import { RecoveryScreen } from './components/RecoveryScreen';
 import { ResetData } from './components/ResetData';
 import { StretchHistoryScreen } from './components/StretchHistoryScreen';
+import { StretchPlanEditor } from './components/StretchPlanEditor';
 import { StretchScreen } from './components/StretchScreen';
 import { Icon, IconButton, TabBar, type Tab } from './components/ui';
 import { WorkoutBanner } from './components/WorkoutBanner';
@@ -52,6 +53,7 @@ import {
   syncPayload,
   syncRecoveryPayload,
   syncStretchPayload,
+  syncStretchPlan,
   updateFootballHealth,
   updateRecoveryHealth,
   updateStretchHealth,
@@ -84,6 +86,7 @@ import {
   queueFromPlan,
   type StretchDraft,
   type StretchPlan,
+  type StretchPlanPayload,
 } from './lib/stretch';
 import {
   draftToHist,
@@ -167,6 +170,9 @@ export function App() {
   const [stretchPlans, setStretchPlans] = useState<StretchPlan[]>(() => store.loadStretchPlans());
   const [stretchImporting, setStretchImporting] = useState(false);
   const [confirmDeletePlanId, setConfirmDeletePlanId] = useState<string | null>(null);
+  const [confirmResetCatalog, setConfirmResetCatalog] = useState(false);
+  // Vorlagen-Editor im Stretching-Tab: 'new' = neue Vorlage, sonst die zu bearbeitende.
+  const [stretchPlanEditor, setStretchPlanEditor] = useState<StretchPlan | 'new' | null>(null);
   const stretchLoaded = useRef(false);
   // Verlauf: Gym-Einheiten (Default), Dehnen, Fußball, Recovery oder alles gemeinsam.
   const [historyFilter, setHistoryFilter] = useState<'gym' | 'stretch' | 'football' | 'recovery' | 'all'>('gym');
@@ -485,16 +491,54 @@ export function App() {
   }
 
   /** Importiert den mitgelieferten Dehnübungs-Katalog und die fertigen Vorlagen (Knopf statt SQL). */
-  async function handleImportStretchCatalog() {
+  async function handleImportStretchCatalog(resetPlans = false) {
     setStretchImporting(true);
-    const res = await importStretchCatalog();
+    const res = await importStretchCatalog(resetPlans);
     if (res.ok) {
-      setNotice(`${res.data.exercises} Dehnübungen, ${res.data.plans} Vorlagen importiert.`);
+      setNotice(
+        `${res.data.exercises} Dehnübungen aktualisiert, ${res.data.plans} Vorlagen ${resetPlans ? 'zurückgesetzt' : 'neu angelegt'}.`,
+      );
       await sync();
     } else {
       setNotice(`Import fehlgeschlagen: ${res.error}`);
     }
     setStretchImporting(false);
+  }
+
+  /** Speichert eine neue oder bearbeitete Dehn-Vorlage und lädt Übungen und Vorlagen neu. */
+  async function handleSaveStretchPlan(payload: StretchPlanPayload): Promise<string | null> {
+    const res = await syncStretchPlan(payload);
+    if (!res.ok) return `Speichern fehlgeschlagen: ${res.error}`;
+    const list = await fetchStretchExercises();
+    if (list.ok) {
+      setStretchExercises(list.data);
+      store.saveStretchExercises(list.data);
+    }
+    const plansRes = await fetchStretchPlans();
+    if (plansRes.ok) {
+      setStretchPlans(plansRes.data);
+      store.saveStretchPlans(plansRes.data);
+    } else {
+      // Vorlage ist gespeichert, nur das Neuladen schlug fehl: Änderung lokal übernehmen.
+      const saved: StretchPlan = {
+        id: payload.plan.id,
+        name: payload.plan.name,
+        items: payload.items.map((it) => ({
+          id: it.id,
+          stretchExerciseId: it.stretch_exercise_id,
+          side: it.side,
+          holdSeconds: it.hold_seconds,
+          reps: it.reps ?? null,
+          sets: it.sets,
+        })),
+      };
+      const next = stretchPlans.some((p) => p.id === saved.id)
+        ? stretchPlans.map((p) => (p.id === saved.id ? saved : p))
+        : [...stretchPlans, saved];
+      setStretchPlans(next);
+      store.saveStretchPlans(next);
+    }
+    return null;
   }
 
   /** Löscht (archiviert) eine Dehn-Vorlage; bereits geloggte Sessions bleiben unberührt. */
@@ -925,6 +969,11 @@ export function App() {
                         Starten
                       </button>
                       <IconButton
+                        icon="pencil"
+                        label={`${p.name} bearbeiten`}
+                        onClick={() => setStretchPlanEditor(p)}
+                      />
+                      <IconButton
                         icon="trash"
                         label={`${p.name} löschen`}
                         tone="danger"
@@ -964,11 +1013,50 @@ export function App() {
                 disabled={stretchImporting}
                 onClick={() => void handleImportStretchCatalog()}
               >
-                {stretchImporting ? 'Importiere …' : 'Katalog erneut importieren'}
+                {stretchImporting ? 'Importiere …' : 'Fehlende Katalog-Vorlagen ergänzen'}
               </button>
+              {confirmResetCatalog ? (
+                <div className="banner" role="alertdialog" aria-label="Katalog-Vorlagen zurücksetzen">
+                  <p>
+                    Mitgelieferte Vorlagen auf den Katalogstand zurücksetzen? Deine Änderungen daran gehen
+                    verloren, eigene Vorlagen bleiben unberührt.
+                  </p>
+                  <div className="row">
+                    <button
+                      type="button"
+                      className="btn danger compact"
+                      disabled={stretchImporting}
+                      onClick={() => {
+                        setConfirmResetCatalog(false);
+                        void handleImportStretchCatalog(true);
+                      }}
+                    >
+                      Zurücksetzen
+                    </button>
+                    <button type="button" className="btn compact" onClick={() => setConfirmResetCatalog(false)}>
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="textbtn danger" onClick={() => setConfirmResetCatalog(true)}>
+                  Katalog-Vorlagen zurücksetzen
+                </button>
+              )}
             </>
           )}
+          <button type="button" className="btn block" onClick={() => setStretchPlanEditor('new')}>
+            <Icon name="plus" size={18} /> Neue Vorlage
+          </button>
         </div>
+        {stretchPlanEditor !== null && (
+          <StretchPlanEditor
+            plan={stretchPlanEditor === 'new' ? null : stretchPlanEditor}
+            exercises={stretchExercises}
+            onSave={handleSaveStretchPlan}
+            onClose={() => setStretchPlanEditor(null)}
+          />
+        )}
         {tabs}
       </main>
     );

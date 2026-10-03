@@ -2717,6 +2717,21 @@ button.tile:disabled {
   margin-top: 12px;
 }
 
+.round-head {
+  margin: 12px 0 0;
+  font-weight: 600;
+}
+
+.round-head small {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.pick-hint {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+}
+
 /* ---------- Training läuft im Hintergrund (Home-Menü) ---------- */
 
 .workout-banner {
@@ -2810,4 +2825,31 @@ button.tile:disabled {
 .plan-sync small {
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+/* Stretching: Vorlagen-Editor (ein Eintrag je Übung). */
+.plan-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.plan-item-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.plan-item-head strong {
+  flex: 1;
+  min-width: 0;
+}
+
+.plan-item .pick-config {
+  margin-top: 0;
+}
+
+.plan-item .pick-hint {
+  margin: 0;
 }

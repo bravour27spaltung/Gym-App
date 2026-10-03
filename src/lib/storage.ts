@@ -45,12 +45,15 @@ export interface StretchExerciseListItem {
   name: string;
   muscles: string[];
   defaultHoldSeconds: number | null;
+  /** Gesetzt = Übung ohne Timer, nach Wiederholungen. Fehlt in älteren Zwischenspeicher-Ständen. */
+  defaultReps?: number | null;
 }
 
 export interface HistStretchItem {
   stretchExerciseId: string;
-  side: 'links' | 'rechts' | 'beidseitig';
-  holdSeconds: number;
+  side: 'links' | 'rechts' | 'beidseitig' | 'mittig';
+  holdSeconds: number | null;
+  reps?: number | null;
   sets: number;
 }
 
