@@ -36,6 +36,8 @@ interface LineProps {
   index: number;
   set: DraftSet;
   previous: LoggedSet | null;
+  /** Ziel für diesen Satz, z. B. "12 × 51,25 kg"; null bei Aufwärmsätzen oder ohne Vorgabe. */
+  target?: string | null;
   onSelect: () => void;
 }
 
@@ -43,7 +45,7 @@ interface LineProps {
  * Ein Satz als schmale, nur lesbare Zeile. Ein Tipp macht ihn zum aktiven Satz und
  * öffnet den Editor (auch bei bereits erledigten Sätzen, zum Korrigieren).
  */
-export function SetLine({ index, set, previous, onSelect }: LineProps) {
+export function SetLine({ index, set, previous, target = null, onSelect }: LineProps) {
   const warm = set.type === 'warmup';
   const prev = previousText(previous);
   return (
@@ -60,7 +62,12 @@ export function SetLine({ index, set, previous, onSelect }: LineProps) {
         <span className="fx-val">
           {set.reps} × {set.weightKg > 0 ? kgText(set.weightKg) : '–'} kg
         </span>
-        {prev && !set.done && <span className="fx-prev">vorher {prev}</span>}
+        {!set.done && (target || prev) && (
+          <span className="fx-meta">
+            {target && <span className="fx-target">Ziel {target}</span>}
+            {prev && <span className="fx-prev">vorher {prev}</span>}
+          </span>
+        )}
         <span className={set.done ? 'fx-state on' : 'fx-state'} aria-hidden="true">
           <Icon name={set.done ? 'check' : 'pencil'} size={set.done ? 20 : 16} />
         </span>
@@ -73,6 +80,8 @@ interface EditorProps {
   index: number;
   set: DraftSet;
   previous: LoggedSet | null;
+  /** Ziel für diesen Satz, z. B. "12 × 51,25 kg"; null bei Aufwärmsätzen oder ohne Vorgabe. */
+  target?: string | null;
   /** Bisherige Werte dieser genauen Satz-Position, neueste zuerst. */
   history: SetHistoryEntry[];
   equipmentKg: number | null;
@@ -91,6 +100,7 @@ export function SetEditor({
   index,
   set,
   previous,
+  target = null,
   history,
   equipmentKg,
   onWeight,
@@ -122,7 +132,12 @@ export function SetEditor({
     <li ref={ref} className={`fx-editor ${warm ? 'warm' : ''}`} aria-label={`${label} bearbeiten`}>
       <div className="fx-editor-head">
         <strong>{label}</strong>
-        {prev && <span className="fx-prev">Vorher {prev}</span>}
+        {(target || prev) && (
+          <span className="fx-meta right">
+            {target && <span className="fx-target">Ziel {target}</span>}
+            {prev && <span className="fx-prev">Vorher {prev}</span>}
+          </span>
+        )}
       </div>
 
       <div className="fx-field">

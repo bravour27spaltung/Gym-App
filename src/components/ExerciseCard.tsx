@@ -42,6 +42,11 @@ export function ExerciseCard(props: Props) {
   const [showWarm, setShowWarm] = useState(false);
   const last = describeLastSets(e.lastSets);
   const sessions = exerciseSessions(props.history, e.exerciseId);
+  // Ziel je Arbeitssatz: Zielwiederholungen × empfohlenes Gewicht (bei "Halten" das bisherige,
+  // bei "Steigern" das erhöhte). Ohne bekanntes Gewicht nur die Wiederholungen.
+  const targetReps = e.suggestion.targetReps ?? e.repMax;
+  const targetText =
+    e.suggestion.weightKg !== null ? `${targetReps} × ${kgText(e.suggestion.weightKg)} kg` : `${targetReps} Wdh.`;
   const oneRm = useMemo(
     () => recentOneRmSeries(props.history, e.exerciseId, Date.now()),
     [props.history, e.exerciseId],
@@ -97,6 +102,7 @@ export function ExerciseCard(props: Props) {
           index={idx}
           set={set}
           previous={previous}
+          target={set.type === 'working' ? targetText : null}
           history={setSlotHistory(props.history, e.exerciseId, set.type, idx)}
           equipmentKg={e.equipmentKg}
           onWeight={(kg) => props.onSetWeight(set.id, kg)}
@@ -119,6 +125,7 @@ export function ExerciseCard(props: Props) {
         index={idx}
         set={set}
         previous={previous}
+        target={set.type === 'working' ? targetText : null}
         onSelect={() => props.onSelect(set.id)}
       />
     );
@@ -146,17 +153,14 @@ export function ExerciseCard(props: Props) {
       <div className={`hint ${s.action}`}>
         <strong>
           {s.action === 'no-data'
-            ? `Empfehlung: Gewicht wählen, Ziel ${s.targetReps ?? e.repMax} Wdh.`
+            ? 'Empfehlung: Gewicht wählen'
             : s.action === 'increase'
-              ? s.incrementKg !== null && s.weightKg !== null
-                ? `Empfehlung: Steigern auf ${formatKg(s.weightKg)} (+${formatKg(s.incrementKg)}), Ziel ${
-                    s.targetReps ?? e.repMax
-                  } Wdh.`
-                : `Empfehlung: Steigern (du wählst das Gewicht), Ziel ${s.targetReps ?? e.repMax} Wdh.`
-              : `Empfehlung: Halten, ${s.targetReps ?? e.repMax} Wdh.${
-                  s.weightKg !== null ? ` × ${formatKg(s.weightKg)}` : ''
-                }`}
+              ? s.incrementKg !== null
+                ? `Empfehlung: Steigern (+${formatKg(s.incrementKg)})`
+                : 'Empfehlung: Steigern (du wählst das Gewicht)'
+              : 'Empfehlung: Halten'}
         </strong>
+        <span className="fx-hint-target">Ziel: {targetText}</span>
         {s.action !== 'no-data' && <small className="fx-hint-reason">{s.reason}</small>}
       </div>
 

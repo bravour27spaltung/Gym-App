@@ -2929,3 +2929,32 @@ button.tile:disabled {
   margin: 6px 0 2px;
   font-variant-numeric: tabular-nums;
 }
+
+/* Ziel (Wiederholungen x Gewicht) neben "vorher" */
+.fx-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  flex: none;
+  line-height: 1.25;
+}
+
+.fx-meta.right {
+  text-align: right;
+}
+
+.fx-target {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.fx-hint-target {
+  display: block;
+  margin-top: 2px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
