@@ -25,3 +25,25 @@ export function combineHistory(
   ];
   return entries.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 }
+
+export interface CombinedMonth {
+  key: string;
+  label: string;
+  entries: CombinedHistoryEntry[];
+}
+
+/** Teilt eine (neueste-zuerst sortierte) Liste in Kalendermonate; Reihenfolge bleibt erhalten. */
+export function groupEntriesByMonth(entries: CombinedHistoryEntry[]): CombinedMonth[] {
+  const months: CombinedMonth[] = [];
+  for (const e of entries) {
+    const d = new Date(e.at);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    let m = months[months.length - 1];
+    if (!m || m.key !== key) {
+      m = { key, label: d.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }), entries: [] };
+      months.push(m);
+    }
+    m.entries.push(e);
+  }
+  return months;
+}

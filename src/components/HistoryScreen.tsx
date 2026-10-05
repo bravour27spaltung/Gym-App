@@ -25,6 +25,13 @@ import {
 } from '../lib/stats';
 import { muscleLabel } from '../lib/muscles';
 import { totalLoad } from '../lib/weight';
+import {
+  exerciseRows,
+  filterExerciseRows,
+  groupExercisesByMuscle,
+  groupWorkoutsByMonth,
+  type ExerciseRow,
+} from '../lib/historyView';
 import { LineChart, type ChartPoint } from './Chart';
 import { MuscleVolume } from './MuscleVolume';
 import { AppBar, Icon, StatGrid } from './ui';
@@ -32,7 +39,24 @@ import { AppBar, Icon, StatGrid } from './ui';
 interface Props {
   workouts: HistWorkout[];
   meta: Record<string, ExerciseMeta | undefined>;
+  /** Öffnet direkt das Detail dieser Einheit (z. B. aus dem Reiter „Alle"). */
+  openWorkoutId?: string | null;
 }
+
+type Section = 'overview' | 'sessions' | 'exercises';
+
+const SECTIONS: { key: Section; label: string }[] = [
+  { key: 'overview', label: 'Übersicht' },
+  { key: 'sessions', label: 'Einheiten' },
+  { key: 'exercises', label: 'Übungen' },
+];
+
+/** Zeitraum der Übersicht in Tagen. */
+const RANGES = [
+  { days: 7, label: '7 Tage', title: 'Letzte 7 Tage' },
+  { days: 28, label: '4 Wochen', title: 'Letzte 4 Wochen' },
+  { days: 90, label: '3 Monate', title: 'Letzte 3 Monate' },
+] as const;
 
 type View =
   | { kind: 'overview' }
@@ -44,8 +68,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 const FEEDBACK_LABEL: Record<string, string> = { great: '💪 Stark', ok: '🙂 Okay', hard: '😓 Schwer' };
 
-export function HistoryScreen({ workouts, meta }: Props) {
-  const [stack, setStack] = useState<View[]>([{ kind: 'overview' }]);
+export function HistoryScreen({ workouts, meta, openWorkoutId }: Props) {
+  const [stack, setStack] = useState<View[]>(
+    openWorkoutId ? [{ kind: 'overview' }, { kind: 'workout', id: openWorkoutId }] : [{ kind: 'overview' }],
+  );
+  // Reiter, Zeitraum und Suche liegen hier, damit sie nach „Zurück" aus einem Detail erhalten bleiben.
+  const [section, setSection] = useState<Section>(openWorkoutId ? 'sessions' : 'overview');
+  const [rangeDays, setRangeDays] = useState<number>(7);
+  const [query, setQuery] = useState('');
   const view = stack[stack.length - 1];
   const push = (v: View) => setStack((s) => [...s, v]);
   const pop = () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
@@ -56,7 +86,15 @@ export function HistoryScreen({ workouts, meta }: Props) {
     if (w) return <WorkoutDetail workout={w} nameOf={nameOf} onBack={pop} onExercise={(id) => push({ kind: 'exercise', id })} />;
   }
   if (view.kind === 'exercise') {
-    return <ExerciseProgress workouts={workouts} exerciseId={view.id} name={nameOf(view.id)} onBack={pop} />;
+    return (
+      <ExerciseProgress
+        workouts={workouts}
+        exerciseId={view.id}
+        name={nameOf(view.id)}
+        onBack={pop}
+        onWorkout={(id) => push({ kind: 'workout', id })}
+      />
+    );
   }
   if (view.kind === 'muscle') {
     return (
@@ -67,7 +105,12 @@ export function HistoryScreen({ workouts, meta }: Props) {
     <Overview
       workouts={workouts}
       meta={meta}
-      nameOf={nameOf}
+      section={section}
+      onSection={setSection}
+      rangeDays={rangeDays}
+      onRange={setRangeDays}
+      query={query}
+      onQuery={setQuery}
       onWorkout={(id) => push({ kind: 'workout', id })}
       onExercise={(id) => push({ kind: 'exercise', id })}
       onMuscle={(muscle) => push({ kind: 'muscle', muscle })}
@@ -80,54 +123,38 @@ export function HistoryScreen({ workouts, meta }: Props) {
 function Overview(props: {
   workouts: HistWorkout[];
   meta: Record<string, ExerciseMeta | undefined>;
-  nameOf: (id: string) => string;
+  section: Section;
+  onSection: (s: Section) => void;
+  rangeDays: number;
+  onRange: (days: number) => void;
+  query: string;
+  onQuery: (q: string) => void;
   onWorkout: (id: string) => void;
   onExercise: (id: string) => void;
   onMuscle: (muscle: string) => void;
 }) {
-  const { workouts, meta } = props;
-  const [shown, setShown] = useState(15);
-  const [allExercises, setAllExercises] = useState(false);
+  const { workouts, meta, section, rangeDays, query } = props;
+  const range = RANGES.find((r) => r.days === rangeDays) ?? RANGES[0];
 
-  const data = useMemo(() => {
+  const summary = useMemo(() => {
     const now = new Date();
-    const cur = lastDays(now, 7);
-    const prev = { from: new Date(cur.from.getTime() - 7 * DAY_MS), to: cur.from };
+    const cur = lastDays(now, rangeDays);
+    const prev = { from: new Date(cur.from.getTime() - rangeDays * DAY_MS), to: cur.from };
     const muscleOf = (id: string) => ({ primary: meta[id]?.primary ?? [], secondary: meta[id]?.secondary ?? [] });
-    const exercises = new Map<string, { sessions: number; lastAt: number }>();
-    const muscleInfo = new Map<string, { sessions: number; lastAt: number }>();
-    for (const w of workouts) {
-      const primaryMuscles = new Set<string>();
-      for (const ex of w.exercises) {
-        if (exerciseStats(ex).workingSets === 0) continue;
-        const e = exercises.get(ex.exerciseId) ?? { sessions: 0, lastAt: 0 };
-        e.sessions += 1;
-        e.lastAt = Math.max(e.lastAt, new Date(w.startedAt).getTime());
-        exercises.set(ex.exerciseId, e);
-        for (const m of muscleOf(ex.exerciseId).primary) primaryMuscles.add(m);
-      }
-      for (const m of primaryMuscles) {
-        const e = muscleInfo.get(m) ?? { sessions: 0, lastAt: 0 };
-        e.sessions += 1;
-        e.lastAt = Math.max(e.lastAt, new Date(w.startedAt).getTime());
-        muscleInfo.set(m, e);
-      }
-    }
+    // Der Richtwert (10–20 Sätze) gilt pro Woche: bei längeren Zeiträumen Durchschnitt je Woche.
+    const weeks = rangeDays / 7;
     return {
       week: windowTotals(workouts, cur.from, cur.to),
       before: windowTotals(workouts, prev.from, prev.to),
-      muscles: muscleSets(workouts, cur.from, cur.to, muscleOf),
-      exercises: [...exercises.entries()].sort((a, b) => b[1].lastAt - a[1].lastAt),
-      muscleProgress: [...muscleInfo.entries()].sort((a, b) => muscleLabel(a[0]).localeCompare(muscleLabel(b[0]))),
+      muscles: muscleSets(workouts, cur.from, cur.to, muscleOf).map((m) => ({ ...m, sets: m.sets / weeks })),
     };
-  }, [workouts, meta]);
+  }, [workouts, meta, rangeDays]);
+  const months = useMemo(() => groupWorkoutsByMonth(workouts), [workouts]);
+  const rows = useMemo(() => exerciseRows(workouts, meta), [workouts, meta]);
 
   if (workouts.length === 0) {
     return (
       <div className="screen">
-        <header className="pagehead">
-          <h1>Verlauf</h1>
-        </header>
         <div className="empty-state">
           <Icon name="chart" size={32} />
           <p>Noch kein abgeschlossenes Training.</p>
@@ -137,104 +164,190 @@ function Overview(props: {
     );
   }
 
-  const { week, before } = data;
-  const exerciseRows = allExercises ? data.exercises : data.exercises.slice(0, 8);
+  const { week, before } = summary;
 
   return (
     <div className="screen">
-      <header className="pagehead">
-        <h1>Verlauf</h1>
-      </header>
-
-      <h2 className="section-title">Letzte 7 Tage</h2>
-      <StatGrid
-        items={[
-          { label: 'Einheiten', value: num0(week.sessions), sub: `davor ${num0(before.sessions)}` },
-          { label: 'Sätze', value: num0(week.workingSets), sub: `davor ${num0(before.workingSets)}` },
-          {
-            label: 'Volumen',
-            value: week.volumeKg > 0 ? fmtVolumeShort(week.volumeKg) : '–',
-            sub: `davor ${before.volumeKg > 0 ? fmtVolumeShort(before.volumeKg) : '–'}`,
-          },
-        ]}
-      />
-
-      <h2 className="section-title">Sätze pro Muskel, letzte 7 Tage</h2>
-      <div className="card">
-        <MuscleVolume rows={data.muscles} />
-      </div>
-
-      <h2 className="section-title">Fortschritt je Übung</h2>
-      <ul className="tiles">
-        {exerciseRows.map(([id, info]) => (
-          <li key={id}>
-            <button type="button" className="tile" onClick={() => props.onExercise(id)}>
-              <span className="tile-title">
-                <strong>{props.nameOf(id)}</strong>
-                <small>
-                  {info.sessions} {info.sessions === 1 ? 'Einheit' : 'Einheiten'} · zuletzt {fmtDay(info.lastAt)}
-                </small>
-              </span>
-              <Icon name="trend" size={20} />
-            </button>
-          </li>
+      <nav className="chips sm subtabs" role="tablist" aria-label="Gym-Verlauf">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.key}
+            type="button"
+            role="tab"
+            aria-selected={section === s.key}
+            className={section === s.key ? 'chip on' : 'chip'}
+            onClick={() => props.onSection(s.key)}
+          >
+            {s.label}
+          </button>
         ))}
-      </ul>
-      {data.exercises.length > 8 && (
-        <button type="button" className="link" onClick={() => setAllExercises((v) => !v)}>
-          {allExercises ? 'Weniger anzeigen' : `Alle ${data.exercises.length} Übungen anzeigen`}
-        </button>
+      </nav>
+
+      {section === 'overview' && (
+        <>
+          <div className="chips sm rangechips" role="group" aria-label="Zeitraum">
+            {RANGES.map((r) => (
+              <button
+                key={r.days}
+                type="button"
+                className={rangeDays === r.days ? 'chip on' : 'chip'}
+                aria-pressed={rangeDays === r.days}
+                onClick={() => props.onRange(r.days)}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+
+          <h2 className="section-title">{range.title}</h2>
+          <StatGrid
+            items={[
+              { label: 'Einheiten', value: num0(week.sessions), sub: `davor ${num0(before.sessions)}` },
+              { label: 'Sätze', value: num0(week.workingSets), sub: `davor ${num0(before.workingSets)}` },
+              {
+                label: 'Volumen',
+                value: week.volumeKg > 0 ? fmtVolumeShort(week.volumeKg) : '–',
+                sub: `davor ${before.volumeKg > 0 ? fmtVolumeShort(before.volumeKg) : '–'}`,
+              },
+            ]}
+          />
+
+          <h2 className="section-title">{rangeDays === 7 ? 'Sätze pro Muskel, letzte 7 Tage' : 'Sätze pro Muskel, Ø pro Woche'}</h2>
+          <div className="card">
+            <MuscleVolume rows={summary.muscles} />
+          </div>
+        </>
       )}
 
-      {data.muscleProgress.length > 0 && (
-        <>
-          <h2 className="section-title">Kraftverlauf pro Körperpartie</h2>
+      {section === 'sessions' &&
+        months.map((m) => (
+          <section key={m.key} aria-label={m.label}>
+            <h2 className="section-title monthhead">
+              <span>{m.label}</span>
+              <span className="monthsum">
+                {m.sessions} {m.sessions === 1 ? 'Einheit' : 'Einheiten'} · {num0(m.workingSets)} Sätze
+                {m.volumeKg > 0 && ` · ${fmtVolumeShort(m.volumeKg)}`}
+              </span>
+            </h2>
+            <ul className="tiles">
+              {m.workouts.map((w) => {
+                const t = workoutTotals(w);
+                return (
+                  <li key={w.id}>
+                    <button type="button" className="tile" onClick={() => props.onWorkout(w.id)}>
+                      <span className="tile-title">
+                        <strong>{w.name}</strong>
+                        <small>
+                          {fmtDay(w.startedAt)}
+                          {t.durationMin !== null && ` · ${t.durationMin} min`} · {t.workingSets} Sätze
+                          {t.volumeKg > 0 && ` · ${fmtVolume(t.volumeKg)}`}
+                          {w.feedback && ` · ${FEEDBACK_LABEL[w.feedback]}`}
+                        </small>
+                      </span>
+                      <Icon name="forward" size={20} />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ))}
+
+      {section === 'exercises' && (
+        <ExerciseList rows={rows} query={query} onQuery={props.onQuery} onExercise={props.onExercise} onMuscle={props.onMuscle} />
+      )}
+    </div>
+  );
+}
+
+function ExerciseList(props: {
+  rows: ExerciseRow[];
+  query: string;
+  onQuery: (q: string) => void;
+  onExercise: (id: string) => void;
+  onMuscle: (muscle: string) => void;
+}) {
+  const shown = filterExerciseRows(props.rows, props.query);
+  const groups = groupExercisesByMuscle(shown, muscleLabel);
+  return (
+    <>
+      <div className="searchrow histsearch">
+        <label className="searchbar">
+          <Icon name="search" size={20} />
+          <input
+            type="search"
+            placeholder="Übung suchen"
+            value={props.query}
+            onChange={(e) => props.onQuery(e.target.value)}
+            aria-label="Übung suchen"
+          />
+        </label>
+      </div>
+      {groups.length === 0 && <p className="muted">Keine Übung gefunden.</p>}
+      {groups.map((g) => (
+        <section key={g.muscle || 'none'} aria-label={g.muscle ? muscleLabel(g.muscle) : 'Ohne Muskelangabe'}>
+          <div className="grouphead">
+            <h2 className="section-title">{g.muscle ? muscleLabel(g.muscle) : 'Ohne Muskelangabe'}</h2>
+            {g.muscle && (
+              <button type="button" className="link" onClick={() => props.onMuscle(g.muscle)}>
+                Kraftverlauf
+              </button>
+            )}
+          </div>
           <ul className="tiles">
-            {data.muscleProgress.map(([muscle, info]) => (
-              <li key={muscle}>
-                <button type="button" className="tile" onClick={() => props.onMuscle(muscle)}>
+            {g.rows.map((r) => (
+              <li key={r.id}>
+                <button type="button" className="tile" onClick={() => props.onExercise(r.id)}>
                   <span className="tile-title">
-                    <strong>{muscleLabel(muscle)}</strong>
+                    <strong>{r.name}</strong>
                     <small>
-                      {info.sessions} {info.sessions === 1 ? 'Einheit' : 'Einheiten'} · zuletzt {fmtDay(info.lastAt)}
+                      {r.sessions} {r.sessions === 1 ? 'Einheit' : 'Einheiten'} · zuletzt {fmtDay(r.lastAt)}
                     </small>
                   </span>
-                  <Icon name="trend" size={20} />
+                  <TrendCell row={r} />
                 </button>
               </li>
             ))}
           </ul>
-        </>
-      )}
+        </section>
+      ))}
+    </>
+  );
+}
 
-      <h2 className="section-title">Einheiten</h2>
-      <ul className="tiles">
-        {workouts.slice(0, shown).map((w) => {
-          const t = workoutTotals(w);
-          return (
-            <li key={w.id}>
-              <button type="button" className="tile" onClick={() => props.onWorkout(w.id)}>
-                <span className="tile-title">
-                  <strong>{w.name}</strong>
-                  <small>
-                    {fmtDay(w.startedAt)}
-                    {t.durationMin !== null && ` · ${t.durationMin} min`} · {t.workingSets} Sätze
-                    {t.volumeKg > 0 && ` · ${fmtVolume(t.volumeKg)}`}
-                    {w.feedback && ` · ${FEEDBACK_LABEL[w.feedback]}`}
-                  </small>
-                </span>
-                <Icon name="forward" size={20} />
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-      {workouts.length > shown && (
-        <button type="button" className="link" onClick={() => setShown((n) => n + 15)}>
-          Ältere anzeigen
-        </button>
-      )}
-    </div>
+const fmtTrendValue = (r: ExerciseRow, v: number): string => (r.unit === 'kg' ? fmtKg(v) : `${num0(v)} Wdh.`);
+
+/** Mini-Verlauf der letzten Einheiten plus letzter Wert und Änderung zur Einheit davor. */
+function TrendCell({ row }: { row: ExerciseRow }) {
+  if (row.last === null) return <Icon name="trend" size={20} />;
+  const d = row.delta;
+  const dir = d === null || d === 0 ? 'flat' : d > 0 ? 'up' : 'down';
+  const deltaText = d === null ? '' : `${d > 0 ? '+' : d < 0 ? '−' : '±'}${fmtTrendValue(row, Math.abs(d))}`;
+  return (
+    <span className="tile-trend">
+      <Sparkline values={row.trend} />
+      <span className="tile-value">
+        <strong>{fmtTrendValue(row, row.last)}</strong>
+        {deltaText && <small className={`delta ${dir}`}>{deltaText}</small>}
+      </span>
+    </span>
+  );
+}
+
+/** Winzige Linie ohne Achsen; nur Richtung und Verlauf, Werte stehen daneben. */
+function Sparkline({ values }: { values: number[] }) {
+  if (values.length < 2) return <span className="spark" aria-hidden="true" />;
+  const W = 56;
+  const H = 22;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const x = (i: number) => (i / (values.length - 1)) * W;
+  const y = (v: number) => (max === min ? H / 2 : H - 2 - ((v - min) / (max - min)) * (H - 4));
+  const pts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  return (
+    <svg className="spark" width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
@@ -333,19 +446,19 @@ function ExerciseProgress(props: {
   exerciseId: string;
   name: string;
   onBack: () => void;
+  onWorkout: (id: string) => void;
 }) {
   const all = useMemo(() => exercisePoints(props.workouts, props.exerciseId), [props.workouts, props.exerciseId]);
   const hasRm = all.some((p) => p.best1RM !== null);
   const hasLoad = all.some((p) => p.topLoadKg > 0);
   const [metric, setMetric] = useState<Metric>(hasRm ? 'e1rm' : hasLoad ? 'weight' : 'reps');
   const [range, setRange] = useState<'90' | 'all'>('all');
-  const [table, setTable] = useState(false);
-
+  
   const format = (v: number): string =>
     metric === 'volume' ? fmtVolume(v) : metric === 'reps' ? `${num0(v)} Wdh.` : fmtKg(v);
 
   const inRange = range === '90' ? all.filter((p) => p.at >= Date.now() - 90 * DAY_MS) : all;
-  const series: (ChartPoint & { sets: number; top: string })[] = inRange.flatMap((p) => {
+  const series: (ChartPoint & { sets: number; top: string; workoutId: string })[] = inRange.flatMap((p) => {
     const v =
       metric === 'e1rm' ? p.best1RM : metric === 'weight' ? p.topLoadKg : metric === 'volume' ? p.volumeKg : p.reps;
     if (v === null || v <= 0) return [];
@@ -354,7 +467,7 @@ function ExerciseProgress(props: {
         ? `${p.topSet.reps} Wdh.`
         : `${p.topSet.reps} × ${fmtKg(p.topSet.weightKg)}`
       : '–';
-    return [{ at: p.at, value: v, caption: `Bester Satz ${top}`, sets: p.workingSets, top }];
+    return [{ at: p.at, value: v, caption: `Bester Satz ${top}`, sets: p.workingSets, top, workoutId: p.workoutId }];
   });
 
   const first = series[0];
@@ -363,6 +476,14 @@ function ExerciseProgress(props: {
   const change = first && last && series.length > 1 ? last.value - first.value : null;
   const changePct = change !== null && first.value > 0 ? Math.round((change / first.value) * 100) : null;
   const title = METRICS.find((m) => m.key === metric)!.title;
+
+  // Rekorde über alle Einheiten, unabhängig von Kennzahl und Zeitraum.
+  const records = [
+    { label: 'Schwerste Last', value: Math.max(0, ...all.map((p) => p.topLoadKg)), fmt: fmtKg },
+    { label: 'Bestes 1RM ≈', value: Math.max(0, ...all.map((p) => p.best1RM ?? 0)), fmt: fmtKg },
+    { label: 'Bestes Volumen', value: Math.max(0, ...all.map((p) => p.volumeKg)), fmt: fmtVolume },
+    { label: 'Meiste Wdh.', value: Math.max(0, ...all.map((p) => p.reps)), fmt: (v: number) => `${num0(v)} Wdh.` },
+  ].filter((r) => r.value > 0);
 
   return (
     <div className="editor">
@@ -392,6 +513,20 @@ function ExerciseProgress(props: {
           </div>
         </div>
 
+        {series.length > 0 && best && last && (
+          <StatGrid
+            items={[
+              { label: 'Bestwert', value: format(best.value), sub: fmtShortYear(best.at) },
+              { label: 'Zuletzt', value: format(last.value), sub: fmtShortYear(last.at) },
+              {
+                label: 'Änderung',
+                value: change === null ? '–' : `${change > 0 ? '+' : change < 0 ? '−' : '±'}${format(Math.abs(change))}`,
+                sub: changePct === null ? `${series.length} Einheiten` : `${fmtPercent(changePct)} seit ${fmtShortYear(first.at)}`,
+              },
+            ]}
+          />
+        )}
+
         <section className="card chartcard">
           <h2>{title}</h2>
           {series.length === 0 ? (
@@ -408,19 +543,6 @@ function ExerciseProgress(props: {
           )}
         </section>
 
-        {series.length > 0 && best && last && (
-          <StatGrid
-            items={[
-              { label: 'Bestwert', value: format(best.value), sub: fmtShortYear(best.at) },
-              { label: 'Zuletzt', value: format(last.value), sub: fmtShortYear(last.at) },
-              {
-                label: 'Änderung',
-                value: change === null ? '–' : `${change > 0 ? '+' : change < 0 ? '−' : '±'}${format(Math.abs(change))}`,
-                sub: changePct === null ? `${series.length} Einheiten` : `${fmtPercent(changePct)} seit ${fmtShortYear(first.at)}`,
-              },
-            ]}
-          />
-        )}
 
         {metric === 'e1rm' && (
           <p className="evidence">
@@ -429,33 +551,31 @@ function ExerciseProgress(props: {
           </p>
         )}
 
+        {records.length > 0 && (
+          <>
+            <h2 className="section-title">Rekorde</h2>
+            <StatGrid columns={2} items={records.map((r) => ({ label: r.label, value: r.fmt(r.value) }))} />
+          </>
+        )}
+
         {series.length > 0 && (
           <>
-            <button type="button" className="textbtn tablebtn" aria-expanded={table} onClick={() => setTable((v) => !v)}>
-              <Icon name="table" size={18} /> {table ? 'Tabelle ausblenden' : 'Als Tabelle anzeigen'}
-            </button>
-            {table && (
-              <table className="datatable">
-                <thead>
-                  <tr>
-                    <th scope="col">Datum</th>
-                    <th scope="col">{METRICS.find((m) => m.key === metric)!.label}</th>
-                    <th scope="col">Bester Satz</th>
-                    <th scope="col">Sätze</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...series].reverse().map((s) => (
-                    <tr key={s.at}>
-                      <th scope="row">{fmtShortYear(s.at)}</th>
-                      <td>{format(s.value)}</td>
-                      <td>{s.top}</td>
-                      <td>{s.sets}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            <h2 className="section-title">Einheiten</h2>
+            <ul className="tiles">
+              {[...series].reverse().map((s) => (
+                <li key={s.workoutId}>
+                  <button type="button" className="tile" onClick={() => props.onWorkout(s.workoutId)}>
+                    <span className="tile-title">
+                      <strong>{format(s.value)}</strong>
+                      <small>
+                        {fmtShortYear(s.at)} · Bester Satz {s.top} · {s.sets} {s.sets === 1 ? 'Satz' : 'Sätze'}
+                      </small>
+                    </span>
+                    <Icon name="forward" size={20} />
+                  </button>
+                </li>
+              ))}
+            </ul>
           </>
         )}
       </div>

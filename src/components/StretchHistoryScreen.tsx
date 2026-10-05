@@ -21,9 +21,6 @@ export function StretchHistoryScreen({ sessions, nameOf }: Props) {
   if (sessions.length === 0) {
     return (
       <div className="screen">
-        <header className="pagehead">
-          <h1>Stretching-Verlauf</h1>
-        </header>
         <div className="empty-state">
           <Icon name="flame" size={32} />
           <p>Noch keine Stretching-Session gespeichert.</p>
@@ -38,9 +35,6 @@ export function StretchHistoryScreen({ sessions, nameOf }: Props) {
 
   return (
     <div className="screen">
-      <header className="pagehead">
-        <h1>Stretching-Verlauf</h1>
-      </header>
 
       <StatGrid
         columns={3}

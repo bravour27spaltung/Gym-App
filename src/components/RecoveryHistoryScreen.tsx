@@ -34,9 +34,6 @@ export function RecoveryHistoryScreen({ entries }: Props) {
   if (entries.length === 0 || !latest || !assessment) {
     return (
       <div className="screen">
-        <header className="pagehead">
-          <h1>Recovery-Verlauf</h1>
-        </header>
         <div className="empty-state">
           <Icon name="heart" size={32} />
           <p>Noch kein Recovery-Eintrag gespeichert.</p>
@@ -53,9 +50,6 @@ export function RecoveryHistoryScreen({ entries }: Props) {
 
   return (
     <div className="screen">
-      <header className="pagehead">
-        <h1>Recovery-Verlauf</h1>
-      </header>
 
       <RecoveryHero a={assessment} loggedToday />
       <SignalList a={assessment} />

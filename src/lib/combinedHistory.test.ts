@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { combineHistory } from './combinedHistory';
+import { combineHistory, groupEntriesByMonth } from './combinedHistory';
 import type { HistWorkout } from './stats';
 import type { HistFootballSession, HistStretchSession } from './storage';
 
@@ -55,5 +55,19 @@ describe('combineHistory', () => {
     const footballs = [football('f1', '2026-09-03T00:00:00.000Z')];
     const combined = combineHistory(workouts, stretches, footballs);
     expect(combined.map((e) => e.kind)).toEqual(['football', 'stretch', 'workout']);
+  });
+});
+
+describe('groupEntriesByMonth', () => {
+  it('teilt in Monate und behält die Reihenfolge', () => {
+    const entries = combineHistory(
+      [workout('w1', '2026-10-03T10:00:00'), workout('w2', '2026-09-20T10:00:00')],
+      [stretch('s1', '2026-10-01T10:00:00')],
+      [football('f1', '2026-09-10')],
+    );
+    const months = groupEntriesByMonth(entries);
+    expect(months.map((m) => m.key)).toEqual(['2026-10', '2026-09']);
+    expect(months[0].entries).toHaveLength(2);
+    expect(months[1].entries).toHaveLength(2);
   });
 });

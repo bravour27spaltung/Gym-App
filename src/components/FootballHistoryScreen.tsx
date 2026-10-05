@@ -13,9 +13,6 @@ export function FootballHistoryScreen({ sessions }: Props) {
   if (sessions.length === 0) {
     return (
       <div className="screen">
-        <header className="pagehead">
-          <h1>Fußball-Verlauf</h1>
-        </header>
         <div className="empty-state">
           <Icon name="football" size={32} />
           <p>Noch kein Fußball-Eintrag gespeichert.</p>
@@ -39,9 +36,6 @@ export function FootballHistoryScreen({ sessions }: Props) {
 
   return (
     <div className="screen">
-      <header className="pagehead">
-        <h1>Fußball-Verlauf</h1>
-      </header>
 
       <StatGrid
         columns={3}

@@ -179,6 +179,8 @@ export function App() {
   const stretchLoaded = useRef(false);
   // Verlauf: Gym-Einheiten (Default), Dehnen, Fußball, Recovery oder alles gemeinsam.
   const [historyFilter, setHistoryFilter] = useState<'gym' | 'stretch' | 'football' | 'recovery' | 'all'>('gym');
+  // Einheit, die der Gym-Verlauf beim Öffnen direkt zeigt (Sprung aus dem Reiter „Alle").
+  const [historyOpenWorkout, setHistoryOpenWorkout] = useState<string | null>(null);
 
   // Fußball: eigener, einfacher Bereich (kein Draft, nur Formular plus Ausgangskorb).
   const [footballHistory, setFootballHistory] = useState<HistFootballSession[]>(() =>
@@ -1175,21 +1177,39 @@ export function App() {
                 role="tab"
                 aria-selected={historyFilter === key}
                 className={historyFilter === key ? 'chip on' : 'chip'}
-                onClick={() => setHistoryFilter(key)}
+                onClick={() => {
+                  setHistoryOpenWorkout(null);
+                  setHistoryFilter(key);
+                }}
               >
                 {label}
               </button>
             ))}
           </nav>
         </div>
-        {historyFilter === 'gym' && <HistoryScreen workouts={mergedHistory} meta={exerciseMeta} />}
+        {historyFilter === 'gym' && (
+          <HistoryScreen
+            key={historyOpenWorkout ?? 'gym'}
+            workouts={mergedHistory}
+            meta={exerciseMeta}
+            openWorkoutId={historyOpenWorkout}
+          />
+        )}
         {historyFilter === 'stretch' && (
           <StretchHistoryScreen sessions={stretchHistory} nameOf={stretchNameOf} />
         )}
         {historyFilter === 'football' && <FootballHistoryScreen sessions={footballHistory} />}
         {historyFilter === 'recovery' && <RecoveryHistoryScreen entries={recoveryHistory} />}
         {historyFilter === 'all' && (
-          <CombinedHistoryScreen workouts={mergedHistory} stretches={stretchHistory} footballs={footballHistory} />
+          <CombinedHistoryScreen
+            workouts={mergedHistory}
+            stretches={stretchHistory}
+            footballs={footballHistory}
+            onOpenWorkout={(id) => {
+              setHistoryOpenWorkout(id);
+              setHistoryFilter('gym');
+            }}
+          />
         )}
         {healthImportOpen && (
           <HealthImportSheet
