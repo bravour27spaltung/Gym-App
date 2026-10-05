@@ -102,9 +102,23 @@ function toRaw(input: unknown): RawSample[] {
   return out;
 }
 
+/**
+ * Zahl aus dem Body. Der Kurzbefehl schickt Health-Werte je nach Feldtyp als Zahl oder als Text,
+ * auch mit deutschem Komma oder Einheit ("52", "52,5", "52 count/min"); von Text wird die erste Zahl gelesen.
+ */
+function toNumber(n: unknown): number | null {
+  if (typeof n === 'number') return Number.isFinite(n) ? n : null;
+  if (typeof n !== 'string') return null;
+  const m = n.match(/-?\d+(?:[.,]\d+)?/);
+  if (!m) return null;
+  const v = Number(m[0].replace(',', '.'));
+  return Number.isFinite(v) ? v : null;
+}
+
 function numOrNull(n: unknown, min: number, max: number): number | null {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return null;
-  return n >= min && n <= max ? n : null;
+  const v = toNumber(n);
+  if (v === null) return null;
+  return v >= min && v <= max ? v : null;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -192,7 +206,7 @@ Deno.serve(async (req: Request) => {
     if (values.length > 0) hrvMs = Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10;
   }
   const restingHr = numOrNull(body.resting_hr, 30, 120);
-  const legacySleepHours = typeof body.sleep_hours === 'number' ? numOrNull(body.sleep_hours, 0, 16) : null;
+  const legacySleepHours = numOrNull(body.sleep_hours, 0, 16);
 
   // Tief-/REM-Spalten gibt es erst seit Migration 0018; ohne sie läuft der Import wie bisher weiter.
   const selectEntry = (columns: string) => {
@@ -228,6 +242,11 @@ Deno.serve(async (req: Request) => {
       ignoredValues: [...skippedValues],
       unreadableTimestamps: badStamps,
       unreadableExample: badStampExample,
+      // Ruhepuls/HRV: Rohwert aus dem Body und was daraus gelesen wurde (null = nicht verwertbar).
+      hrvRaw: body.hrv_ms ?? null,
+      restingHrRaw: body.resting_hr ?? null,
+      hrvParsed: hrvMs,
+      restingHrParsed: restingHr,
       firstLine: sleepRaw[0] ? `${sleepRaw[0].start}|${sleepRaw[0].end}|${sleepRaw[0].value}` : null,
     },
   };

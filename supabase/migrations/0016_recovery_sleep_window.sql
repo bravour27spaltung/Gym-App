@@ -8,6 +8,16 @@
 -- erneuten Apple-Health-Import durch den Nachtwert ersetzt, sofern sie aus Apple Health stammen.
 alter table fit_recovery_entries
   add column if not exists sleep_start timestamptz,
-  add column if not exists sleep_end timestamptz,
-  add constraint fit_recovery_entries_sleep_window_check
-    check (sleep_start is null or sleep_end is null or sleep_end > sleep_start);
+  add column if not exists sleep_end timestamptz;
+
+-- Wiederholbar: den Constraint nur anlegen, wenn es ihn noch nicht gibt.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'fit_recovery_entries_sleep_window_check'
+  ) then
+    alter table fit_recovery_entries
+      add constraint fit_recovery_entries_sleep_window_check
+      check (sleep_start is null or sleep_end is null or sleep_end > sleep_start);
+  end if;
+end $$;
