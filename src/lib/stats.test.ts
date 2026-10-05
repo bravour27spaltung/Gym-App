@@ -3,6 +3,8 @@ import {
   draftToHist,
   estimate1RM,
   exercisePoints,
+  exerciseSessions,
+  recentOneRmSeries,
   exerciseStats,
   findRecords,
   lastDays,
@@ -364,5 +366,61 @@ describe('Auswertung nach dem Training', () => {
   it('ohne Steigerungschance schlägt der Fokus eine Wiederholung mehr beim Halten vor', () => {
     const hold = workout('c', 15, [[65, 9], [65, 8]]);
     expect(summarizeWorkout(hold, before, ctx).focus).toBe('Bankdrücken: Gewicht halten, eine Wiederholung mehr anstreben.');
+  });
+});
+
+describe('exerciseSessions (Verlauf in der Übungskarte)', () => {
+  const list = [
+    workout('a', 1, [[50, 10], [50, 9]]),
+    workout('b', 8, [[50, 12], [50, 12], [50, 11]]),
+    workout('c', 15, [[52.5, 8], [52.5, 8]]),
+    workout('x', 16, [[100, 5]], { exerciseId: 'squat' }),
+  ];
+
+  it('listet nur Trainings dieser Übung, neueste zuerst, mit Änderung des Top-Gewichts', () => {
+    const r = exerciseSessions(list, 'bench');
+    expect(r.map((x) => x.workoutId)).toEqual(['c', 'b', 'a']);
+    expect(r.map((x) => x.topWeightKg)).toEqual([52.5, 50, 50]);
+    expect(r.map((x) => x.deltaKg)).toEqual([2.5, 0, null]);
+    expect(r[1].sets.map((x) => x.reps)).toEqual([12, 12, 11]);
+  });
+
+  it('begrenzt die Liste, rechnet das Delta aber gegen das ältere Training außerhalb des Limits', () => {
+    const r = exerciseSessions(list, 'bench', 2);
+    expect(r.map((x) => x.workoutId)).toEqual(['c', 'b']);
+    expect(r[1].deltaKg).toBe(0);
+  });
+
+  it('ignoriert Trainings ohne Arbeitssatz dieser Übung', () => {
+    const onlyWarm: HistWorkout = {
+      id: 'w',
+      name: 'Push',
+      startedAt: d(20),
+      finishedAt: end(20),
+      exercises: [{ exerciseId: 'bench', equipmentKg: null, sets: [{ type: 'warmup', weightKg: 20, reps: 10 }] }],
+    };
+    expect(exerciseSessions([onlyWarm], 'bench')).toEqual([]);
+    expect(exerciseSessions([], 'bench')).toEqual([]);
+  });
+});
+
+describe('recentOneRmSeries (1RM-Verlauf der letzten Wochen)', () => {
+  const list = [
+    workout('a', 1, [[50, 10]]),
+    workout('b', 8, [[50, 12]]),
+    workout('c', 15, [[52.5, 8]]),
+    workout('d', 22, [[60, 15]]), // über 12 Wdh.: kein 1RM
+  ];
+  const at = (day: number) => new Date(2026, 8, day, 12).getTime();
+
+  it('nimmt nur Trainings mit schätzbarem 1RM im Zeitfenster, älteste zuerst', () => {
+    const r = recentOneRmSeries(list, 'bench', at(23), 3);
+    expect(r.map((x) => x.workoutId)).toEqual(['b', 'c']);
+    expect(r.every((x) => x.best1RM !== null)).toBe(true);
+  });
+
+  it('fällt bei weniger als zwei Werten im Fenster auf die letzten Werte zurück', () => {
+    const r = recentOneRmSeries(list, 'bench', at(23), 1, 2);
+    expect(r.map((x) => x.workoutId)).toEqual(['b', 'c']);
   });
 });

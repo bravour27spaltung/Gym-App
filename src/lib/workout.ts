@@ -108,25 +108,30 @@ function mapEx(draft: Draft, exId: string, fn: (e: DraftExercise) => DraftExerci
 export function addExercise(draft: Draft, input: ExerciseInput): Draft {
   const repMin = input.repMin ?? 8;
   const repMax = input.repMax ?? 12;
-  const plannedSets = input.plannedSets ?? 3;
   const lastSets = input.lastSets ?? [];
+  const lastWorking = lastSets.filter((s) => s.type === 'working');
+  // Ohne Planvorgabe (freies Training, später hinzugefügte Übung) zählt die Satzzahl vom letzten Mal.
+  const plannedSets = input.plannedSets ?? (lastWorking.length > 0 ? lastWorking.length : 3);
 
   const suggestion = suggestProgression({ sets: lastSets, repMin, repMax });
-  // Ein im Plan explizit gesetztes Gewicht ist eine bewusste Vorgabe (z. B. nach
-  // einem Deload) und hat Vorrang; ohne Vorgabe zählt das letzte Training. Der
-  // Steigerungs-/Halten-Hinweis (suggestion) selbst folgt davon unabhängig immer
-  // der echten Historie, damit die Empfehlung nicht verloren geht.
-  const weightKg = input.weightKg ?? suggestion.weightKg ?? 0;
-  const reps = suggestion.targetReps ?? repMax;
-
-  const sets: DraftSet[] = Array.from({ length: plannedSets }, () => ({
-    id: newId(),
-    type: 'working' as const,
-    weightKg,
-    reps,
-    rir: null,
-    done: false,
-  }));
+  // Vorbelegung = das letzte Training, Satz für Satz: Der 1. Arbeitssatz bekommt Gewicht und
+  // Wiederholungen des 1. Arbeitssatzes vom letzten Mal, der 2. die des 2. usw. (z. B. 12/12/11
+  // bleibt 12/12/11, eine Pyramide bleibt eine Pyramide). Gibt es mehr Sätze als beim letzten
+  // Mal, übernimmt der Rest den letzten Satz. Eine Steigerung trägt die Person selbst ein; die
+  // Empfehlung (suggestion) steht als Hinweis an der Übung, belegt aber nichts mehr vor.
+  // Ein im Plan explizit gesetztes Gewicht ist eine bewusste Vorgabe (z. B. nach einem Deload)
+  // und hat beim Gewicht Vorrang; die Wiederholungen kommen weiter vom letzten Mal.
+  const sets: DraftSet[] = Array.from({ length: plannedSets }, (_, i) => {
+    const src = lastWorking[i] ?? lastWorking[lastWorking.length - 1];
+    return {
+      id: newId(),
+      type: 'working' as const,
+      weightKg: input.weightKg ?? src?.weightKg ?? 0,
+      reps: src && src.reps > 0 ? src.reps : (suggestion.targetReps ?? repMax),
+      rir: null,
+      done: false,
+    };
+  });
 
   const exercise: DraftExercise = {
     id: newId(),
@@ -171,7 +176,7 @@ export function updateExercise(
 }
 
 /** Kurztext für "Letztes Mal", z. B. "12, 12, 11 × 50 kg · 10 × 45 kg". */
-export function describeLastSets(sets: LoggedSet[]): string {
+export function describeLastSets<T extends Pick<LoggedSet, 'type' | 'weightKg' | 'reps'>>(sets: T[]): string {
   const working = sets.filter((s) => s.type === 'working');
   if (working.length === 0) return '';
   const groups: { weightKg: number; reps: number[] }[] = [];
@@ -237,10 +242,12 @@ export function workoutProgress(draft: Draft): WorkoutProgress {
 export function addSet(draft: Draft, exId: string): Draft {
   return mapEx(draft, exId, (e) => {
     const lastWorking = [...e.sets].reverse().find((s) => s.type === 'working');
-    const base = lastWorking ?? {
-      weightKg: e.suggestion.weightKg ?? 0,
-      reps: e.suggestion.targetReps ?? e.repMax,
-    };
+    const lastTime = [...e.lastSets].reverse().find((s) => s.type === 'working');
+    const base = lastWorking ??
+      lastTime ?? {
+        weightKg: e.suggestion.weightKg ?? 0,
+        reps: e.suggestion.targetReps ?? e.repMax,
+      };
     const set: DraftSet = {
       id: newId(),
       type: 'working',

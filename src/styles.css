@@ -2853,3 +2853,79 @@ button.tile:disabled {
 .plan-item .pick-hint {
   margin: 0;
 }
+
+/* Verlauf der Übung: letzte Trainings als kompakte Liste */
+.fx-exhist {
+  margin: 8px 0 4px;
+}
+
+.fx-exhist summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.fx-exhist summary::-webkit-details-marker {
+  display: none;
+}
+
+.fx-exhist ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fx-exhist li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.fx-exhist-date {
+  flex: none;
+  color: var(--muted);
+}
+
+.fx-exhist-sets {
+  flex: 1 1 auto;
+}
+
+.fx-delta {
+  flex: none;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.fx-delta.up {
+  color: var(--accent);
+}
+
+.fx-delta.down {
+  color: var(--muted);
+}
+
+.fx-hint-reason {
+  display: block;
+  margin-top: 4px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.fx-onerm-now {
+  display: flex;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 6px 0 2px;
+  font-variant-numeric: tabular-nums;
+}

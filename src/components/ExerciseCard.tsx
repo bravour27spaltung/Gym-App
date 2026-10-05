@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { formatClock } from '../lib/timer';
-import { setSlotHistory, type HistWorkout } from '../lib/stats';
-import { formatKg } from '../lib/weight';
+import { fmtKg, fmtShortYear } from '../lib/format';
+import { exerciseSessions, recentOneRmSeries, setSlotHistory, type HistWorkout } from '../lib/stats';
+import { formatKg, kgText } from '../lib/weight';
 import { describeLastSets, type DraftExercise, type DraftSet } from '../lib/workout';
+import { LineChart } from './Chart';
 import { SetEditor, SetLine } from './SetRow';
 import { MuscleLegend } from './MuscleFigure';
 import { EquipmentField, Icon } from './ui';
@@ -39,6 +41,17 @@ export function ExerciseCard(props: Props) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [showWarm, setShowWarm] = useState(false);
   const last = describeLastSets(e.lastSets);
+  const sessions = exerciseSessions(props.history, e.exerciseId);
+  const oneRm = useMemo(
+    () => recentOneRmSeries(props.history, e.exerciseId, Date.now()),
+    [props.history, e.exerciseId],
+  );
+  const oneRmFirst = oneRm[0];
+  const oneRmLast = oneRm[oneRm.length - 1];
+  const oneRmDelta =
+    oneRm.length >= 2 && oneRmFirst.best1RM !== null && oneRmLast.best1RM !== null
+      ? Math.round((oneRmLast.best1RM - oneRmFirst.best1RM) * 10) / 10
+      : null;
   const s = e.suggestion;
   const primary = e.primaryMuscles ?? [];
   const secondary = e.secondaryMuscles ?? [];
@@ -130,10 +143,11 @@ export function ExerciseCard(props: Props) {
         </p>
       )}
 
-      {s.action !== 'no-data' && (
-        <p className={`hint ${s.action}`}>
-          <strong>
-            {s.action === 'increase'
+      <div className={`hint ${s.action}`}>
+        <strong>
+          {s.action === 'no-data'
+            ? `Empfehlung: Gewicht wählen, Ziel ${s.targetReps ?? e.repMax} Wdh.`
+            : s.action === 'increase'
               ? s.incrementKg !== null && s.weightKg !== null
                 ? `Empfehlung: Steigern auf ${formatKg(s.weightKg)} (+${formatKg(s.incrementKg)}), Ziel ${
                     s.targetReps ?? e.repMax
@@ -142,9 +156,9 @@ export function ExerciseCard(props: Props) {
               : `Empfehlung: Halten, ${s.targetReps ?? e.repMax} Wdh.${
                   s.weightKg !== null ? ` × ${formatKg(s.weightKg)}` : ''
                 }`}
-          </strong>
-        </p>
-      )}
+        </strong>
+        {s.action !== 'no-data' && <small className="fx-hint-reason">{s.reason}</small>}
+      </div>
 
       <p className="lasttime">
         <span>Letztes Mal</span> {last || 'noch kein Training mit dieser Übung'}
@@ -168,6 +182,59 @@ export function ExerciseCard(props: Props) {
           </button>
         )}
       </div>
+
+      {sessions.length > 0 && (
+        <details className="fx-exhist" open>
+          <summary>
+            <Icon name="clock" size={14} /> Verlauf · letzte {sessions.length} Training{sessions.length === 1 ? '' : 's'}
+          </summary>
+          <ul>
+            {sessions.map((x) => (
+              <li key={x.workoutId}>
+                <span className="fx-exhist-date">{fmtShortYear(new Date(x.at).getTime())}</span>
+                <span className="fx-exhist-sets">
+                  {describeLastSets(x.sets).replace(/ × 0 kg/g, '×')}
+                </span>
+                {x.deltaKg !== null && x.deltaKg !== 0 && (
+                  <span className={x.deltaKg > 0 ? 'fx-delta up' : 'fx-delta down'}>
+                    {x.deltaKg > 0 ? '▲ +' : '▼ −'}
+                    {kgText(Math.abs(x.deltaKg))} kg
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {oneRm.length >= 2 && oneRmLast.best1RM !== null && (
+        <details className="fx-exhist fx-onerm" open>
+          <summary>
+            <Icon name="clock" size={14} /> 1RM-Verlauf (geschätzt)
+          </summary>
+          <p className="fx-onerm-now">
+            <strong>{fmtKg(oneRmLast.best1RM)}</strong>
+            {oneRmDelta !== null && oneRmDelta !== 0 && (
+              <span className={oneRmDelta > 0 ? 'fx-delta up' : 'fx-delta down'}>
+                {oneRmDelta > 0 ? '▲ +' : '▼ −'}
+                {kgText(Math.abs(oneRmDelta))} kg seit {fmtShortYear(oneRmFirst.at)}
+              </span>
+            )}
+          </p>
+          <LineChart
+            label={`Geschätztes 1RM ${e.name}`}
+            format={fmtKg}
+            points={oneRm.map((p) => ({
+              at: p.at,
+              value: p.best1RM as number,
+              caption: p.topSet ? `${p.topSet.reps} × ${kgText(p.topSet.weightKg)} kg` : undefined,
+            }))}
+          />
+          <small className="muted">
+            Schätzung nach Epley, nur bis 12 Wiederholungen; bei vielen Wiederholungen ungenauer.
+          </small>
+        </details>
+      )}
 
       <details className="equipment fx-more">
         <summary>

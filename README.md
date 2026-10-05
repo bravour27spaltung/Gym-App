@@ -54,6 +54,12 @@ Pro Übung trägst du im Plan bzw. in der Vorlage das **Arbeitsgewicht** und das
 
 Im Training gilt: **Plan-Gewicht vor dem Wert vom letzten Training**. Ist im Plan nichts eingetragen, nimmt die App das letzte Training. Wenn du im Training steigerst, ändert sich der Plan nicht von selbst. Trag die Steigerung im Plan nach, sonst startet das nächste Training wieder mit dem alten Plan-Gewicht. Die Empfehlung („Halten" oder „Steigern") in der Übungskarte richtet sich immer nach dem letzten Training.
 
+## Vorbelegung und Verlauf im Training
+
+**Vorbelegung:** Jeder Arbeitssatz startet mit Gewicht und Wiederholungen des entsprechenden Satzes vom letzten Training (Satz 1 ← Satz 1, Satz 2 ← Satz 2, …; 12/12/11 bleibt 12/12/11, eine Pyramide bleibt eine Pyramide). Hat der Plan mehr Sätze als das letzte Training, übernehmen die zusätzlichen Sätze den letzten Satz; ohne Plan (freies Training) übernimmt die App auch die Satzzahl. Ein Plan-Gewicht hat beim Gewicht weiter Vorrang, die Wiederholungen kommen trotzdem vom letzten Mal. Die Steigern/Halten-Empfehlung steht als Hinweis an der Übung, belegt aber nichts mehr vor: eine Steigerung trägst du selbst ein. Logik in `addExercise` (`src/lib/workout.ts`).
+
+**Verlauf:** Unter den Sätzen jeder Übung listet „Verlauf" die letzten 5 Trainings dieser Übung (Datum, Arbeitssätze, Änderung des höchsten Gewichts zum Training davor). Im geöffneten Satz steht zusätzlich der Verlauf genau dieser Satz-Position. Die Daten sind die lokal zwischengespeicherten Trainings (siehe „Reiter Verlauf"), funktioniert also auch offline. Logik in `exerciseSessions` (`src/lib/stats.ts`).
+
 ## Gewicht im Training
 
 Die Sätze sind eine Tabelle: **Satz | Vorher | kg | Wdh. | Haken**. Gewicht und Wiederholungen tippst du direkt in die Zeile (Komma oder Punkt, auf 0,25 kg gerundet). Ändert du das Gewicht in einem Satz, ziehen folgende, noch nicht erledigte Sätze mit demselben Gewicht mit. Bewusst andere Gewichte (Pyramide) bleiben unberührt. „Vorher" zeigt den entsprechenden Satz vom letzten Training. Ein Tipp auf die Satznummer öffnet „Als Aufwärmsatz markieren" und „Entfernen".

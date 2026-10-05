@@ -185,6 +185,41 @@ export function setSlotHistory(
 }
 
 // ---------------------------------------------------------------------------
+// Verlauf einer Übung im Training (kompakte Liste der letzten Trainings)
+
+export interface ExerciseSession {
+  workoutId: string;
+  /** Trainingsbeginn (ISO). */
+  at: string;
+  /** Arbeitssätze dieses Trainings in Reihenfolge. */
+  sets: HistSet[];
+  /** Höchstes Gewicht der Arbeitssätze (ohne Stange/Maschine). */
+  topWeightKg: number;
+  /** Änderung des höchsten Gewichts gegenüber dem Training davor; null beim ältesten bekannten. */
+  deltaKg: number | null;
+}
+
+/**
+ * Die letzten Trainings, in denen die Übung mit mindestens einem Arbeitssatz vorkam,
+ * neueste zuerst. Das Delta bezieht sich auf das jeweils vorherige Training (auch dann,
+ * wenn dieses wegen `limit` nicht mehr in der Liste steht).
+ */
+export function exerciseSessions(workouts: HistWorkout[], exerciseId: string, limit = 5): ExerciseSession[] {
+  const all: Omit<ExerciseSession, 'deltaKg'>[] = [];
+  for (const w of sortNewestFirst(workouts)) {
+    const ex = w.exercises.find((e) => e.exerciseId === exerciseId);
+    if (!ex) continue;
+    const sets = ex.sets.filter((s) => s.type === 'working');
+    if (sets.length === 0) continue;
+    all.push({ workoutId: w.id, at: w.startedAt, sets, topWeightKg: Math.max(...sets.map((s) => s.weightKg)) });
+  }
+  return all.slice(0, limit).map((s, i) => {
+    const prev = all[i + 1];
+    return { ...s, deltaKg: prev ? Math.round((s.topWeightKg - prev.topWeightKg) * 100) / 100 : null };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Verlauf einer Übung
 
 export interface ExercisePoint {
@@ -222,6 +257,24 @@ export function exercisePoints(workouts: HistWorkout[], exerciseId: string): Exe
     });
   }
   return points.sort((a, b) => a.at - b.at);
+}
+
+/**
+ * Geschätztes 1RM (Epley, nur bis ONE_RM_MAX_REPS Wiederholungen) je Training der letzten
+ * `weeks` Wochen, älteste zuerst. Gibt es in diesem Zeitraum weniger als zwei Werte, werden
+ * stattdessen die letzten `fallback` Werte genommen, damit auch bei seltenem Training ein
+ * Verlauf sichtbar ist.
+ */
+export function recentOneRmSeries(
+  workouts: HistWorkout[],
+  exerciseId: string,
+  now: number,
+  weeks = 8,
+  fallback = 6,
+): ExercisePoint[] {
+  const all = exercisePoints(workouts, exerciseId).filter((p) => p.best1RM !== null);
+  const inWindow = all.filter((p) => p.at >= now - weeks * 7 * DAY_MS);
+  return inWindow.length >= 2 ? inWindow : all.slice(-fallback);
 }
 
 // ---------------------------------------------------------------------------

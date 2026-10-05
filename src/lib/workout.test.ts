@@ -40,16 +40,93 @@ function draftWithBench(lastSets: LoggedSet[] = lastTime) {
 }
 
 describe('Vorbelegung', () => {
-  it('belegt nach erreichter Obergrenze mit dem Gewichtsvorschlag vor (änderbar); Ziel bleibt die Obergrenze', () => {
+  it('übernimmt Gewicht und Wiederholungen Satz für Satz vom letzten Training', () => {
+    const e = draftWithBench().exercises[0];
+    expect(e.sets).toHaveLength(3);
+    expect(e.sets.map((s) => [s.weightKg, s.reps])).toEqual([
+      [50, 12],
+      [50, 12],
+      [50, 11],
+    ]);
+    expect(e.sets.every((s) => !s.done)).toBe(true);
+  });
+
+  it('belegt auch bei erreichter Obergrenze nicht mit dem erhöhten Gewicht vor, zeigt aber die Empfehlung', () => {
     const e = draftWithBench().exercises[0];
     expect(e.suggestion.action).toBe('increase');
-    expect(e.suggestion.incrementKg).toBe(1.25); // kein Wiederholungs-Überschuss (12/12) -> kleiner Sprung (2,5 %)
+    expect(e.suggestion.weightKg).toBe(51.25);
+    expect(e.sets.every((s) => s.weightKg === 50)).toBe(true);
+  });
+
+  it('behält unterschiedliche Gewichte je Satz bei (Pyramide)', () => {
+    const e = draftWithBench([
+      { type: 'working', weightKg: 60, reps: 8, rir: null },
+      { type: 'working', weightKg: 55, reps: 10, rir: null },
+      { type: 'working', weightKg: 50, reps: 12, rir: null },
+    ]).exercises[0];
+    expect(e.sets.map((s) => [s.weightKg, s.reps])).toEqual([
+      [60, 8],
+      [55, 10],
+      [50, 12],
+    ]);
+  });
+
+  it('füllt zusätzliche Sätze mit dem letzten Satz vom letzten Mal auf', () => {
+    const d = createDraft('Push', null, now);
+    const e = addExercise(d, {
+      exerciseId: 'ex-bench',
+      name: 'Bankdrücken',
+      isNew: false,
+      plannedSets: 4,
+      lastSets: lastTime,
+    }).exercises[0];
+    expect(e.sets.map((s) => [s.weightKg, s.reps])).toEqual([
+      [50, 12],
+      [50, 12],
+      [50, 11],
+      [50, 11],
+    ]);
+  });
+
+  it('übernimmt ohne Planvorgabe die Satzzahl vom letzten Mal', () => {
+    const d = createDraft('Frei', null, now);
+    const e = addExercise(d, { exerciseId: 'ex-bench', name: 'Bankdrücken', isNew: false, lastSets: lastTime })
+      .exercises[0];
     expect(e.sets).toHaveLength(3);
-    for (const s of e.sets) {
-      expect(s.weightKg).toBe(51.25);
-      expect(s.reps).toBe(12);
-      expect(s.done).toBe(false);
-    }
+    expect(e.plannedSets).toBe(3);
+    const four = addExercise(d, {
+      exerciseId: 'ex-bench',
+      name: 'Bankdrücken',
+      isNew: false,
+      lastSets: [...lastTime, { type: 'working', weightKg: 50, reps: 10, rir: null }],
+    }).exercises[0];
+    expect(four.sets).toHaveLength(4);
+  });
+
+  it('ignoriert Aufwärmsätze vom letzten Mal bei der Vorbelegung der Arbeitssätze', () => {
+    const e = draftWithBench([
+      { type: 'warmup', weightKg: 20, reps: 10, rir: null },
+      ...lastTime,
+    ]).exercises[0];
+    expect(e.sets.map((s) => s.type)).toEqual(['working', 'working', 'working']);
+    expect(e.sets[0].weightKg).toBe(50);
+  });
+
+  it('ein Plan-Gewicht hat beim Gewicht Vorrang, die Wiederholungen kommen vom letzten Mal', () => {
+    const d = createDraft('Push', null, now);
+    const e = addExercise(d, {
+      exerciseId: 'ex-bench',
+      name: 'Bankdrücken',
+      isNew: false,
+      plannedSets: 3,
+      weightKg: 45,
+      lastSets: lastTime,
+    }).exercises[0];
+    expect(e.sets.map((s) => [s.weightKg, s.reps])).toEqual([
+      [45, 12],
+      [45, 12],
+      [45, 11],
+    ]);
   });
 
   it('belegt ohne Vorgeschichte mit 0 kg und der Obergrenze als Ziel vor', () => {
@@ -59,14 +136,17 @@ describe('Vorbelegung', () => {
     expect(e.sets[0].reps).toBe(12);
   });
 
-  it('hält das Gewicht und zielt weiter auf die Obergrenze, wenn diese noch nicht erreicht war', () => {
+  it('übernimmt auch dann, wenn die Obergrenze noch nicht erreicht war', () => {
     const e = draftWithBench([
       { type: 'working', weightKg: 50, reps: 10, rir: 0 },
       { type: 'working', weightKg: 50, reps: 9, rir: 0 },
     ]).exercises[0];
     expect(e.suggestion.action).toBe('hold');
-    expect(e.sets[0].weightKg).toBe(50);
-    expect(e.sets[0].reps).toBe(12);
+    expect(e.sets.map((s) => [s.weightKg, s.reps])).toEqual([
+      [50, 10],
+      [50, 9],
+      [50, 9],
+    ]);
   });
 });
 
@@ -78,7 +158,7 @@ describe('Sätze bearbeiten', () => {
 
     const d1 = updateSet(d0, exId, setId, { weightKg: 55.25, reps: 9, rir: 0 });
     expect(d1.exercises[0].sets[0]).toMatchObject({ weightKg: 55.25, reps: 9, rir: 0 });
-    expect(d0.exercises[0].sets[0].weightKg).toBe(51.25);
+    expect(d0.exercises[0].sets[0].weightKg).toBe(50);
 
     const d2 = toggleDone(d1, exId, setId);
     expect(d2.exercises[0].sets[0].done).toBe(true);
@@ -86,7 +166,7 @@ describe('Sätze bearbeiten', () => {
 
     const d3 = addSet(d2, exId);
     expect(d3.exercises[0].sets).toHaveLength(4);
-    expect(d3.exercises[0].sets[3].weightKg).toBe(51.25);
+    expect(d3.exercises[0].sets[3].weightKg).toBe(50);
 
     const d4 = removeSet(d3, exId, d3.exercises[0].sets[3].id);
     expect(d4.exercises[0].sets).toHaveLength(3);

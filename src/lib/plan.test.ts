@@ -293,8 +293,14 @@ describe('Training aus Plantag', () => {
     expect(bench).toMatchObject({ plannedSets: 4, targetRir: 1, restSeconds: 180 });
     expect(bench.sets).toHaveLength(4);
     expect(bench.suggestion.action).toBe('increase');
-    expect(bench.sets[0].weightKg).toBe(51.25); // kein Wiederholungs-Überschuss (12/12) -> kleiner Sprung (2,5 %)
-    expect(bench.sets[0].reps).toBe(12); // Ziel ist immer die Obergrenze des Bereichs
+    // Vorbelegung = letztes Training Satz für Satz; die Steigerung (51,25 kg) bleibt Empfehlung.
+    expect(bench.suggestion.weightKg).toBe(51.25);
+    expect(bench.sets.map((s) => [s.weightKg, s.reps])).toEqual([
+      [50, 12],
+      [50, 12],
+      [50, 11],
+      [50, 11], // 4. Satz (Plan) hat kein Gegenstück vom letzten Mal: übernimmt den letzten Satz
+    ]);
 
     const ohp = d.exercises[1];
     expect(ohp.suggestion.action).toBe('no-data');

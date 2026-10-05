@@ -131,7 +131,11 @@ describe('Training startet mit dem Plan-Gewicht', () => {
   it('greift ohne Plan-Gewicht auf das letzte Training zurück', () => {
     const d = draftFromPlanDay(templateDay(withWeight(null))!, {}, lastMap, now);
     const work = d.exercises[0].sets.filter((s) => s.type === 'working');
-    expect(work.every((s) => s.weightKg === 80)).toBe(true);
+    expect(work.map((s) => [s.weightKg, s.reps])).toEqual([
+      [80, 10],
+      [80, 10],
+      [77.5, 9],
+    ]);
   });
 
   it('nimmt das Plan-Stangengewicht vor dem gemerkten', () => {
