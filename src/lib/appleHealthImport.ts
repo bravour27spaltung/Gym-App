@@ -26,8 +26,12 @@
  *    für sich.
  *  - Schlafphasen (Core/Deep/REM) eines Consumer-Wearables sind gegenüber einer
  *    Polysomnographie nur mäßig genau; die Gesamtdauer ist deutlich verlässlicher als
- *    die Aufteilung nach Phasen, die hier deshalb gar nicht unterschieden wird.
+ *    die Aufteilung nach Phasen. Ausgewertet werden deshalb nur Tief und REM (am besten
+ *    erkannt, Sleep Advances 2025, zpaf021), und auch nur als Trend (siehe sleep.ts);
+ *    Wachzeit und Leichtschlaf nicht.
  */
+
+import { sleepStageOf, type SleepStage } from './sleep';
 
 const RECORD_RE = /<Record\b[^>]*\/>/g;
 const ATTR_RE = /([\w:-]+)="([^"]*)"/g;
@@ -97,6 +101,8 @@ export interface HealthRecord {
   /** Nur bei Schlaf gesetzt (Ende des Abschnitts); sonst gleich startMs. */
   endMs?: number;
   isWatch: boolean;
+  /** Nur bei Schlaf: Phase des Abschnitts (Tief/REM/Kern/sonstige). */
+  stage?: SleepStage;
 }
 
 /**
@@ -130,6 +136,7 @@ export function parseRelevantRecords(xmlText: string): HealthRecord[] {
         startMs,
         endMs,
         isWatch: isWatchSource(attrs.sourceName ?? ''),
+        stage: sleepStageOf(attrs.value ?? ''),
       });
       continue;
     }

@@ -8,6 +8,7 @@ import { STRETCH_CATALOG, STRETCH_PLAN_CATALOG, type CatalogPlanItem } from './s
 import type { FootballKind, FootballPayload, FootballSource } from './football';
 import type { WatchSample, WatchWindow } from './footballWatch';
 import type { RecoveryPayload, RecoverySource } from './recovery';
+import type { RecoveryInboxRow } from './recoveryInbox';
 import type { HistWorkout } from './stats';
 import type {
   ExerciseListItem,
@@ -944,14 +945,78 @@ export async function updateFootballHealth(
 /** Ergänzt HRV/Ruhepuls/Schlafdauer eines bestehenden Recovery-Eintrags; nur übergebene Felder werden gesetzt. */
 export async function updateRecoveryHealth(
   id: string,
-  patch: { hrvMs?: number; restingHr?: number; sleepHours?: number },
+  patch: {
+    hrvMs?: number;
+    restingHr?: number;
+    sleepHours?: number;
+    sleepStart?: string;
+    sleepEnd?: string;
+    deepSleepMin?: number;
+    remSleepMin?: number;
+  },
 ): Promise<Result<null>> {
   if (!supabase) return fail(NOT_CONFIGURED);
   const row: Record<string, number | string> = { source: 'apple_health' };
   if (patch.hrvMs !== undefined) row.hrv_ms = patch.hrvMs;
   if (patch.restingHr !== undefined) row.resting_hr = patch.restingHr;
   if (patch.sleepHours !== undefined) row.sleep_hours = patch.sleepHours;
-  const { error } = await supabase.from('fit_recovery_entries').update(row).eq('id', id);
+  if (patch.sleepStart !== undefined) row.sleep_start = patch.sleepStart;
+  if (patch.sleepEnd !== undefined) row.sleep_end = patch.sleepEnd;
+  if (patch.deepSleepMin !== undefined) row.deep_sleep_min = patch.deepSleepMin;
+  if (patch.remSleepMin !== undefined) row.rem_sleep_min = patch.remSleepMin;
+  let { error } = await supabase.from('fit_recovery_entries').update(row).eq('id', id);
+  if (error && /(deep|rem)_sleep_min/.test(error.message)) {
+    // Migration 0018 noch nicht ausgeführt: ohne Tief-/REM-Minuten weiter.
+    delete row.deep_sleep_min;
+    delete row.rem_sleep_min;
+    ({ error } = await supabase.from('fit_recovery_entries').update(row).eq('id', id));
+  }
+  if (error) return fail(error.message);
+  return { ok: true, data: null };
+}
+
+/** Eingang mit Apple-Health-Werten, die vor dem Tageseintrag ankamen (Migration 0017). */
+export async function fetchRecoveryInbox(): Promise<Result<RecoveryInboxRow[]>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  let { data, error } = await supabase
+    .from('fit_recovery_health_inbox')
+    .select('date, hrv_ms, resting_hr, sleep_hours, sleep_start, sleep_end, deep_sleep_min, rem_sleep_min')
+    .order('date', { ascending: false })
+    .limit(14);
+  if (error && /(deep|rem)_sleep_min/.test(error.message)) {
+    // Migration 0018 noch nicht ausgeführt: Eingang ohne Tief-/REM-Minuten lesen.
+    const fallback = await supabase
+      .from('fit_recovery_health_inbox')
+      .select('date, hrv_ms, resting_hr, sleep_hours, sleep_start, sleep_end')
+      .order('date', { ascending: false })
+      .limit(14);
+    data = fallback.data as typeof data;
+    error = fallback.error;
+  }
+  if (error) return fail(error.message); // z. B. Migration 0017 noch nicht ausgeführt
+  const rows = (data ?? []) as unknown as {
+    date: string; hrv_ms: number | string | null; resting_hr: number | null;
+    sleep_hours: number | string | null; sleep_start: string | null; sleep_end: string | null;
+    deep_sleep_min?: number | null; rem_sleep_min?: number | null;
+  }[];
+  return {
+    ok: true,
+    data: rows.map((r) => ({
+      date: r.date,
+      hrvMs: r.hrv_ms === null ? null : Number(r.hrv_ms),
+      restingHr: r.resting_hr,
+      sleepHours: r.sleep_hours === null ? null : Number(r.sleep_hours),
+      sleepStart: r.sleep_start,
+      sleepEnd: r.sleep_end,
+      deepSleepMin: r.deep_sleep_min ?? null,
+      remSleepMin: r.rem_sleep_min ?? null,
+    })),
+  };
+}
+
+export async function deleteRecoveryInboxRow(date: string): Promise<Result<null>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { error } = await supabase.from('fit_recovery_health_inbox').delete().eq('date', date);
   if (error) return fail(error.message);
   return { ok: true, data: null };
 }
@@ -971,19 +1036,42 @@ interface RecoveryRow {
   hrv_ms: number | string | null;
   resting_hr: number | null;
   sleep_hours: number | string | null;
+  /** Erst seit Migration 0016 vorhanden. */
+  sleep_start?: string | null;
+  sleep_end?: string | null;
+  /** Erst seit Migration 0018 vorhanden. */
+  deep_sleep_min?: number | null;
+  rem_sleep_min?: number | null;
   source: RecoverySource;
 }
 
 /** Recovery-Einträge, neueste zuerst. */
 export async function fetchRecoveryHistory(limit = 200): Promise<Result<HistRecoveryEntry[]>> {
   if (!supabase) return fail(NOT_CONFIGURED);
-  const { data, error } = await supabase
+  const baseColumns =
+    'id, date, perceived_recovery, soreness, stress, sleep_quality, note, hrv_ms, resting_hr, sleep_hours, source';
+  let res: { data: unknown; error: { message: string } | null } = await supabase
     .from('fit_recovery_entries')
-    .select(
-      'id, date, perceived_recovery, soreness, stress, sleep_quality, note, hrv_ms, resting_hr, sleep_hours, source',
-    )
+    .select(`${baseColumns}, sleep_start, sleep_end, deep_sleep_min, rem_sleep_min`)
     .order('date', { ascending: false })
     .limit(limit);
+  if (res.error && /(deep|rem)_sleep_min/.test(res.error.message)) {
+    // Migration 0018 noch nicht ausgeführt: weiter ohne Tief-/REM-Minuten.
+    res = await supabase
+      .from('fit_recovery_entries')
+      .select(`${baseColumns}, sleep_start, sleep_end`)
+      .order('date', { ascending: false })
+      .limit(limit);
+  }
+  if (res.error && /sleep_(start|end)/.test(res.error.message)) {
+    // Migration 0016 noch nicht ausgeführt: weiter ohne Schlafzeit statt den Bereich zu sperren.
+    res = await supabase
+      .from('fit_recovery_entries')
+      .select(baseColumns)
+      .order('date', { ascending: false })
+      .limit(limit);
+  }
+  const { data, error } = res;
   if (error) return fail(error.message);
   const rows = (data ?? []) as unknown as RecoveryRow[];
   return {
@@ -999,6 +1087,10 @@ export async function fetchRecoveryHistory(limit = 200): Promise<Result<HistReco
       hrvMs: r.hrv_ms === null ? null : Number(r.hrv_ms),
       restingHr: r.resting_hr,
       sleepHours: r.sleep_hours === null ? null : Number(r.sleep_hours),
+      sleepStart: r.sleep_start ?? null,
+      sleepEnd: r.sleep_end ?? null,
+      deepSleepMin: r.deep_sleep_min ?? null,
+      remSleepMin: r.rem_sleep_min ?? null,
       source: r.source,
     })),
   };

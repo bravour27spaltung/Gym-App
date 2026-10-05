@@ -2854,6 +2854,106 @@ button.tile:disabled {
   margin: 0;
 }
 
+/* Recovery: Signalliste, Begründung und Evidenz-Einordnung */
+.siglist {
+  list-style: none;
+  margin: 12px 0;
+  padding: 4px 16px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+}
+
+.sigrow {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.sigrow:first-child {
+  border-top: 0;
+}
+
+.sigdot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.sigdot.ok {
+  background: var(--accent);
+}
+
+.sigdot.watch {
+  background: var(--warn);
+}
+
+.sigdot.low {
+  background: var(--danger);
+}
+
+.sigbody strong,
+.sigbody small {
+  display: block;
+}
+
+.sigbody small {
+  color: var(--muted);
+}
+
+.sigstate {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.reasons {
+  margin: 0 0 12px;
+  padding-left: 18px;
+}
+
+.evidence {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.evidence li {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.evidence small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.grade {
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border: 1px solid var(--line);
+}
+
+.grade.hoch {
+  color: var(--accent);
+}
+
+.grade.mittel {
+  color: var(--warn);
+}
+
+.grade.gering {
+  color: var(--danger);
+}
+
 /* Verlauf der Übung: letzte Trainings als kompakte Liste */
 .fx-exhist {
   margin: 8px 0 4px;

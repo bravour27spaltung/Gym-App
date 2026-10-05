@@ -102,6 +102,12 @@ export interface HistRecoveryEntry {
   hrvMs: number | null;
   restingHr: number | null;
   sleepHours: number | null;
+  /** Beginn/Ende der Nacht (ISO), zu der sleepHours gehört; null bei manuellen oder älteren Werten. */
+  sleepStart: string | null;
+  sleepEnd: string | null;
+  /** Minuten in Tief- bzw. REM-Schlaf der Nacht (Migration 0018); fehlt oder null = unbekannt. */
+  deepSleepMin?: number | null;
+  remSleepMin?: number | null;
   source: RecoverySource;
 }
 
@@ -124,6 +130,7 @@ const KEYS = {
   footballHistory: 'gym.footballHistory.v1',
   recoveryOutbox: 'gym.recoveryOutbox.v1',
   recoveryHistory: 'gym.recoveryHistory.v1',
+  recoveryPromptDate: 'gym.recoveryPromptDate.v1',
 } as const;
 
 export function createStore(storage: KeyValueStorage | null) {
@@ -283,6 +290,10 @@ export function createStore(storage: KeyValueStorage | null) {
       items.push(p);
       return write(KEYS.recoveryOutbox, items);
     },
+
+    /** Tag, an dem die Recovery-Abfrage zuletzt automatisch gezeigt wurde (einmal pro Tag). */
+    getRecoveryPromptDate: () => read<string | null>(KEYS.recoveryPromptDate, null),
+    setRecoveryPromptDate: (d: string) => write(KEYS.recoveryPromptDate, d),
 
     loadRecoveryHistory: () => read<HistRecoveryEntry[]>(KEYS.recoveryHistory, []),
     saveRecoveryHistory: (items: HistRecoveryEntry[]) => write(KEYS.recoveryHistory, items),

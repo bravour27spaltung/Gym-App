@@ -74,8 +74,8 @@ function formatValue(field: PatchField, value: number): string {
  * noch unvollständigen Trainings, Stretching-Sessions, Fußball- und Recovery-Einträge
  * gegen ihr bekanntes Zeitfenster abgeglichen (Training/Stretching haben ein exaktes
  * Fenster aus der Live-Aufzeichnung, Fußball nur mit eingetragener Startzeit, Recovery
- * ein Tagesfenster, siehe recoveryWindowForDate). Bereits vorhandene Werte werden nie
- * überschrieben.
+ * die Nacht, die am Eintragsdatum endet, siehe summarizeRecoveryDay). Bereits vorhandene
+ * Werte werden nie überschrieben, außer älteren Schlafwerten ohne Nachtfenster.
  */
 export function HealthImportSheet({ workouts, stretches, footballs, recoveries, onClose, onApply }: Props) {
   const [fileName, setFileName] = useState<string | null>(null);
@@ -164,7 +164,8 @@ export function HealthImportSheet({ workouts, stretches, footballs, recoveries, 
             Ergänzt Kalorien, Ø Herzfrequenz (bei Fußball zusätzlich die Distanz, bei Recovery HRV,
             Ruhepuls und Schlafdauer) für bereits gespeicherte Einträge in Training, Stretching,
             Fußball und Recovery – anhand des jeweils bekannten Zeitfensters. Bereits vorhandene Werte
-            werden nie überschrieben. Export in der Health-App unter Profil →
+            werden nie überschrieben; einzige Ausnahme sind ältere Apple-Health-Schlafwerte ohne
+            gespeichertes Nachtfenster, die durch die komplette Nacht ersetzt werden. Export in der Health-App unter Profil →
             „Alle Gesundheitsdaten exportieren“, ZIP entpacken und hier die enthaltene{' '}
             <code>export.xml</code> wählen. Die Datei kann mehrere hundert MB groß sein; das Verarbeiten
             dauert dann einen Moment.

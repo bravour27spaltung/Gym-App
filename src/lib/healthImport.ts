@@ -1,5 +1,6 @@
 import type { HealthRecord, HealthWindowSummary } from './appleHealthImport';
 import { summarizeWindow } from './appleHealthImport';
+import { sleepNightForDate } from './sleep';
 import type { HistWorkout } from './stats';
 import type { HistFootballSession, HistRecoveryEntry, HistStretchSession } from './storage';
 
@@ -25,6 +26,8 @@ interface ExistingValues {
   hrvMs?: number | null;
   restingHr?: number | null;
   sleepHours?: number | null;
+  deepSleepMin?: number | null;
+  remSleepMin?: number | null;
 }
 
 /**
@@ -45,6 +48,8 @@ export interface HealthImportCandidate {
   label: string;
   fromMs: number;
   toMs: number;
+  /** Nur bei Recovery: Tag des Eintrags (Aufwachdatum), für die Nacht-Zuordnung. */
+  date?: string;
   /** Bereits vorhandene Werte; ein Import überschreibt nie ein bereits gesetztes Feld. */
   existing: ExistingValues;
 }
@@ -110,17 +115,24 @@ export function buildHealthImportCandidates(
   }
 
   for (const r of recoveries) {
+    // Schlafwerte aus der früheren Fenster-Methode (Import ohne gespeicherte Schlafzeit) sind
+    // unzuverlässig: sie konnten den Teil vor Mitternacht verlieren oder die Vornacht
+    // mitzählen. Sie gelten daher als fehlend und werden bei einem erneuten Import durch den
+    // Nachtwert ersetzt. Manuell eingetragene Schlafzeiten bleiben unangetastet.
+    const legacySleep = r.sleepHours !== null && (r.sleepStart ?? null) === null && r.source === 'apple_health';
     const existing: ExistingValues = {
       distanceKm: null,
       calories: null,
       avgHeartRate: null,
       hrvMs: r.hrvMs,
       restingHr: r.restingHr,
-      sleepHours: r.sleepHours,
+      sleepHours: legacySleep ? null : r.sleepHours,
+      deepSleepMin: r.deepSleepMin ?? null,
+      remSleepMin: r.remSleepMin ?? null,
     };
     if (existing.hrvMs !== null && existing.restingHr !== null && existing.sleepHours !== null) continue;
     const { fromMs, toMs } = recoveryWindowForDate(r.date);
-    candidates.push({ kind: 'recovery', id: r.id, label: 'Recovery', fromMs, toMs, existing });
+    candidates.push({ kind: 'recovery', id: r.id, label: 'Recovery', fromMs, toMs, date: r.date, existing });
   }
 
   return candidates.sort((a, b) => b.fromMs - a.fromMs);
@@ -133,6 +145,12 @@ export interface HealthImportPatch {
   hrvMs?: number;
   restingHr?: number;
   sleepHours?: number;
+  /** Beginn und Ende der Nacht (ISO), die zu `sleepHours` gehört. */
+  sleepStart?: string;
+  sleepEnd?: string;
+  /** Minuten in Tief- bzw. REM-Schlaf der Nacht. */
+  deepSleepMin?: number;
+  remSleepMin?: number;
 }
 
 export interface HealthImportMatch {
@@ -140,6 +158,72 @@ export interface HealthImportMatch {
   summary: HealthWindowSummary;
   /** Nur die Felder, die vorher fehlten und sich jetzt befüllen lassen. */
   patch: HealthImportPatch;
+}
+
+export interface RecoveryDaySummary {
+  hrvMs: number | null;
+  restingHr: number | null;
+  sleepHours: number | null;
+  sleepStartMs: number | null;
+  sleepEndMs: number | null;
+  deepSleepMin: number | null;
+  remSleepMin: number | null;
+}
+
+/** Wie lange nach dem Aufwachen noch Messwerte zur Nacht zählen (Morgenmessung der Uhr). */
+const POST_WAKE_MS = 60 * 60_000;
+
+/**
+ * Health-Werte für einen Recovery-Tag (= Aufwachdatum):
+ *  - Schlaf: die Hauptnacht, die an diesem Tag endet (siehe sleep.ts), also inklusive des
+ *    Teils vor Mitternacht.
+ *  - HRV: Mittelwert der Messungen innerhalb der Nacht (bis 1 h nach dem Aufwachen). Nächtliche
+ *    Werte sind weniger störanfällig als Tagesmessungen (Bewegung, Stress, Koffein). Gibt es
+ *    keine Nacht, greift das großzügige Tagesfenster (recoveryWindowForDate).
+ *  - Ruhepuls: Mittelwert im Tagesfenster; die Uhr legt dafür einen Tageswert ab.
+ */
+export function summarizeRecoveryDay(records: HealthRecord[], dateIso: string): RecoveryDaySummary {
+  const { fromMs, toMs } = recoveryWindowForDate(dateIso);
+  const windowSummary = summarizeWindow(records, fromMs, toMs);
+  const night = sleepNightForDate(
+    records
+      .filter((r) => r.type === 'HKCategoryTypeIdentifierSleepAnalysis' && r.endMs !== undefined)
+      .map((r) => ({ startMs: r.startMs, endMs: r.endMs as number, isWatch: r.isWatch, stage: r.stage })),
+    dateIso,
+  );
+  const nocturnalHrv = night ? summarizeWindow(records, night.startMs, night.endMs + POST_WAKE_MS).hrvMs : null;
+  return {
+    hrvMs: nocturnalHrv ?? windowSummary.hrvMs,
+    restingHr: windowSummary.restingHr,
+    sleepHours: night?.hours ?? null,
+    sleepStartMs: night?.startMs ?? null,
+    sleepEndMs: night?.endMs ?? null,
+    deepSleepMin: night?.deepMin ?? null,
+    remSleepMin: night?.remMin ?? null,
+  };
+}
+
+function matchRecovery(records: HealthRecord[], c: HealthImportCandidate): HealthImportMatch {
+  const day = summarizeRecoveryDay(records, c.date as string);
+  const summary: HealthWindowSummary = {
+    distanceKm: null,
+    calories: null,
+    avgHeartRate: null,
+    hrvMs: day.hrvMs,
+    restingHr: day.restingHr,
+    sleepHours: day.sleepHours,
+  };
+  const patch: HealthImportPatch = {};
+  if (c.existing.hrvMs === null && day.hrvMs !== null) patch.hrvMs = day.hrvMs;
+  if (c.existing.restingHr === null && day.restingHr !== null) patch.restingHr = day.restingHr;
+  if (c.existing.sleepHours === null && day.sleepHours !== null && day.sleepStartMs !== null && day.sleepEndMs !== null) {
+    patch.sleepHours = day.sleepHours;
+    patch.sleepStart = new Date(day.sleepStartMs).toISOString();
+    patch.sleepEnd = new Date(day.sleepEndMs).toISOString();
+  }
+  if ((c.existing.deepSleepMin ?? null) === null && day.deepSleepMin !== null) patch.deepSleepMin = day.deepSleepMin;
+  if ((c.existing.remSleepMin ?? null) === null && day.remSleepMin !== null) patch.remSleepMin = day.remSleepMin;
+  return { candidate: c, summary, patch };
 }
 
 /**
@@ -152,6 +236,7 @@ export function matchHealthImportCandidates(
   candidates: HealthImportCandidate[],
 ): HealthImportMatch[] {
   return candidates.map((c) => {
+    if (c.kind === 'recovery' && c.date) return matchRecovery(records, c);
     const summary = summarizeWindow(records, c.fromMs, c.toMs);
     const patch: HealthImportPatch = {};
     if (c.existing.distanceKm === null && summary.distanceKm !== null) patch.distanceKm = summary.distanceKm;

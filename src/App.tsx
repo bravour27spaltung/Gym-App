@@ -31,7 +31,9 @@ import {
   fetchLastPlanDayId,
   fetchLastSets,
   fetchPlans,
+  deleteRecoveryInboxRow,
   fetchRecoveryHistory,
+  fetchRecoveryInbox,
   fetchStretchExercises,
   fetchStretchHistory,
   fetchStretchPlans,
@@ -99,7 +101,8 @@ import {
   type WorkoutSummary,
 } from './lib/stats';
 import { muscleLabel } from './lib/muscles';
-import { num1 } from './lib/format';
+import { num1, todayIso } from './lib/format';
+import { inboxPatchFor, shouldPromptRecovery } from './lib/recoveryInbox';
 import {
   browserStore,
   type ExerciseListItem,
@@ -191,6 +194,8 @@ export function App() {
   );
   const [recoveryPending, setRecoveryPending] = useState(() => store.loadRecoveryOutbox().length);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
+  // true, sobald der Recovery-Verlauf mindestens einmal vom Server geladen wurde (vorher könnte der Eintrag von heute nur noch fehlen).
+  const [recoverySynced, setRecoverySynced] = useState(false);
 
   // Bereichsübergreifender Apple-Health-Import (Training, Stretching, Fußball).
   const [healthImportOpen, setHealthImportOpen] = useState(false);
@@ -321,10 +326,33 @@ export function App() {
     setRecoveryPending(recoveryRes.pending);
     if (recoveryRes.sent > 0) setNotice(`${recoveryRes.sent} Recovery-Eintrag/Einträge gespeichert.`);
     if (recoveryRes.error) setSyncError((prev) => prev ?? recoveryRes.error);
-    const recoveryHist = await fetchRecoveryHistory();
+    let recoveryHist = await fetchRecoveryHistory();
     if (recoveryHist.ok) {
-      setRecoveryHistory(recoveryHist.data);
-      store.saveRecoveryHistory(recoveryHist.data);
+      // Werte, die der Kurzbefehl vor dem Eintrag geliefert hat, in vorhandene Einträge übernehmen.
+      const inbox = await fetchRecoveryInbox();
+      let merged = false;
+      if (inbox.ok) {
+        for (const row of inbox.data) {
+          const entry = recoveryHist.data.find((e) => e.date === row.date);
+          if (!entry) continue; // Eintrag fehlt noch: Werte bleiben im Eingang
+          const patch = inboxPatchFor(entry, row);
+          if (Object.keys(patch).length > 0) {
+            const upd = await updateRecoveryHealth(entry.id, patch);
+            if (!upd.ok) continue;
+            merged = true;
+          }
+          await deleteRecoveryInboxRow(row.date);
+        }
+      }
+      if (merged) {
+        const again = await fetchRecoveryHistory();
+        if (again.ok) recoveryHist = again;
+      }
+      if (recoveryHist.ok) {
+        setRecoveryHistory(recoveryHist.data);
+        store.saveRecoveryHistory(recoveryHist.data);
+      }
+      setRecoverySynced(true);
     }
   }, [store, refreshPlans]);
 
@@ -346,6 +374,24 @@ export function App() {
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);
   }, [email, sync]);
+
+  // Erstes Öffnen am Tag: Recovery abfragen, solange für heute noch nichts eingetragen ist.
+  // Erst nach dem Laden vom Server, sonst würde ein schon vorhandener Eintrag übersehen.
+  useEffect(() => {
+    if (!email || !recoverySynced) return;
+    const today = todayIso();
+    const show = shouldPromptRecovery({
+      today,
+      history: recoveryHistory,
+      outboxDates: store.loadRecoveryOutbox().map((p) => p.entry.date),
+      lastPromptDate: store.getRecoveryPromptDate(),
+      workoutRunning: draft !== null,
+    });
+    if (!show) return;
+    store.setRecoveryPromptDate(today);
+    setScreen('recovery');
+    setNotice('Guten Morgen: kurz die Erholung für heute eintragen.');
+  }, [email, recoverySynced, recoveryHistory, draft, store]);
 
   // Zurück aus dem Kurzbefehl (Apple-Watch-Daten abrufen): Vorschläge im Fußball-Tab neu laden.
   useEffect(() => {
@@ -1087,6 +1133,8 @@ export function App() {
       <main>
         <RecoveryScreen
           history={recoveryHistory}
+          workouts={mergedHistory}
+          footballs={footballHistory}
           pending={recoveryPending}
           busy={recoveryBusy}
           notice={notice}

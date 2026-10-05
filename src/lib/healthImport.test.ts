@@ -3,6 +3,7 @@ import {
   buildHealthImportCandidates,
   matchHealthImportCandidates,
   recoveryWindowForDate,
+  summarizeRecoveryDay,
   withData,
 } from './healthImport';
 import type { HealthRecord } from './appleHealthImport';
@@ -62,6 +63,8 @@ function recovery(over: Partial<HistRecoveryEntry> = {}): HistRecoveryEntry {
     hrvMs: null,
     restingHr: null,
     sleepHours: null,
+    sleepStart: null,
+    sleepEnd: null,
     source: 'manual',
     ...over,
   };
@@ -157,5 +160,85 @@ describe('matchHealthImportCandidates / withData', () => {
     const candidates = buildHealthImportCandidates([w], [], []);
     const matches = matchHealthImportCandidates(records, candidates);
     expect(withData(matches)).toEqual([]);
+  });
+});
+
+// Lokale Zeit (wie in der App), unabhängig von der Zeitzone des Testrechners.
+const L = (s: string): number => new Date(`${s.replace(' ', 'T')}:00`).getTime();
+
+function sleepRec(from: string, to: string, isWatch = true): HealthRecord {
+  return { type: 'HKCategoryTypeIdentifierSleepAnalysis', value: (L(to) - L(from)) / 3_600_000, startMs: L(from), endMs: L(to), isWatch };
+}
+
+describe('summarizeRecoveryDay: Schlaf als Nacht', () => {
+  // Regression: Die Nacht 23:00 bis 06:30 darf nicht durch ein Fenster ab 0 Uhr auf 6,5 h schrumpfen
+  // und die Vornacht nicht mitzählen.
+  const records: HealthRecord[] = [
+    sleepRec('2026-10-01 23:30', '2026-10-02 06:30'), // Vornacht (7 h)
+    sleepRec('2026-10-02 23:00', '2026-10-03 03:00'),
+    sleepRec('2026-10-03 03:00', '2026-10-03 06:30'),
+    { type: 'HKQuantityTypeIdentifierHeartRateVariabilitySDNN', value: 52, startMs: L('2026-10-03 03:10'), isWatch: true },
+    { type: 'HKQuantityTypeIdentifierHeartRateVariabilitySDNN', value: 40, startMs: L('2026-10-03 11:00'), isWatch: true }, // tagsüber, nicht Nacht
+    { type: 'HKQuantityTypeIdentifierRestingHeartRate', value: 51, startMs: L('2026-10-03 08:00'), isWatch: true },
+  ];
+
+  it('liefert die komplette Nacht des Aufwachtags inklusive Abend vor Mitternacht', () => {
+    const day = summarizeRecoveryDay(records, '2026-10-03');
+    expect(day.sleepHours).toBeCloseTo(7.5, 5);
+    expect(day.sleepStartMs).toBe(L('2026-10-02 23:00'));
+    expect(day.sleepEndMs).toBe(L('2026-10-03 06:30'));
+  });
+
+  it('zählt die Vornacht für den Vortag, nicht für den Folgetag', () => {
+    expect(summarizeRecoveryDay(records, '2026-10-02').sleepHours).toBeCloseTo(7, 5);
+  });
+
+  it('mittelt die HRV nur über Messungen der Nacht und nimmt den Ruhepuls aus dem Tagesfenster', () => {
+    const day = summarizeRecoveryDay(records, '2026-10-03');
+    expect(day.hrvMs).toBe(52);
+    expect(day.restingHr).toBe(51);
+  });
+
+  it('fällt für die HRV auf das Tagesfenster zurück, wenn keine Nacht gefunden wird', () => {
+    const noSleep = records.filter((r) => r.type !== 'HKCategoryTypeIdentifierSleepAnalysis');
+    const day = summarizeRecoveryDay(noSleep, '2026-10-03');
+    expect(day.sleepHours).toBeNull();
+    // Ohne Nacht zählt das ganze Fenster (18 Uhr Vorabend bis 12 Uhr): Mittel aus 52 und 40.
+    expect(day.hrvMs).toBe(46);
+  });
+});
+
+describe('Recovery-Kandidaten: ältere Schlafwerte ohne Nachtfenster', () => {
+  const records: HealthRecord[] = [sleepRec('2026-10-02 23:00', '2026-10-03 06:30')];
+
+  it('ersetzt Apple-Health-Schlaf ohne Nachtfenster durch den Nachtwert, auch wenn HRV und Ruhepuls schon gesetzt sind', () => {
+    const r = recovery({ id: 'r-legacy', date: '2026-10-03', hrvMs: 50, restingHr: 52, sleepHours: 6.5, source: 'apple_health' });
+    const candidates = buildHealthImportCandidates([], [], [], [r]);
+    expect(candidates).toHaveLength(1);
+    const match = matchHealthImportCandidates(records, candidates)[0];
+    expect(match.patch.sleepHours).toBeCloseTo(7.5, 5);
+    expect(match.patch.sleepStart).toBe(new Date(L('2026-10-02 23:00')).toISOString());
+    expect(match.patch.sleepEnd).toBe(new Date(L('2026-10-03 06:30')).toISOString());
+  });
+
+  it('lässt manuell eingetragene Schlafzeiten und Werte mit Nachtfenster unangetastet', () => {
+    const manual = recovery({ id: 'r-manual', date: '2026-10-03', hrvMs: 50, restingHr: 52, sleepHours: 6.5, source: 'manual' });
+    const withWindow = recovery({
+      id: 'r-window',
+      date: '2026-10-03',
+      hrvMs: 50,
+      restingHr: 52,
+      sleepHours: 7.5,
+      sleepStart: '2026-10-02T21:00:00.000Z',
+      sleepEnd: '2026-10-03T04:30:00.000Z',
+      source: 'apple_health',
+    });
+    expect(buildHealthImportCandidates([], [], [], [manual, withWindow])).toEqual([]);
+  });
+
+  it('befüllt Schlafdauer und Nachtfenster immer gemeinsam', () => {
+    const r = recovery({ id: 'r-new', date: '2026-10-03' });
+    const match = matchHealthImportCandidates(records, buildHealthImportCandidates([], [], [], [r]))[0];
+    expect(Object.keys(match.patch).sort()).toEqual(['sleepEnd', 'sleepHours', 'sleepStart']);
   });
 });
