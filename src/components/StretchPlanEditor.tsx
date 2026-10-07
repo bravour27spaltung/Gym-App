@@ -30,7 +30,8 @@ interface Props {
   onClose: () => void;
 }
 
-const SIDES: StretchSide[] = ['beidseitig', 'links', 'rechts', 'mittig'];
+// Nur "beide Seiten" (nacheinander) oder "ohne Seite"; einzelne Seiten (links/rechts) werden nicht mehr angeboten.
+const SIDES: StretchSide[] = ['beidseitig', 'mittig'];
 
 /** Eine Menge gilt nur mit einer ganzen Zahl > 0 (Zeit oder Wiederholungen) und mindestens einem Satz. */
 function itemValid(it: StretchPlanItem): boolean {
@@ -40,7 +41,7 @@ function itemValid(it: StretchPlanItem): boolean {
 
 /**
  * Dehnprogramm (Vorlage) anlegen oder bearbeiten: Name, Reihenfolge der Übungen, je Übung
- * Seite (beide nacheinander / links / rechts / ohne Seite), Haltezeit (Timer) oder
+ * Seite (beide nacheinander / ohne Seite), Haltezeit (Timer) oder
  * Wiederholungen (kein Timer) und Sätze.
  */
 export function StretchPlanEditor({ plan, exercises, onSave, onClose }: Props) {

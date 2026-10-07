@@ -31,7 +31,8 @@ interface Props {
   busy: boolean;
 }
 
-const SIDES: StretchSide[] = ['beidseitig', 'links', 'rechts', 'mittig'];
+// Nur "beide Seiten" (nacheinander) oder "ohne Seite"; einzelne Seiten (links/rechts) werden nicht mehr angeboten.
+const SIDES: StretchSide[] = ['beidseitig', 'mittig'];
 
 /** Laufende Übung: Ziel (Haltezeit oder Wiederholungen), Seite(n) und bereits fertige Durchgänge. */
 interface Running {
