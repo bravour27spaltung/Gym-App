@@ -18,6 +18,8 @@ export interface HistSet {
   type: 'warmup' | 'working';
   weightKg: number;
   reps: number;
+  /** Zeit-Satz (z. B. Plank): gehaltene Sekunden; dann ist reps = 0. */
+  durationSeconds?: number | null;
 }
 
 export interface HistExercise {
@@ -156,6 +158,8 @@ export interface SetHistoryEntry {
   at: string;
   reps: number;
   weightKg: number;
+  /** Zeit-Satz: gehaltene Sekunden; dann ist reps = 0. */
+  durationSeconds?: number | null;
 }
 
 /**
@@ -178,7 +182,12 @@ export function setSlotHistory(
     if (!ex) continue;
     const set = ex.sets.filter((s) => s.type === type)[indexInType - 1];
     if (!set) continue;
-    out.push({ at: w.startedAt, reps: set.reps, weightKg: set.weightKg });
+    out.push({
+      at: w.startedAt,
+      reps: set.reps,
+      weightKg: set.weightKg,
+      ...(set.durationSeconds != null ? { durationSeconds: set.durationSeconds } : {}),
+    });
     if (out.length >= limit) break;
   }
   return out;
@@ -481,7 +490,12 @@ export function payloadToHist(p: WorkoutPayload): HistWorkout {
   const byWe = new Map<string, HistSet[]>();
   for (const s of [...p.sets].sort((a, b) => a.set_number - b.set_number)) {
     const list = byWe.get(s.workout_exercise_id) ?? [];
-    list.push({ type: s.type, weightKg: Number(s.weight_kg), reps: s.reps });
+    list.push({
+      type: s.type,
+      weightKg: Number(s.weight_kg),
+      reps: s.reps,
+      ...(s.duration_seconds != null ? { durationSeconds: s.duration_seconds } : {}),
+    });
     byWe.set(s.workout_exercise_id, list);
   }
   return {
@@ -514,7 +528,12 @@ export function draftToHist(draft: Draft, finishedAt: Date): HistWorkout {
         equipmentKg: e.equipmentKg,
         sets: e.sets
           .filter((s) => s.done)
-          .map((s) => ({ type: s.type, weightKg: s.weightKg, reps: s.reps })),
+          .map((s) => ({
+            type: s.type,
+            weightKg: s.weightKg,
+            reps: s.durationSeconds != null ? 0 : s.reps,
+            ...(s.durationSeconds != null ? { durationSeconds: s.durationSeconds } : {}),
+          })),
       }))
       .filter((e) => e.sets.length > 0),
   };
@@ -544,7 +563,13 @@ export function nextAction(
   range: { repMin: number; repMax: number } | null,
 ): 'increase' | 'hold' | null {
   if (!range || range.repMin > range.repMax) return null;
-  const logged: LoggedSet[] = sets.map((s) => ({ type: s.type, weightKg: s.weightKg, reps: s.reps, rir: null }));
+  const logged: LoggedSet[] = sets.map((s) => ({
+    type: s.type,
+    weightKg: s.weightKg,
+    reps: s.reps,
+    durationSeconds: s.durationSeconds ?? null,
+    rir: null,
+  }));
   const sug = suggestProgression({ sets: logged, repMin: range.repMin, repMax: range.repMax });
   return sug.action === 'increase' ? 'increase' : sug.action === 'hold' ? 'hold' : null;
 }

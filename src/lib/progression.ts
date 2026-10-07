@@ -50,6 +50,8 @@ export interface LoggedSet {
    * Datensätze bestehen.
    */
   rir: number | null;
+  /** Gehaltene Zeit in Sekunden bei Zeit-Sätzen (z. B. Plank); fehlt/null bei Wdh.-Sätzen. */
+  durationSeconds?: number | null;
 }
 
 export interface ProgressionInput {
@@ -95,7 +97,8 @@ export function suggestProgression(input: ProgressionInput): ProgressionSuggesti
   const { repMin, repMax } = input;
   if (repMin > repMax) throw new Error('repMin darf nicht größer als repMax sein');
 
-  const working = input.sets.filter((s) => s.type === 'working');
+  // Zeit-Sätze haben keine Wiederholungen und zählen nicht für die Double Progression.
+  const working = input.sets.filter((s) => s.type === 'working' && s.durationSeconds == null);
   if (working.length === 0) {
     return {
       action: 'no-data',

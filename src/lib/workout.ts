@@ -12,6 +12,11 @@ export interface DraftSet {
   type: 'warmup' | 'working';
   weightKg: number;
   reps: number;
+  /**
+   * Zeit-Satz (z. B. Plank): gehaltene Sekunden statt Wiederholungen. null/fehlt = normaler
+   * Wdh.-Satz. Bei gesetzter Zeit wird beim Speichern reps = 0 geschrieben.
+   */
+  durationSeconds?: number | null;
   /** Wiederholungen in Reserve; 0 = Muskelversagen; null = nicht erfasst. */
   rir: number | null;
   done: boolean;
@@ -128,6 +133,8 @@ export function addExercise(draft: Draft, input: ExerciseInput): Draft {
       type: 'working' as const,
       weightKg: input.weightKg ?? src?.weightKg ?? 0,
       reps: src && src.reps > 0 ? src.reps : (suggestion.targetReps ?? repMax),
+      // Ein Zeit-Satz beim letzten Mal bleibt ein Zeit-Satz (Vorbelegung = letzte Zeit).
+      ...(src?.durationSeconds != null ? { durationSeconds: src.durationSeconds } : {}),
       rir: null,
       done: false,
     };
@@ -175,18 +182,26 @@ export function updateExercise(
   return mapEx(draft, exId, (e) => ({ ...e, ...patch }));
 }
 
-/** Kurztext für "Letztes Mal", z. B. "12, 12, 11 × 50 kg · 10 × 45 kg". */
-export function describeLastSets<T extends Pick<LoggedSet, 'type' | 'weightKg' | 'reps'>>(sets: T[]): string {
+/** Kurztext für "Letztes Mal", z. B. "12, 12, 11 × 50 kg · 10 × 45 kg"; Zeit-Sätze als "45 s, 40 s". */
+export function describeLastSets<
+  T extends Pick<LoggedSet, 'type' | 'weightKg' | 'reps'> & { durationSeconds?: number | null },
+>(sets: T[]): string {
   const working = sets.filter((s) => s.type === 'working');
   if (working.length === 0) return '';
-  const groups: { weightKg: number; reps: number[] }[] = [];
+  const groups: { weightKg: number; values: string[]; timed: boolean }[] = [];
   for (const s of working) {
+    const timed = s.durationSeconds != null;
+    const value = timed ? `${s.durationSeconds} s` : String(s.reps);
     const last = groups[groups.length - 1];
-    if (last && last.weightKg === s.weightKg) last.reps.push(s.reps);
-    else groups.push({ weightKg: s.weightKg, reps: [s.reps] });
+    if (last && last.weightKg === s.weightKg && last.timed === timed) last.values.push(value);
+    else groups.push({ weightKg: s.weightKg, values: [value], timed });
   }
   return groups
-    .map((g) => `${g.reps.join(', ')} × ${String(g.weightKg).replace('.', ',')} kg`)
+    .map((g) =>
+      g.timed && g.weightKg === 0
+        ? g.values.join(', ')
+        : `${g.values.join(', ')} × ${String(g.weightKg).replace('.', ',')} kg`,
+    )
     .join(' · ');
 }
 
@@ -198,7 +213,7 @@ export function updateSet(
   draft: Draft,
   exId: string,
   setId: string,
-  patch: Partial<Pick<DraftSet, 'weightKg' | 'reps' | 'rir' | 'type'>>,
+  patch: Partial<Pick<DraftSet, 'weightKg' | 'reps' | 'rir' | 'type' | 'durationSeconds'>>,
 ): Draft {
   return mapEx(draft, exId, (e) => ({
     ...e,
@@ -243,7 +258,7 @@ export function addSet(draft: Draft, exId: string): Draft {
   return mapEx(draft, exId, (e) => {
     const lastWorking = [...e.sets].reverse().find((s) => s.type === 'working');
     const lastTime = [...e.lastSets].reverse().find((s) => s.type === 'working');
-    const base = lastWorking ??
+    const base: { weightKg: number; reps: number; durationSeconds?: number | null } = lastWorking ??
       lastTime ?? {
         weightKg: e.suggestion.weightKg ?? 0,
         reps: e.suggestion.targetReps ?? e.repMax,
@@ -253,6 +268,7 @@ export function addSet(draft: Draft, exId: string): Draft {
       type: 'working',
       weightKg: base.weightKg,
       reps: base.reps,
+      ...(base.durationSeconds != null ? { durationSeconds: base.durationSeconds } : {}),
       rir: null,
       done: false,
     };
@@ -346,7 +362,13 @@ export function markWarmupAtStart(draft: Draft, exId: string): Draft {
 export function doneSetsAsLogged(e: DraftExercise): LoggedSet[] {
   return e.sets
     .filter((s) => s.done)
-    .map((s) => ({ type: s.type, weightKg: s.weightKg, reps: s.reps, rir: s.rir }));
+    .map((s) => ({
+      type: s.type,
+      weightKg: s.weightKg,
+      reps: s.durationSeconds != null ? 0 : s.reps,
+      ...(s.durationSeconds != null ? { durationSeconds: s.durationSeconds } : {}),
+      rir: s.rir,
+    }));
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +411,8 @@ export interface WorkoutPayload {
     type: 'warmup' | 'working';
     weight_kg: number;
     reps: number;
+    /** Nur bei Zeit-Sätzen; fehlt sonst, damit Datenbanken ohne Migration 0019 weiter funktionieren. */
+    duration_seconds?: number;
     rir: number | null;
     done_at: string;
   }[];
@@ -451,7 +475,8 @@ export function buildPayload(draft: Draft, finishedAt: Date): WorkoutPayload | n
           set_number: n + 1,
           type: s.type,
           weight_kg: s.weightKg,
-          reps: s.reps,
+          reps: s.durationSeconds != null ? 0 : s.reps,
+          ...(s.durationSeconds != null ? { duration_seconds: s.durationSeconds } : {}),
           rir: s.rir,
           done_at: finished,
         });

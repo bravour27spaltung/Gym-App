@@ -3138,3 +3138,52 @@ button.tile:disabled {
 .tile-value .delta.up {
   color: var(--accent);
 }
+
+/* Zeit-Satz: Umschalter Wdh./Zeit und Stoppuhr im Satz-Editor */
+.fx-modehead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fx-timer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.fx-timer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fx-timer-row button {
+  min-width: 56px;
+  min-height: 56px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.fx-timer-row button:disabled {
+  opacity: 0.4;
+}
+
+.fx-timer-clock {
+  flex: 1;
+  text-align: center;
+  font-size: 2.6rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.fx-timer.running .fx-timer-clock {
+  color: var(--accent);
+}

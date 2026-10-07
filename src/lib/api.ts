@@ -103,6 +103,8 @@ interface LastSetRow {
   reps: number;
   rir: number | null;
   equipment_kg?: number | null;
+  /** Fehlt in Datenbanken ohne Migration 0019. */
+  duration_seconds?: number | null;
 }
 
 /**
@@ -115,7 +117,8 @@ export async function fetchLastSets(exerciseId: string): Promise<Result<LastInfo
   if (!client) return fail(NOT_CONFIGURED);
   const load = (columns: string) =>
     client.from('fit_last_sets').select(columns).eq('exercise_id', exerciseId).order('set_number');
-  let res = await load('type, weight_kg, reps, rir, equipment_kg');
+  let res = await load('type, weight_kg, reps, rir, equipment_kg, duration_seconds');
+  if (res.error) res = await load('type, weight_kg, reps, rir, equipment_kg');
   if (res.error) res = await load('type, weight_kg, reps, rir');
   if (res.error) return fail(res.error.message);
   const rows = (res.data ?? []) as unknown as LastSetRow[];
@@ -127,6 +130,7 @@ export async function fetchLastSets(exerciseId: string): Promise<Result<LastInfo
         type: r.type,
         weightKg: Number(r.weight_kg),
         reps: r.reps,
+        ...(r.duration_seconds != null ? { durationSeconds: r.duration_seconds } : {}),
         rir: r.rir,
       })),
       equipmentKg: eq === null || eq === undefined ? null : Number(eq),
@@ -148,7 +152,14 @@ interface HistoryRow {
     exercise_id: string;
     position: number;
     equipment_kg: number | string | null;
-    fit_sets: { type: 'warmup' | 'working'; weight_kg: number | string; reps: number; set_number: number }[];
+    fit_sets: {
+      type: 'warmup' | 'working';
+      weight_kg: number | string;
+      reps: number;
+      set_number: number;
+      /** Fehlt in Datenbanken ohne Migration 0019. */
+      duration_seconds?: number | null;
+    }[];
   }[];
 }
 
@@ -167,13 +178,20 @@ export async function fetchHistory(limit = 150): Promise<Result<HistWorkout[]>> 
     'id, name, started_at, finished_at, feedback, ',
     'id, name, started_at, finished_at, ',
   ];
+  // Zusätzlich gibt es die Satz-Spalte "duration_seconds" erst seit Migration 0019: zuerst mit,
+  // dann ohne probieren.
+  const setCols = [
+    'type, weight_kg, reps, set_number, duration_seconds',
+    'type, weight_kg, reps, set_number',
+  ];
+  const combos = setCols.flatMap((sc) => variants.map((cols) => ({ cols, sc })));
   let data: unknown[] | null = null;
   let lastError = '';
-  for (const cols of variants) {
+  for (const { cols, sc } of combos) {
     const res = await supabase
       .from('fit_workouts')
       .select(
-        `${cols}fit_workout_exercises(exercise_id, position, equipment_kg, fit_sets(type, weight_kg, reps, set_number))`,
+        `${cols}fit_workout_exercises(exercise_id, position, equipment_kg, fit_sets(${sc}))`,
       )
       .not('finished_at', 'is', null)
       .order('started_at', { ascending: false })
@@ -203,7 +221,12 @@ export async function fetchHistory(limit = 150): Promise<Result<HistWorkout[]>> 
           equipmentKg: e.equipment_kg === null ? null : Number(e.equipment_kg),
           sets: [...e.fit_sets]
             .sort((a, b) => a.set_number - b.set_number)
-            .map((s) => ({ type: s.type, weightKg: Number(s.weight_kg), reps: s.reps })),
+            .map((s) => ({
+              type: s.type,
+              weightKg: Number(s.weight_kg),
+              reps: s.reps,
+              ...(s.duration_seconds != null ? { durationSeconds: s.duration_seconds } : {}),
+            })),
         })),
     })),
   };

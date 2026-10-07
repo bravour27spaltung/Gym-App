@@ -24,6 +24,7 @@ import {
   type HistWorkout,
 } from '../lib/stats';
 import { muscleLabel } from '../lib/muscles';
+import { formatClock } from '../lib/timer';
 import { totalLoad } from '../lib/weight';
 import {
   exerciseRows,
@@ -413,7 +414,7 @@ function WorkoutDetail(props: {
                             <tr key={i} className={s.type === 'warmup' ? 'warm' : ''}>
                               <th scope="row">{label}</th>
                               <td>{s.weightKg === 0 ? '–' : fmtKg(s.weightKg).replace(' kg', '')}</td>
-                              <td>{s.reps}</td>
+                              <td>{s.durationSeconds != null ? formatClock(s.durationSeconds) : s.reps}</td>
                               <td className={isTop ? 'best' : ''}>{rm === null || s.reps === 1 ? '–' : fmtKg(rm).replace(' kg', '')}</td>
                             </tr>
                           );

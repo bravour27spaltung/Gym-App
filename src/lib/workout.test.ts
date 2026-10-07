@@ -388,3 +388,58 @@ describe('Abschluss', () => {
     ]);
   });
 });
+
+describe('Zeit-Sätze (Timer, z. B. Plank)', () => {
+  const plankLast: LoggedSet[] = [
+    { type: 'working', weightKg: 0, reps: 0, durationSeconds: 45, rir: null },
+    { type: 'working', weightKg: 0, reps: 0, durationSeconds: 40, rir: null },
+  ];
+
+  function plankDraft() {
+    return addExercise(createDraft('Core', null, now), {
+      exerciseId: 'ex-plank',
+      name: 'Plank',
+      isNew: false,
+      plannedSets: 2,
+      lastSets: plankLast,
+    });
+  }
+
+  it('belegt Zeit-Sätze vom letzten Mal mit der Zeit vor', () => {
+    const sets = plankDraft().exercises[0].sets;
+    expect(sets.map((s) => s.durationSeconds)).toEqual([45, 40]);
+  });
+
+  it('lässt normale Sätze ohne Zeit', () => {
+    const sets = draftWithBench().exercises[0].sets;
+    expect(sets.every((s) => s.durationSeconds === undefined)).toBe(true);
+  });
+
+  it('neuer Satz erbt die Zeit des letzten Satzes', () => {
+    const base = plankDraft();
+    const d = addSet(base, base.exercises[0].id);
+    expect(d.exercises[0].sets.map((s) => s.durationSeconds)).toEqual([45, 40, 40]);
+  });
+
+  it('speichert Zeit-Sätze mit reps = 0 und duration_seconds, normale Sätze ohne die Spalte', () => {
+    let d = draftWithBench();
+    const ex = d.exercises[0];
+    d = updateSet(d, ex.id, ex.sets[0].id, { durationSeconds: 60 });
+    d = toggleDone(d, ex.id, ex.sets[0].id);
+    d = toggleDone(d, ex.id, ex.sets[1].id);
+    const payload = buildPayload(d, later);
+    expect(payload?.sets[0]).toMatchObject({ reps: 0, duration_seconds: 60 });
+    expect(payload?.sets[1]).not.toHaveProperty('duration_seconds');
+    expect(payload?.sets[1].reps).toBe(12);
+  });
+
+  it('beschreibt Zeit-Sätze als Sekunden', () => {
+    expect(describeLastSets(plankLast)).toBe('45 s, 40 s');
+    expect(describeLastSets([{ type: 'working', weightKg: 10, reps: 0, durationSeconds: 30 }])).toBe('30 s × 10 kg');
+  });
+
+  it('zählt Zeit-Sätze nicht für die Double Progression', () => {
+    const ex = plankDraft().exercises[0];
+    expect(ex.suggestion.action).toBe('no-data');
+  });
+});

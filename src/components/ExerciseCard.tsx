@@ -17,7 +17,7 @@ interface Props {
   activeSetId: string | null;
   onSelect: (setId: string | null) => void;
   onSetWeight: (setId: string, kg: number) => void;
-  onUpdateSet: (setId: string, patch: Partial<Pick<DraftSet, 'reps' | 'type'>>) => void;
+  onUpdateSet: (setId: string, patch: Partial<Pick<DraftSet, 'reps' | 'type' | 'durationSeconds'>>) => void;
   onToggleSet: (setId: string) => void;
   onAddSet: () => void;
   onRemoveSet: (setId: string) => void;
@@ -102,11 +102,12 @@ export function ExerciseCard(props: Props) {
           index={idx}
           set={set}
           previous={previous}
-          target={set.type === 'working' ? targetText : null}
+          target={set.type === 'working' && set.durationSeconds == null ? targetText : null}
           history={setSlotHistory(props.history, e.exerciseId, set.type, idx)}
           equipmentKg={e.equipmentKg}
           onWeight={(kg) => props.onSetWeight(set.id, kg)}
           onReps={(reps) => props.onUpdateSet(set.id, { reps })}
+          onDuration={(seconds) => props.onUpdateSet(set.id, { durationSeconds: seconds })}
           onToggle={() => props.onToggleSet(set.id)}
           onClose={() => props.onSelect(null)}
           onToggleType={() =>
@@ -125,7 +126,7 @@ export function ExerciseCard(props: Props) {
         index={idx}
         set={set}
         previous={previous}
-        target={set.type === 'working' ? targetText : null}
+        target={set.type === 'working' && set.durationSeconds == null ? targetText : null}
         onSelect={() => props.onSelect(set.id)}
       />
     );

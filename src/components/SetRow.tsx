@@ -2,8 +2,10 @@ import { useEffect, useRef } from 'react';
 import { fmtShortYear } from '../lib/format';
 import type { LoggedSet } from '../lib/progression';
 import type { SetHistoryEntry } from '../lib/stats';
+import { formatClock } from '../lib/timer';
 import { composeWeight, formatKg, kgText, splitWeight, totalLoad, type Fraction } from '../lib/weight';
 import type { DraftSet } from '../lib/workout';
+import { SetTimer } from './SetTimer';
 import { Icon, NumberInput, WheelPicker } from './ui';
 
 /** Nachkommastellen-Optionen als Rad, zweistellig ("00", "25", "50", "75"). */
@@ -13,13 +15,22 @@ function setLabel(set: DraftSet, index: number): string {
   return set.type === 'warmup' ? `Aufwärmsatz ${index}` : `Satz ${index}`;
 }
 
+/** Zeit-Satz als Text: "0:45" bzw. "0:45 · 10 kg"; Wdh.-Satz: "12 × 50 kg". */
+function timedText(seconds: number, weightKg: number): string {
+  return weightKg > 0 ? `${formatClock(seconds)} · ${kgText(weightKg)} kg` : formatClock(seconds);
+}
+
 function previousText(previous: LoggedSet | null): string | null {
-  return previous ? `${previous.reps} × ${kgText(previous.weightKg)} kg` : null;
+  if (!previous) return null;
+  return previous.durationSeconds != null
+    ? timedText(previous.durationSeconds, previous.weightKg)
+    : `${previous.reps} × ${kgText(previous.weightKg)} kg`;
 }
 
 /** "31.08.26  7 × 5,00 kg" bzw. ohne Gewicht nur "31.08.26  10×". */
 function historyLine(entry: SetHistoryEntry): string {
   const date = fmtShortYear(new Date(entry.at).getTime());
+  if (entry.durationSeconds != null) return `${date} · ${timedText(entry.durationSeconds, entry.weightKg)}`;
   return entry.weightKg > 0 ? `${date} · ${entry.reps} × ${kgText(entry.weightKg)} kg` : `${date} · ${entry.reps}×`;
 }
 
@@ -47,20 +58,27 @@ interface LineProps {
  */
 export function SetLine({ index, set, previous, target = null, onSelect }: LineProps) {
   const warm = set.type === 'warmup';
+  const timed = set.durationSeconds != null;
   const prev = previousText(previous);
   return (
     <li>
       <button
         type="button"
         className={`fx-line ${warm ? 'warm' : ''} ${set.done ? 'done' : ''}`}
-        aria-label={`${setLabel(set, index)}: ${set.weightKg > 0 ? formatKg(set.weightKg) : 'kein Gewicht'}, ${set.reps} Wiederholungen${
-          set.done ? ', erledigt' : ''
-        }. Zum Bearbeiten tippen`}
+        aria-label={`${setLabel(set, index)}: ${set.weightKg > 0 ? formatKg(set.weightKg) : 'kein Gewicht'}, ${
+          timed ? `${set.durationSeconds} Sekunden` : `${set.reps} Wiederholungen`
+        }${set.done ? ', erledigt' : ''}. Zum Bearbeiten tippen`}
         onClick={onSelect}
       >
         <span className="fx-badge">{warm ? `W${index}` : index}</span>
         <span className="fx-val">
-          {set.reps} × {set.weightKg > 0 ? kgText(set.weightKg) : '–'} kg
+          {timed ? (
+            timedText(set.durationSeconds ?? 0, set.weightKg)
+          ) : (
+            <>
+              {set.reps} × {set.weightKg > 0 ? kgText(set.weightKg) : '–'} kg
+            </>
+          )}
         </span>
         {!set.done && (target || prev) && (
           <span className="fx-meta">
@@ -87,6 +105,8 @@ interface EditorProps {
   equipmentKg: number | null;
   onWeight: (kg: number) => void;
   onReps: (reps: number) => void;
+  /** Zeit in Sekunden setzen; null = zurück zu Wiederholungen. */
+  onDuration: (seconds: number | null) => void;
   /** Abschließen (offener Satz) bzw. Umschalten auf "offen" (erledigter Satz). */
   onToggle: () => void;
   /** Editor schließen, ohne den Erledigt-Status zu ändern. */
@@ -105,6 +125,7 @@ export function SetEditor({
   equipmentKg,
   onWeight,
   onReps,
+  onDuration,
   onToggle,
   onClose,
   onToggleType,
@@ -115,6 +136,7 @@ export function SetEditor({
   const label = setLabel(set, index);
   const prev = previousText(previous);
   const { wholeKg, fraction } = safeSplit(set.weightKg);
+  const timed = set.durationSeconds != null;
   const showTotal = equipmentKg !== null && equipmentKg > 0 && set.weightKg > 0;
 
   // Beim Wechsel des aktiven Satzes in den sichtbaren Bereich holen (nicht beim ersten Öffnen
@@ -171,33 +193,62 @@ export function SetEditor({
       </div>
 
       <div className="fx-field">
-        <span className="fx-flabel">Wiederholungen</span>
-        <div className="fx-stepper">
-          <button
-            type="button"
-            aria-label={`${label}: eine Wiederholung weniger`}
-            disabled={set.reps <= 0}
-            onClick={() => onReps(Math.max(0, set.reps - 1))}
-          >
-            −
-          </button>
-          <div className="fx-input">
-            <NumberInput
-              kind="int"
-              className="bigin"
-              label={`${label}: Wiederholungen`}
-              value={set.reps}
-              onCommit={onReps}
-            />
+        <div className="fx-modehead">
+          <span className="fx-flabel">{timed ? 'Zeit' : 'Wiederholungen'}</span>
+          <div className="chips sm" role="group" aria-label={`${label}: Erfassung`}>
+            <button
+              type="button"
+              className={timed ? 'chip' : 'chip on'}
+              aria-pressed={!timed}
+              onClick={() => timed && onDuration(null)}
+            >
+              Wdh.
+            </button>
+            <button
+              type="button"
+              className={timed ? 'chip on' : 'chip'}
+              aria-pressed={timed}
+              onClick={() => !timed && onDuration(previous?.durationSeconds ?? 30)}
+            >
+              Zeit
+            </button>
           </div>
-          <button
-            type="button"
-            aria-label={`${label}: eine Wiederholung mehr`}
-            onClick={() => onReps(Math.min(999, set.reps + 1))}
-          >
-            +
-          </button>
         </div>
+        {timed ? (
+          <SetTimer
+            label={`${label}: Zeit`}
+            seconds={set.durationSeconds ?? 0}
+            targetSeconds={previous?.durationSeconds ?? null}
+            onChange={onDuration}
+          />
+        ) : (
+          <div className="fx-stepper">
+            <button
+              type="button"
+              aria-label={`${label}: eine Wiederholung weniger`}
+              disabled={set.reps <= 0}
+              onClick={() => onReps(Math.max(0, set.reps - 1))}
+            >
+              −
+            </button>
+            <div className="fx-input">
+              <NumberInput
+                kind="int"
+                className="bigin"
+                label={`${label}: Wiederholungen`}
+                value={set.reps}
+                onCommit={onReps}
+              />
+            </div>
+            <button
+              type="button"
+              aria-label={`${label}: eine Wiederholung mehr`}
+              onClick={() => onReps(Math.min(999, set.reps + 1))}
+            >
+              +
+            </button>
+          </div>
+        )}
       </div>
 
       {history.length > 0 && (
