@@ -5,6 +5,7 @@ import {
   clearQueue,
   consumeQueued,
   DEFAULT_HOLD_SECONDS,
+  STRETCH_AUTO_PAUSE_SECONDS,
   itemSummary,
   plannedRounds,
   sideLabel,
@@ -16,6 +17,7 @@ import {
 } from '../lib/stretch';
 import type { StretchExerciseListItem } from '../lib/storage';
 import { AddStretchExercise } from './AddStretchExercise';
+import { AutoPause } from './AutoPause';
 import { HoldTimer } from './HoldTimer';
 import { RepsDone } from './RepsDone';
 import { Icon, IconButton } from './ui';
@@ -43,6 +45,8 @@ interface Running {
   /** Aus einer Vorlage: wird nach den Durchgängen aus der Warteschlange genommen. */
   fromQueue: boolean;
   done: StretchRound[];
+  /** Automatische Kurzpause vor dem nächsten Durchgang läuft (Timer/Wiederholungen noch nicht gestartet). */
+  pausing: boolean;
 }
 
 function useElapsedMinutes(startedAt: string): number {
@@ -109,6 +113,8 @@ export function StretchScreen({ draft, stretchExercises, onUpdate, onFinish, onD
       sets: head.sets,
       fromQueue: true,
       done: [],
+      // Zwischen zwei Übungen einer Vorlage kurz Luft holen; vor der ersten nicht.
+      pausing: draft.items.length > 0,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queue, running, adding]);
@@ -123,6 +129,7 @@ export function StretchScreen({ draft, stretchExercises, onUpdate, onFinish, onD
       sets: 1,
       fromQueue: false,
       done: [],
+      pausing: false,
     });
   }
 
@@ -146,7 +153,7 @@ export function StretchScreen({ draft, stretchExercises, onUpdate, onFinish, onD
     };
     const done = [...running.done, round];
     if (done.length >= planned.length) commit(running, done);
-    else setRunning({ ...running, done });
+    else setRunning({ ...running, done, pausing: true });
   }
 
   /** Abbrechen: schon fertige Durchgänge bleiben erhalten, der laufende zählt nicht. */
@@ -257,7 +264,13 @@ export function StretchScreen({ draft, stretchExercises, onUpdate, onFinish, onD
                   {planned.length > 1 && <small> · Durchgang {idx + 1} von {planned.length}</small>}
                 </p>
               )}
-              {running.reps != null ? (
+              {running.pausing ? (
+                <AutoPause
+                  key={`pause-${idx}`}
+                  seconds={STRETCH_AUTO_PAUSE_SECONDS}
+                  onDone={() => setRunning((r) => (r ? { ...r, pausing: false } : r))}
+                />
+              ) : running.reps != null ? (
                 <RepsDone
                   key={idx}
                   reps={running.reps}

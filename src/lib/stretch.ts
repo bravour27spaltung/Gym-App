@@ -102,6 +102,9 @@ export interface StretchAmount {
 }
 
 export const DEFAULT_HOLD_SECONDS = 30;
+
+/** Automatische Pause zwischen zwei Dehn-Durchgängen (Seitenwechsel, Satz, nächste Übung). */
+export const STRETCH_AUTO_PAUSE_SECONDS = 5;
 export const DEFAULT_REPS = 10;
 
 /** Menge für eine Übung nach ihren Standardwerten; ohne Angabe die übergebene Haltezeit. */
