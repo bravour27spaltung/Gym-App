@@ -194,6 +194,8 @@ export function WorkoutScreen({
     setConfirmDiscard(false);
   }
 
+  const workoutRef = useMemo(() => ({ id: draft.id, startedAt: draft.startedAt }), [draft.id, draft.startedAt]);
+
   return (
     <div className="workout">
       <header className="appbar workout-bar">
@@ -272,6 +274,7 @@ export function WorkoutScreen({
             key={current.id}
             exercise={current}
             history={history}
+            workout={workoutRef}
             activeSetId={activeSet?.id ?? null}
             onSelect={setSelectedSetId}
             onSetWeight={(setId, kg) => onUpdate((d) => updateSetWeight(d, current.id, setId, kg))}

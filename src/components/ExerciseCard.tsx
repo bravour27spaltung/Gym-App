@@ -13,6 +13,8 @@ interface Props {
   exercise: DraftExercise;
   /** Abgeschlossene Trainings, für die Satz-Historie ("Verlauf") im Editor. */
   history: HistWorkout[];
+  /** Id und Startzeit des laufenden Trainings; damit zählen erledigte Sätze von heute im 1RM-Verlauf mit. */
+  workout?: { id: string; startedAt: string };
   /** Satz, dessen Editor offen ist; null = alle Sätze erledigt oder keiner gewählt. */
   activeSetId: string | null;
   onSelect: (setId: string | null) => void;
@@ -47,10 +49,32 @@ export function ExerciseCard(props: Props) {
   const targetReps = e.suggestion.targetReps ?? e.repMax;
   const targetText =
     e.suggestion.weightKg !== null ? `${targetReps} × ${kgText(e.suggestion.weightKg)} kg` : `${targetReps} Wdh.`;
-  const oneRm = useMemo(
-    () => recentOneRmSeries(props.history, e.exerciseId, Date.now()),
-    [props.history, e.exerciseId],
-  );
+  const { workout } = props;
+  // Das laufende Training steht noch nicht in der Historie: erledigte Sätze von heute
+  // als eigenen Punkt anhängen, sonst fehlt der aktuelle 1RM in der Kurve.
+  const oneRm = useMemo(() => {
+    const today: HistWorkout[] = workout
+      ? [
+          {
+            id: workout.id,
+            name: '',
+            startedAt: workout.startedAt,
+            finishedAt: null,
+            exercises: [
+              {
+                exerciseId: e.exerciseId,
+                equipmentKg: e.equipmentKg,
+                sets: e.sets
+                  .filter((x) => x.done && x.type === 'working' && x.durationSeconds == null)
+                  .map((x) => ({ type: x.type, weightKg: x.weightKg, reps: x.reps })),
+              },
+            ],
+          },
+        ]
+      : [];
+    const past = props.history.filter((h) => h.id !== workout?.id);
+    return recentOneRmSeries([...past, ...today], e.exerciseId, Date.now());
+  }, [props.history, e.exerciseId, e.equipmentKg, e.sets, workout]);
   const oneRmFirst = oneRm[0];
   const oneRmLast = oneRm[oneRm.length - 1];
   const oneRmDelta =
