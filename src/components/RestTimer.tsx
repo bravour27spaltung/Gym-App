@@ -10,6 +10,50 @@ interface Props {
 }
 
 /**
+ * Abstand zwischen Unterkante des Layout-Viewports und Unterkante des
+ * sichtbaren Viewports. iOS Safari/PWA verschiebt den Layout-Viewport z. B.
+ * nach der Tastatur (Wdh.-/Gewichtseingabe) und lässt `position: fixed` dann
+ * mitten im Bildschirm hängen. Mit diesem Versatz sitzt der Timer wieder an
+ * der sichtbaren Unterkante.
+ */
+function useViewportBottomOffset(active: boolean): number {
+  const [offset, setOffset] = useState(0);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!active || !vv) {
+      setOffset(0);
+      return;
+    }
+    const sync = () => {
+      const diff = Math.round(window.innerHeight - (vv.offsetTop + vv.height));
+      // Unplausible Werte (mehr als der halbe Bildschirm) ignorieren.
+      setOffset(Math.abs(diff) > window.innerHeight / 2 ? 0 : diff);
+    };
+    // iOS meldet das Schließen der Tastatur nicht immer per Event.
+    const syncLater = () => {
+      sync();
+      window.setTimeout(sync, 350);
+    };
+    sync();
+    vv.addEventListener('resize', sync);
+    vv.addEventListener('scroll', sync);
+    window.addEventListener('scroll', sync, { passive: true });
+    window.addEventListener('orientationchange', syncLater);
+    document.addEventListener('focusout', syncLater);
+    return () => {
+      vv.removeEventListener('resize', sync);
+      vv.removeEventListener('scroll', sync);
+      window.removeEventListener('scroll', sync);
+      window.removeEventListener('orientationchange', syncLater);
+      document.removeEventListener('focusout', syncLater);
+    };
+  }, [active]);
+
+  return offset;
+}
+
+/**
  * Pausentimer. Er rechnet immer aus dem Endzeitpunkt, nicht aus einem
  * mitlaufenden Zähler. Nach dem Sperren des iPhones stimmt die Anzeige deshalb
  * sofort wieder.
@@ -30,6 +74,7 @@ export function RestTimer({ endsAt, onAdd, onStop }: Props) {
     };
   }, [endsAt]);
 
+  const bottomOffset = useViewportBottomOffset(endsAt !== null);
   const left = endsAt === null ? 0 : remainingSeconds(endsAt, now);
 
   useEffect(() => {
@@ -42,7 +87,12 @@ export function RestTimer({ endsAt, onAdd, onStop }: Props) {
   if (endsAt === null) return null;
 
   return (
-    <div className={left === 0 ? 'timer over' : 'timer'} role="timer" aria-live="off">
+    <div
+      className={left === 0 ? 'timer over' : 'timer'}
+      style={bottomOffset !== 0 ? { bottom: bottomOffset } : undefined}
+      role="timer"
+      aria-live="off"
+    >
       <span className="clock">{left === 0 ? 'Pause vorbei' : formatClock(left)}</span>
       <button type="button" className="btn small" onClick={() => onAdd(15)}>
         +15 s
