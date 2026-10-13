@@ -1048,7 +1048,7 @@ button.tile:disabled {
   padding: 0 8px;
   border-radius: 999px;
   background: var(--surface-2);
-  font-size: 0.72rem;
+  font-size: 0.75rem;
 }
 
 .exlist {
@@ -1456,7 +1456,7 @@ button.tile:disabled {
 
 .lasttime span {
   margin-right: 6px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1574,7 +1574,7 @@ button.tile:disabled {
 .sethead {
   margin-top: 14px;
   padding: 0 10px;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1632,7 +1632,7 @@ button.tile:disabled {
 
 .wcell small {
   text-align: center;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -1704,7 +1704,7 @@ button.tile:disabled {
 .equip-label small {
   display: block;
   font-weight: 400;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 
@@ -1784,7 +1784,7 @@ button.tile:disabled {
 }
 
 .stat-label {
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2303,7 +2303,7 @@ button.tile:disabled {
 .fx-flabel {
   display: block;
   margin: 0 0 6px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2649,7 +2649,7 @@ button.tile:disabled {
 
 .bm-sel figcaption {
   margin-top: 4px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2937,7 +2937,7 @@ button.tile:disabled {
   margin-left: 6px;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   border: 1px solid var(--line);
 }
