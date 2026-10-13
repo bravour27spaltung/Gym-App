@@ -764,9 +764,13 @@ export function App() {
     [exerciseMeta],
   );
 
-  /** Kurzer Hinweis auf die Muskelgruppe mit den wenigsten Sätzen der letzten 7 Tage. */
-  function updateWeakSpotHint() {
-    const weak = weakestMuscle(mergedHistory, new Date(), muscleOfExercise);
+  /**
+   * Kurzer Hinweis auf die Muskelgruppe mit den wenigsten Sätzen der letzten 7 Tage, begrenzt auf
+   * die Muskeln, die im heutigen Training vorkommen (exerciseIds); ohne Übungen über alle Muskeln.
+   */
+  function updateWeakSpotHint(exerciseIds: string[] = []) {
+    const focus = [...new Set(exerciseIds.flatMap((id) => muscleOfExercise(id).primary))];
+    const weak = weakestMuscle(mergedHistory, new Date(), muscleOfExercise, focus);
     setWeakSpotHint(
       weak
         ? `Schwachstelle: ${muscleLabel(weak.muscle)} – nur ${num1(weak.sets)} von ${WEEKLY_SETS_REFERENCE.min}–${WEEKLY_SETS_REFERENCE.max} Sätzen in den letzten 7 Tagen.`
@@ -799,7 +803,7 @@ export function App() {
         Object.fromEntries(entries.map(([id, info]) => [id, info.equipmentKg])),
       ),
     );
-    updateWeakSpotHint();
+    updateWeakSpotHint(ids);
     setWorkoutMinimized(false);
     setScreen('home');
     setStarting(false);

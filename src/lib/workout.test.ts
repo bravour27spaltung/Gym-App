@@ -112,7 +112,7 @@ describe('Vorbelegung', () => {
     expect(e.sets[0].weightKg).toBe(50);
   });
 
-  it('ein Plan-Gewicht hat beim Gewicht Vorrang, die Wiederholungen kommen vom letzten Mal', () => {
+  it('das letzte Training hat beim Gewicht Vorrang vor dem Plan-Gewicht', () => {
     const d = createDraft('Push', null, now);
     const e = addExercise(d, {
       exerciseId: 'ex-bench',
@@ -123,10 +123,23 @@ describe('Vorbelegung', () => {
       lastSets: lastTime,
     }).exercises[0];
     expect(e.sets.map((s) => [s.weightKg, s.reps])).toEqual([
-      [45, 12],
-      [45, 12],
-      [45, 11],
+      [50, 12],
+      [50, 12],
+      [50, 11],
     ]);
+  });
+
+  it('das Plan-Gewicht gilt nur, wenn es noch kein letztes Training mit der Übung gibt', () => {
+    const d = createDraft('Push', null, now);
+    const e = addExercise(d, {
+      exerciseId: 'ex-bench',
+      name: 'Bankdrücken',
+      isNew: false,
+      plannedSets: 2,
+      weightKg: 45,
+      lastSets: [],
+    }).exercises[0];
+    expect(e.sets.map((s) => s.weightKg)).toEqual([45, 45]);
   });
 
   it('belegt ohne Vorgeschichte mit 0 kg und der Obergrenze als Ziel vor', () => {
@@ -214,6 +227,38 @@ describe('Aufwärmsätze', () => {
 
     const d2 = addWarmups(d1, exId, 'full');
     expect(d2.exercises[0].sets.filter((s) => s.type === 'warmup')).toHaveLength(3);
+  });
+
+  it('übernimmt die Aufwärmsätze vom letzten Training, wenn das Arbeitsgewicht gleich bleibt', () => {
+    const last: LoggedSet[] = [
+      { type: 'warmup', weightKg: 30, reps: 10, rir: null },
+      { type: 'warmup', weightKg: 42.5, reps: 4, rir: null },
+      { type: 'working', weightKg: 50, reps: 12, rir: 0 },
+      { type: 'working', weightKg: 50, reps: 11, rir: 0 },
+    ];
+    const d0 = draftWithBench(last);
+    const d1 = addWarmups(d0, d0.exercises[0].id, 'full');
+    const warm = d1.exercises[0].sets.filter((s) => s.type === 'warmup');
+    expect(warm.map((s) => [s.weightKg, s.reps])).toEqual([
+      [30, 10],
+      [42.5, 4],
+    ]);
+  });
+
+  it('schlägt neue Aufwärmsätze vor, wenn sich das Arbeitsgewicht geändert hat', () => {
+    const last: LoggedSet[] = [
+      { type: 'warmup', weightKg: 30, reps: 10, rir: null },
+      { type: 'working', weightKg: 40, reps: 12, rir: 0 },
+    ];
+    const d0 = draftWithBench(last);
+    // Arbeitsgewicht steigt von 40 auf 50 kg: die alten Aufwärmsätze passen nicht mehr.
+    const exId = d0.exercises[0].id;
+    let d1 = d0;
+    for (const s of d0.exercises[0].sets) d1 = updateSet(d1, exId, s.id, { weightKg: 50 });
+    const d2 = addWarmups(d1, exId, 'full');
+    const warm = d2.exercises[0].sets.filter((s) => s.type === 'warmup');
+    expect(warm.length).toBeGreaterThan(0);
+    expect(warm.map((s) => s.weightKg)).not.toEqual([30]);
   });
 
   it('lässt bereits abgehakte Aufwärmsätze stehen', () => {

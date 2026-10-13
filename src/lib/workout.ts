@@ -81,7 +81,7 @@ export interface ExerciseInput {
   repMin?: number;
   repMax?: number;
   equipmentKg?: number | null;
-  /** Arbeitsgewicht aus dem Plan; hat Vorrang vor dem Wert vom letzten Training. */
+  /** Arbeitsgewicht aus dem Plan; gilt nur ohne letztes Training mit dieser Übung. */
   weightKg?: number | null;
   equipment?: string | null;
   note?: string;
@@ -124,14 +124,14 @@ export function addExercise(draft: Draft, input: ExerciseInput): Draft {
   // bleibt 12/12/11, eine Pyramide bleibt eine Pyramide). Gibt es mehr Sätze als beim letzten
   // Mal, übernimmt der Rest den letzten Satz. Eine Steigerung trägt die Person selbst ein; die
   // Empfehlung (suggestion) steht als Hinweis an der Übung, belegt aber nichts mehr vor.
-  // Ein im Plan explizit gesetztes Gewicht ist eine bewusste Vorgabe (z. B. nach einem Deload)
-  // und hat beim Gewicht Vorrang; die Wiederholungen kommen weiter vom letzten Mal.
+  // Das letzte Training hat beim Gewicht Vorrang. Das Plangewicht gilt nur, wenn es noch kein
+  // letztes Training mit dieser Übung gibt (Vorgabe für den ersten Einsatz).
   const sets: DraftSet[] = Array.from({ length: plannedSets }, (_, i) => {
     const src = lastWorking[i] ?? lastWorking[lastWorking.length - 1];
     return {
       id: newId(),
       type: 'working' as const,
-      weightKg: input.weightKg ?? src?.weightKg ?? 0,
+      weightKg: src?.weightKg ?? input.weightKg ?? 0,
       reps: src && src.reps > 0 ? src.reps : (suggestion.targetReps ?? repMax),
       // Ein Zeit-Satz beim letzten Mal bleibt ein Zeit-Satz (Vorbelegung = letzte Zeit).
       ...(src?.durationSeconds != null ? { durationSeconds: src.durationSeconds } : {}),
@@ -329,11 +329,19 @@ export function addWarmups(draft: Draft, exId: string, level: 'full' | 'short'):
   return mapEx(draft, exId, (e) => {
     const firstWorking = e.sets.find((s) => s.type === 'working');
     if (!firstWorking || firstWorking.weightKg <= 0) return e;
-    const warm = suggestWarmup({
-      workingWeightKg: firstWorking.weightKg,
-      equipmentKg: e.equipmentKg,
-      level,
-    });
+    // Aufwärmsätze vom letzten Training dieser Übung übernehmen, solange das Arbeitsgewicht
+    // gleich geblieben ist; sonst (oder ohne frühere Aufwärmsätze) kommt der Vorschlag.
+    const lastWarm = e.lastSets.filter((s) => s.type === 'warmup' && s.weightKg > 0);
+    const lastFirstWorking = e.lastSets.find((s) => s.type === 'working');
+    const reuseLast =
+      lastWarm.length > 0 && lastFirstWorking !== undefined && lastFirstWorking.weightKg === firstWorking.weightKg;
+    const warm = reuseLast
+      ? lastWarm.map((s) => ({ weightKg: s.weightKg, reps: s.reps }))
+      : suggestWarmup({
+          workingWeightKg: firstWorking.weightKg,
+          equipmentKg: e.equipmentKg,
+          level,
+        });
     const kept = e.sets.filter((s) => !(s.type === 'warmup' && !s.done));
     const doneWarmups = kept.filter((s) => s.type === 'warmup');
     const working = kept.filter((s) => s.type === 'working');

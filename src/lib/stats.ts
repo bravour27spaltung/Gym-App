@@ -456,23 +456,30 @@ export interface WeakSpot {
 }
 
 /**
- * Der Muskel mit den wenigsten Sätzen der letzten 7 Tage, sofern er schon einmal
- * trainiert wurde und unter dem Richtwert (WEEKLY_SETS_REFERENCE.min) liegt; sonst null.
- * Für einen kurzen Hinweis beim Trainingsstart, kein Ersatz für die volle Übersicht.
+ * Schwachstelle für den Hinweis beim Trainingsstart: der Muskel mit den wenigsten Sätzen der
+ * letzten 7 Tage, der noch unter dem Richtwert (WEEKLY_SETS_REFERENCE.min) liegt.
+ *
+ * Mit `focus` (Hauptmuskeln der Übungen des heutigen Trainings) zählen nur diese Muskeln.
+ * So passt der Hinweis zum Training, das du gerade beginnst, und nennt nicht jedes Mal
+ * dieselbe Körperpartie, die in diesem Training gar nicht vorkommt. Ist keiner der
+ * Trainingsmuskeln unter dem Richtwert, gibt es keinen Hinweis (null). Ohne `focus`
+ * (freies Training, noch ohne Übungen) wird über alle bisher trainierten Muskeln gesucht.
  */
 export function weakestMuscle(
   workouts: HistWorkout[],
   now: Date,
   muscleOf: (exerciseId: string) => MuscleInfo,
+  focus?: string[],
 ): WeakSpot | null {
   const trained = trainedMuscles(workouts, muscleOf);
   if (trained.length === 0) return null;
+  const candidates = focus && focus.length > 0 ? trained.filter((m) => focus.includes(m)) : trained;
   const win = lastDays(now, 7);
   const week = new Map(muscleSets(workouts, win.from, win.to, muscleOf).map((m) => [m.muscle, m.sets]));
-  const under = trained
+  const under = candidates
     .map((m) => ({ muscle: m, sets: week.get(m) ?? 0 }))
     .filter((m) => m.sets < WEEKLY_SETS_REFERENCE.min)
-    .sort((a, b) => a.sets - b.sets);
+    .sort((a, b) => a.sets - b.sets || a.muscle.localeCompare(b.muscle));
   return under[0] ?? null;
 }
 

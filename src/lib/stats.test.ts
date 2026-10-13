@@ -244,6 +244,29 @@ describe('Kraftverlauf pro Körperpartie und Schwachstellen', () => {
     expect(weak).toEqual({ muscle: 'chest', sets: 2 });
   });
 
+  it('begrenzt die Schwachstelle auf die Muskeln des heutigen Trainings', () => {
+    // Beide Muskeln waren schon dran. Brust: 2 Sätze, Rücken: 1 Satz (also global die Schwachstelle).
+    const list = [multi('a', 10, [60, 8], [40, 8]), multi('b', 11, [60, 8])];
+    const now = new Date(2026, 8, 12);
+    expect(weakestMuscle(list, now, muscleOf)).toEqual({ muscle: 'middle back', sets: 1 });
+    // Heute ist ein Brusttag: der Hinweis nennt die Brust, nicht den Rücken.
+    expect(weakestMuscle(list, now, muscleOf, ['chest'])).toEqual({ muscle: 'chest', sets: 2 });
+  });
+
+  it('gibt keinen Hinweis, wenn die Muskeln des heutigen Trainings den Richtwert erreichen', () => {
+    const many = Array.from({ length: 5 }, (_, i) => multi(`b${i}`, 6 + i, [60, 8], [40, 8]));
+    // Brust 5 Sätze: noch unter 10, also weiter Schwachstelle; mit 3 Sätzen pro Training sind es 15.
+    const heavy = many.map((w) => ({
+      ...w,
+      exercises: w.exercises.map((e) => ({
+        ...e,
+        sets: Array.from({ length: 3 }, () => ({ type: 'working' as const, weightKg: 60, reps: 8 })),
+      })),
+    }));
+    const now = new Date(2026, 8, 12);
+    expect(weakestMuscle(heavy, now, muscleOf, ['chest'])).toBeNull();
+  });
+
   it('meldet nichts, wenn noch nie trainiert wurde', () => {
     expect(weakestMuscle([], new Date(2026, 8, 12), muscleOf)).toBeNull();
   });

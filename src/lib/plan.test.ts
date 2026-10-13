@@ -307,10 +307,10 @@ describe('Training aus Plantag', () => {
     expect(ohp.sets[0].reps).toBe(12);
   });
 
-  it('zeigt die Steigerungsempfehlung immer anhand der echten Historie, auch wenn der Plan ein eigenes Gewicht vorgibt', () => {
+  it('zeigt die Steigerungsempfehlung und die Vorbelegung anhand der echten Historie, auch wenn der Plan ein eigenes Gewicht vorgibt', () => {
     let p = pushPullLower();
     const day = p.days[0];
-    // Der Plan gibt bewusst ein eigenes Gewicht vor (z. B. nach einem Deload) …
+    // Der Plan enthält ein eigenes Gewicht …
     p = updatePlanExercise(p, day.id, day.exercises[0].id, { weightKg: 40 });
     const d = draftFromPlanDay(
       p.days[0],
@@ -326,8 +326,8 @@ describe('Training aus Plantag', () => {
       now,
     );
     const bench = d.exercises[0];
-    // Die Vorbelegung folgt der bewussten Planvorgabe (40 kg) …
-    expect(bench.sets[0].weightKg).toBe(40);
+    // Die Vorbelegung folgt dem letzten Training (50 kg), nicht dem Plan (40 kg) …
+    expect(bench.sets[0].weightKg).toBe(50);
     // … aber die Empfehlung bleibt an die echte Historie gekoppelt.
     expect(bench.suggestion.action).toBe('hold');
     expect(bench.suggestion.weightKg).toBe(50);

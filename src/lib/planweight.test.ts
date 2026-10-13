@@ -122,8 +122,14 @@ describe('Gewicht im Plan', () => {
 describe('Training startet mit dem Plan-Gewicht', () => {
   const lastMap = { bench: last };
 
-  it('nimmt das Plan-Gewicht vor dem Wert vom letzten Training', () => {
+  it('nimmt das letzte Training vor dem Plan-Gewicht', () => {
     const d = draftFromPlanDay(templateDay(withWeight(85))!, {}, lastMap, now);
+    const work = d.exercises[0].sets.filter((s) => s.type === 'working');
+    expect(work.map((s) => s.weightKg)).toEqual([80, 80, 77.5]);
+  });
+
+  it('nimmt das Plan-Gewicht, solange es kein letztes Training gibt', () => {
+    const d = draftFromPlanDay(templateDay(withWeight(85))!, {}, {}, now);
     const work = d.exercises[0].sets.filter((s) => s.type === 'working');
     expect(work.every((s) => s.weightKg === 85)).toBe(true);
   });
