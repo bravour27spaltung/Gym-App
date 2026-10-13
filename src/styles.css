@@ -3367,3 +3367,35 @@ button.tile:disabled {
     transition: none;
   }
 }
+
+/* ---------- Beschriftungen: normale Groß-/Kleinschreibung statt Versalien ----------
+ * Versalien mit weitem Zeichenabstand sind schlechter lesbar und umbrechen im Hero unschön. */
+
+.eyebrow,
+.section-title,
+.stat-label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.section-title {
+  font-weight: 700;
+}
+
+/* ---------- Startseite ---------- */
+
+.hero .btn.primary.block {
+  min-height: 60px;
+  border-radius: 18px;
+  font-size: 1.1rem;
+}
+
+.footnote + .footnote-danger {
+  margin-top: 0;
+}
+
+.link.danger {
+  color: var(--danger);
+}

@@ -1402,9 +1402,10 @@ export function App() {
           Angemeldet als {email} ·{' '}
           <button type="button" className="link" onClick={() => void signOut()}>
             Abmelden
-          </button>{' '}
-          ·{' '}
-          <button type="button" className="link" onClick={() => setResetOpen(true)}>
+          </button>
+        </p>
+        <p className="muted footnote footnote-danger">
+          <button type="button" className="link danger" onClick={() => setResetOpen(true)}>
             Testdaten zurücksetzen
           </button>
         </p>
