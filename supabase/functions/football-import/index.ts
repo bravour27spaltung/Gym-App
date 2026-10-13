@@ -84,13 +84,23 @@ Deno.serve(async (req: Request) => {
   const built = buildRangeResult(body);
   if (!built.ok) return fail(built.error, 400, { receivedKeys: Object.keys(body) });
 
-  const message = describeRangeResult(built.result);
+  // Was der Kurzbefehl tatsächlich geschickt hat (gekürzt): unterscheidet „Feld fehlt“, „leer“ und „falscher Name“.
+  const received: Record<string, string> = {};
+  for (const k of ['avg_hr', 'max_hr', 'hr_count', 'steps_total', 'distance_km', 'hr', 'steps', 'distance']) {
+    received[k] = body[k] === undefined ? '(fehlt)' : JSON.stringify(body[k]).slice(0, 40);
+  }
+  const receivedText = Object.entries(received).map(([k, v]) => `${k}=${v}`).join(', ');
+  const message =
+    built.source === 'none'
+      ? `${describeRangeResult(built.result)} Empfangen: ${receivedText}`
+      : describeRangeResult(built.result);
   const summary = {
     from: new Date(built.fromMs).toISOString(),
     to: new Date(built.toMs).toISOString(),
     result: built.result,
     source: built.source,
     invalid: built.invalid,
+    received,
   };
 
   if (url.searchParams.get('dry') === '1') return json({ ok: true, dry: true, message, ...summary });

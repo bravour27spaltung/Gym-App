@@ -241,6 +241,17 @@ export function buildRangeResult(body: Record<string, unknown>): BuiltRange {
     return { ok: false, error: 'Zeitraum länger als 24 Stunden' };
   }
 
+  // Typischer Verdrahtungsfehler im Kurzbefehl: Herzfrequenz und Distanz bekommen dieselbe Variable. Dann
+  // stünden Distanzwerte als Puls in der Datenbank, deshalb ablehnen statt Unsinn zu speichern.
+  if (typeof body.hr === 'string' && body.hr.trim() !== '' && body.hr === body.distance) {
+    return {
+      ok: false,
+      error:
+        'Die Felder hr und distance sind identisch. Im Kurzbefehl ist dieselbe Variable doppelt belegt: ' +
+        'Herzfrequenz und Distanz brauchen je ihre eigene Zeilenliste.',
+    };
+  }
+
   let invalid = 0;
   const pick = (v: unknown, min: number, max: number, read: (x: unknown) => number | null = numberField): number | null => {
     const n = read(v);
@@ -286,6 +297,14 @@ export function buildRangeResult(body: Record<string, unknown>): BuiltRange {
     steps: stepsTotal !== null ? Math.round(stepsTotal) : (raw?.steps ?? null),
     distanceKm: distanceKm !== null ? distanceKm : (raw?.distanceKm ?? null),
   };
+  // Distanz aus Rohzeilen: Ein Fußballzeitraum (höchstens 24 h) kommt nie auf über 100 km. Kommt das heraus,
+  // stehen die Zeilenwerte meist in Metern statt Kilometern (Einheit in der Health-Suche nicht auf Kilometer).
+  if (distanceKm === null && result.distanceKm !== null && result.distanceKm > 100) {
+    return {
+      ok: false,
+      error: `Distanz ${result.distanceKm} km ist unplausibel. Stehen die Distanzwerte im Kurzbefehl in Metern? In "Health-Messungen suchen" die Einheit auf Kilometer stellen.`,
+    };
+  }
   // Ø darf nicht über Max liegen (vertauschte Felder im Kurzbefehl würden sonst still falsche Werte speichern).
   if (result.avgHeartRate !== null && result.maxHeartRate !== null && result.avgHeartRate > result.maxHeartRate) {
     return { ok: false, error: `avg_hr (${result.avgHeartRate}) liegt über max_hr (${result.maxHeartRate}): Felder im Kurzbefehl vertauscht?` };

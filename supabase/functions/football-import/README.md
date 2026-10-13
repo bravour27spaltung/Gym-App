@@ -8,8 +8,9 @@ Edge Function.
 
 1. Im Fußball-Tab stellst du Datum und Zeitraum (Von/Bis oder Dauer) ein und tippst auf „Apple-Watch-Daten holen“.
 2. Die App startet den Kurzbefehl `Fussball-Import` mit der Eingabe `<Start>|<Ende>` (ISO 8601, UTC).
-3. Der Kurzbefehl liest **nur diesen Zeitraum** aus Health und schickt **wenige Zahlen** (Ø/Max-Puls, Anzahl
-   Messwerte, Schritte, Distanz) plus die Eingabe unverändert als `range`. **Keine Schleife über Messwerte.**
+3. Der Kurzbefehl holt die **neuesten Herzfrequenz-Messwerte** (sortiert, mit Limit, **ohne Datumsfilter**) und schickt sie
+   als Textzeilen `<Start ISO 8601>|<Wert>` plus die Eingabe unverändert als `range`. Die Funktion schneidet den Zeitraum
+   selbst heraus und rechnet Ø/Max-Puls. Eine Schleife über die (wenigen hundert) Werte ist nötig, Statistik-Aktionen nicht.
 4. Die Funktion speichert genau **ein Ergebnis pro Zeitraum** in `fit_watch_ranges` (Upsert, wiederholbar) und
    antwortet im Klartext (`message`), den der Kurzbefehl anzeigt.
 5. Du kehrst über den Rücksprung-Link oben links zurück; die App holt das Ergebnis ab (bis zu ~45 s Geduld) und
@@ -59,8 +60,8 @@ curl -s -X POST "https://<projekt>.supabase.co/functions/v1/football-import?dry=
   -d '{"range":"2026-10-01T17:00:00Z|2026-10-01T18:30:00Z","avg_hr":132,"max_hr":171,"hr_count":14,"steps_total":6200,"distance_km":4.2}'
 ```
 
-**Stufe 1, Kurzbefehl nur mit Ping:** beweist URL-Schema, Eingabe-Übergabe, Netz und Token (Text unten).
-**Stufe 2, Health lesen:** Werte nur anzeigen (Berechtigungen erteilen). **Stufe 3:** vollständiger Kurzbefehl.
+**Stufe 1, Kurzbefehl nur mit Ping:** beweist URL-Schema, Eingabe-Übergabe, Netz und Token (`?ping=1`, Antwort anzeigen).
+**Stufe 2, Health lesen:** Suche und Schleife, fünf Zeilen `Datum|Wert` anzeigen. **Stufe 3:** vollständiger Kurzbefehl (unten).
 Erst zur nächsten Stufe, wenn die vorige sichtbar läuft. So zeigt sich, an welchem Glied es hängt.
 
 ## Body
@@ -72,46 +73,47 @@ Erst zur nächsten Stufe, wenn die vorige sichtbar läuft. So zeigt sich, an wel
 | `hr_count` | Anzahl der Herzfrequenz-Messwerte, auf denen Ø/Max beruhen |
 | `steps_total` | Summe der Schritte im Zeitraum („6.200“ wird als 6200 gelesen) |
 | `distance_km` | Summe Gehen + Laufen; mit Einheit („4200 m“) wird umgerechnet, ohne Einheit gilt km |
-| `hr`, `steps`, `distance` | **Rückfall:** Rohzeilen `<Start>\|<Ende>\|<Wert>`; die Funktion wertet nur Messwerte im Zeitraum aus. Fertige Zahlen haben je Feld Vorrang |
+| `hr`, `distance`, `steps` | **Hauptweg:** Rohzeilen `<Start>\|<Wert>` (oder `<Start>\|<Ende>\|<Wert>`); die Funktion wertet nur Messwerte im Zeitraum aus. Fertige Zahlen (`avg_hr` …) haben je Feld Vorrang |
 
 Unplausible Werte (Puls außerhalb 30–220, negative Zahlen, Distanz über 100 km) werden nicht gespeichert und in
 `invalid` gezählt. Liegt Ø über Max (vertauschte Felder), lehnt die Funktion mit Klartext ab. Ein Lauf ohne Werte wird
 bewusst als leeres Ergebnis gespeichert; das unterscheidet „Health war leer“ von „nichts angekommen“.
 
-## Kurzbefehl „Fussball-Import“ (Text zum Einfügen in „Änderung beschreiben“)
+## Kurzbefehl „Fussball-Import“ (am 13.10.2026 auf iPhone mit iOS 26 geprüft: Puls läuft)
 
-Der Name muss genau `Fussball-Import` lauten (die App startet ihn per URL-Schema). URL und Token sind dieselben wie
-beim bisherigen Kurzbefehl. Nicht auf einem iPhone getestet von mir; Aktionsnamen können je nach iOS-Version abweichen.
+Der Name muss genau `Fussball-Import` lauten (die App startet ihn per URL-Schema). Aufbau, von Hand oder mit „Änderung beschreiben“:
 
-**Stufe 1 (nur Ping und Eingabe):**
+1. **Variable konfigurieren** `range` = Kurzbefehl-Eingabe.
+2. **Health-Messungen suchen**: nur der Filter *Typ ist Herzfrequenz*; Sortieren nach Startdatum, absteigend; Beschränken 250.
+3. **Wiederholen mit jedem** (Health-Messungen): *Details von Health-Messung* Startdatum, dann **Datum formatieren**
+   (benutzerdefiniert `yyyy-MM-dd'T'HH:mm:ssXXX`, ergibt `2026-10-13T16:14:47+02:00`), dann *Details* Wert, dann **Text**
+   `{Formatiertes Datum}|{Wert}`.
+4. **Text kombinieren** (Zeilenumbruch), danach **Variable konfigurieren** `hr`.
+5. **Inhalte von URL abrufen**: URL `https://<projekt>.supabase.co/functions/v1/football-import`, POST, Header `x-import-token`,
+   JSON mit `range` (Text, die Variable `range`) und `hr` (Text, die Variable `hr`).
+6. **Ergebnis anzeigen** des Inhalts der URL (die Antwort enthält `message`).
 
-```
-Erstelle bzw. ersetze den Kurzbefehl "Fussball-Import" durch einen reinen Verbindungstest, ohne Health-Zugriff und ohne Schleifen:
-1. Setze die Variable "range" auf die Kurzbefehl-Eingabe (Text). Ist keine Eingabe vorhanden, dann Text "2026-10-01T17:00:00Z|2026-10-01T18:30:00Z".
-2. "Inhalte von URL abrufen": URL <FUNKTIONS-URL>/football-import?ping=1 , Methode POST, Header x-import-token = <TOKEN>, Anfragetext JSON mit dem Feld range (Text) = Variable range.
-3. "Wörterbuchwert abrufen": Wert für Schlüssel message aus dem Ergebnis von Schritt 2.
-4. "Ergebnis anzeigen": zuerst die Variable range, darunter die message.
-Alle Dialoge und Nachfragen weglassen.
-```
+Optional später: dieselbe Schleife für *Gehen- und Laufen-Distanz* mit **Einheit Kilometer** als Feld `distance`
+(eigene Variable). Die Distanz ist der unsicherste Wert (für Fußball nicht validiert, siehe unten).
 
-**Stufe 3 (vollständig, Variante A mit Statistik, ohne Schleife):**
+### Was auf dem iPhone nicht funktionierte (Erfahrung, nicht Apple-Dokumentation)
 
-```
-Ändere den Kurzbefehl "Fussball-Import" so, dass er ohne jede Schleife den Zeitraum aus Health auswertet und das Ergebnis sendet:
-1. Variable "range" = Kurzbefehl-Eingabe (Text im Format "<Start>|<Ende>", ISO 8601, z. B. 2026-10-01T17:00:00Z|2026-10-01T18:30:00Z). Ohne Eingabe: "Nach Eingabe fragen" (Text) nach Start|Ende.
-2. "Text teilen" von range an "|"; "Element aus Liste abrufen" Erstes Element, dann "Daten aus Eingabe abrufen" -> Variable "von". Dasselbe mit Letztes Element -> Variable "bis".
-3. "Health-Werte suchen": Typ Herzfrequenz, Startdatum liegt zwischen von und bis, Quelle Apple Watch, Limit aus -> Variable "hr". "Statistik berechnen" Durchschnitt von hr -> "avgHr"; "Statistik berechnen" Maximum von hr -> "maxHr"; "Anzahl" von hr -> "hrCount". Es darf keine Schleife benutzt werden.
-4. "Health-Werte suchen": Typ Schritte, Startdatum zwischen von und bis, Quelle Apple Watch. "Statistik berechnen" Summe -> "stepsTotal".
-5. "Health-Werte suchen": Typ Gehen- und Laufen-Distanz, Startdatum zwischen von und bis, Quelle Apple Watch. "Statistik berechnen" Summe -> "distanceKm" (in Kilometern).
-6. "Inhalte von URL abrufen": URL <FUNKTIONS-URL>/football-import , Methode POST, Header x-import-token = <TOKEN>, Anfragetext JSON: range (Text) = range, avg_hr (Zahl) = avgHr, max_hr (Zahl) = maxHr, hr_count (Zahl) = hrCount, steps_total (Zahl) = stepsTotal, distance_km (Zahl) = distanceKm.
-7. "Wörterbuchwert abrufen" message aus dem Ergebnis, dann "Ergebnis anzeigen".
-Die Eingabe muss in Schritt 6 unverändert als range gesendet werden (nicht neu formatieren). Wenn ein Health-Typ keine Werte liefert, den Kurzbefehl trotzdem bis zum Senden weiterlaufen lassen.
-```
+- **Datumsfilter in „Health-Messungen suchen“ lieferten 0 Treffer**: „ist nach dem“ mit Datums-Variable, „ist kleiner/größer
+  oder gleich“ mit Datum, „liegt in den letzten 2 Stunden“. **Ohne Datumsfilter** kamen Werte, und „ist heute“ lieferte Treffer.
+  Warum, ist offen. Deshalb sortieren und begrenzen statt filtern. Folge: Es sind nur die neuesten 250 Werte erreichbar
+  (bei etwa einem Wert alle 2 bis 6 Minuten grob ein halber bis ganzer Tag, bei Belastung dichter), ältere Zeiträume
+  liefern „ohne Werte“.
+- **KI-erzeugte Kurzbefehle („Änderung beschreiben“) machten wiederholt dieselben Fehler**: falscher Typ (Schritte statt
+  Herzfrequenz), ungefragt ergänzte Datumsfilter, Distanz-Einheit `count` statt Kilometer, und zwei Aktionen namens
+  „Kombinierter Text“, die beide für `hr` und `distance` eingesetzt wurden. Nach dem Erzeugen immer im Editor prüfen: Typ,
+  nur ein Filter, Einheit, Variablen `hr`/`distance` verschieden. Die Funktion lehnt identische `hr`/`distance` und Distanzen
+  über 100 km inzwischen mit Klartext ab.
+- **„Statistik berechnen“ direkt auf Health-Werten** wurde nicht getestet, weil schon der Datumsfilter scheiterte.
+- Der Quellenname lautet „Apple Watch von Steffen“ (mehrfach vorhanden); ein Filter „Apple Watch“ würde nicht passen. Ohne
+  Quellenfilter können iPhone und Watch bei Schritten und Distanz doppelt zählen.
 
-**Rückfall Variante B (nur, falls „Statistik berechnen“ die Health-Werte nicht annimmt):** In Schritt 3 bis 5 statt der
-Statistik je Typ **eine** Schleife „Für jedes Element wiederholen“ über die gefundenen Werte, die pro Element eine Textzeile
-`<Startdatum ISO 8601>|<Wert>` erzeugt, und die Zeilen zusammengefügt als `hr`, `steps`, `distance` senden (statt
-`avg_hr` usw.). Bei einem begrenzten Zeitraum von 1 bis 2 Stunden sind das wenige Dutzend Werte. Die Funktion rechnet dann selbst.
+Testleiter, falls es wieder hakt: Stufe 0 (`curl ?ping=1`), dann ein Kurzbefehl, der nur die Suche und die Schleife macht und
+fünf Zeilen anzeigt (Format prüfen: Datum mit Uhrzeit und `+02:00`, Pulswert 40 bis 200), dann der vollständige Kurzbefehl.
 
 ## Auslösen und Grenzen
 

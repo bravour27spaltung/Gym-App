@@ -279,6 +279,22 @@ describe('buildRangeResult', () => {
     if (!r.ok) expect(r.error).toContain('Heute, 19:00');
   });
 
+  it('lehnt identische Felder hr und distance ab (dieselbe Variable doppelt belegt)', () => {
+    const lines = '2026-10-01T19:05:00+02:00|118\n2026-10-01T19:40:00+02:00|150';
+    const r = buildRangeResult({ range: '2026-10-01T19:00:00+02:00|2026-10-01T20:30:00+02:00', hr: lines, distance: lines });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('identisch');
+  });
+
+  it('lehnt eine Distanz über 100 km aus Rohzeilen ab (Meter statt Kilometer)', () => {
+    const r = buildRangeResult({
+      range: '2026-10-01T19:00:00+02:00|2026-10-01T20:30:00+02:00',
+      distance: '2026-10-01T19:05:00+02:00|212\n2026-10-01T19:40:00+02:00|377',
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('Meter');
+  });
+
   it('lehnt Zeiträume über 24 Stunden ab', () => {
     const r = buildRangeResult({ range: '2026-10-01T00:00:00Z|2026-10-03T00:00:00Z' });
     expect(r.ok).toBe(false);
