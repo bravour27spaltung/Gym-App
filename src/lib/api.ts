@@ -6,7 +6,7 @@ import { plansFromRows } from './plan';
 import type { StretchPayload, StretchPlan, StretchPlanPayload, StretchSide } from './stretch';
 import { STRETCH_CATALOG, STRETCH_PLAN_CATALOG, type CatalogPlanItem } from './stretchCatalog';
 import type { FootballKind, FootballPayload, FootballSource } from './football';
-import type { WatchSample, WatchWindow } from './footballWatch';
+import type { WatchRangeRecord } from './footballWatch';
 import type { RecoveryPayload, RecoverySource } from './recovery';
 import type { RecoveryInboxRow } from './recoveryInbox';
 import type { HistWorkout } from './stats';
@@ -807,107 +807,62 @@ export async function flushFootballOutbox(store: Store): Promise<{ sent: number;
   return { sent, pending: remaining.length, error };
 }
 
-interface WatchWindowRow {
-  id: string;
-  started_at: string;
-  ended_at: string;
+interface WatchRangeRow {
+  from_at: string;
+  to_at: string;
+  received_at: string;
   hr_samples: number;
   avg_heart_rate: number | null;
   max_heart_rate: number | null;
   steps: number | null;
-  distance_km: number | null;
-  session_id: string | null;
-  dismissed: boolean;
+  distance_km: number | string | null;
 }
 
-/**
- * Von der Apple Watch erkannte Trainingsfenster (befüllt die Edge Function football-import),
- * neueste zuerst. Welche davon noch als Vorschlag erscheinen, entscheidet visibleWatchWindows.
- */
-export async function fetchFootballWatchWindows(limit = 30): Promise<Result<WatchWindow[]>> {
-  if (!supabase) return fail(NOT_CONFIGURED);
-  const { data, error } = await supabase
-    .from('fit_football_watch_windows')
-    .select('id, started_at, ended_at, hr_samples, avg_heart_rate, max_heart_rate, steps, distance_km, session_id, dismissed')
-    .order('started_at', { ascending: false })
-    .limit(limit);
-  if (error) return fail(error.message);
-  const rows = (data ?? []) as unknown as WatchWindowRow[];
+const WATCH_RANGE_COLUMNS = 'from_at, to_at, received_at, hr_samples, avg_heart_rate, max_heart_rate, steps, distance_km';
+
+function toWatchRange(r: WatchRangeRow): WatchRangeRecord {
   return {
-    ok: true,
-    data: rows.map((r) => ({
-      id: r.id,
-      startedAt: r.started_at,
-      endedAt: r.ended_at,
-      hrSamples: r.hr_samples,
-      avgHeartRate: r.avg_heart_rate,
-      maxHeartRate: r.max_heart_rate,
-      steps: r.steps,
-      distanceKm: r.distance_km === null ? null : Number(r.distance_km),
-      sessionId: r.session_id,
-      dismissed: r.dismissed,
-    })),
+    fromAt: r.from_at,
+    toAt: r.to_at,
+    receivedAt: r.received_at,
+    hrSamples: r.hr_samples,
+    avgHeartRate: r.avg_heart_rate,
+    maxHeartRate: r.max_heart_rate,
+    steps: r.steps,
+    distanceKm: r.distance_km === null ? null : Number(r.distance_km),
   };
 }
 
-interface HealthSampleRow {
-  kind: 'hr' | 'steps' | 'distance';
-  start_at: string;
-  end_at: string;
-  value: number | string;
-}
-
 /**
- * Rohwerte der Apple Watch, deren Start im Zeitraum liegt (befüllt die Edge Function
- * football-import); die Auswertung für den gewählten Zeitraum macht summarizeWatchSamples.
+ * Apple-Watch-Ergebnis für genau diesen Zeitraum (befüllt die Edge Function football-import), oder
+ * null, wenn dafür nichts angekommen ist. Von/Bis müssen mit dem übereinstimmen, was die App dem
+ * Kurzbefehl übergeben hat (Sekundengenauigkeit, UTC).
  */
-export async function fetchHealthSamples(fromMs: number, toMs: number): Promise<Result<WatchSample[]>> {
+export async function fetchWatchRange(fromMs: number, toMs: number): Promise<Result<WatchRangeRecord | null>> {
   if (!supabase) return fail(NOT_CONFIGURED);
   const { data, error } = await supabase
-    .from('fit_health_samples')
-    .select('kind, start_at, end_at, value')
-    .gte('start_at', new Date(fromMs).toISOString())
-    .lte('start_at', new Date(toMs).toISOString())
-    .order('start_at', { ascending: true })
-    .limit(5000);
+    .from('fit_watch_ranges')
+    .select(WATCH_RANGE_COLUMNS)
+    .eq('from_at', new Date(fromMs).toISOString())
+    .eq('to_at', new Date(toMs).toISOString())
+    .order('received_at', { ascending: false })
+    .limit(1);
   if (error) return fail(error.message);
-  const rows = (data ?? []) as unknown as HealthSampleRow[];
-  return {
-    ok: true,
-    data: rows.map((r) => ({
-      kind: r.kind,
-      startMs: new Date(r.start_at).getTime(),
-      endMs: new Date(r.end_at).getTime(),
-      value: Number(r.value),
-    })),
-  };
+  const rows = (data ?? []) as unknown as WatchRangeRow[];
+  return { ok: true, data: rows.length > 0 ? toWatchRange(rows[0]) : null };
 }
 
-/** Markiert einen Vorschlag als in einen Fußball-Eintrag übernommen. */
-export async function linkFootballWatchWindow(id: string, sessionId: string): Promise<Result<null>> {
+/** Das zuletzt eingegangene Apple-Watch-Ergebnis überhaupt (für die Fehlersuche), oder null. */
+export async function fetchLatestWatchRange(): Promise<Result<WatchRangeRecord | null>> {
   if (!supabase) return fail(NOT_CONFIGURED);
-  const { error } = await supabase.from('fit_football_watch_windows').update({ session_id: sessionId }).eq('id', id);
+  const { data, error } = await supabase
+    .from('fit_watch_ranges')
+    .select(WATCH_RANGE_COLUMNS)
+    .order('received_at', { ascending: false })
+    .limit(1);
   if (error) return fail(error.message);
-  return { ok: true, data: null };
-}
-
-/** Blendet einen Vorschlag dauerhaft aus (z. B. kein Fußball, Uhr nur so getragen). */
-export async function dismissFootballWatchWindow(id: string): Promise<Result<null>> {
-  if (!supabase) return fail(NOT_CONFIGURED);
-  const { error } = await supabase.from('fit_football_watch_windows').update({ dismissed: true }).eq('id', id);
-  if (error) return fail(error.message);
-  return { ok: true, data: null };
-}
-
-/** Gibt Vorschläge frei, die mit einem (gelöschten) Fußball-Eintrag verknüpft waren. */
-export async function unlinkFootballWatchWindows(sessionId: string): Promise<Result<null>> {
-  if (!supabase) return fail(NOT_CONFIGURED);
-  const { error } = await supabase
-    .from('fit_football_watch_windows')
-    .update({ session_id: null })
-    .eq('session_id', sessionId);
-  if (error) return fail(error.message);
-  return { ok: true, data: null };
+  const rows = (data ?? []) as unknown as WatchRangeRow[];
+  return { ok: true, data: rows.length > 0 ? toWatchRange(rows[0]) : null };
 }
 
 /** Löscht einen Fußball-Eintrag endgültig. */

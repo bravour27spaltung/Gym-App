@@ -1,35 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_DETECT_OPTIONS,
-  detectWindows,
+  buildRangeResult,
+  describeRangeResult,
   parseDateWithZone,
   parseNumber,
+  parseRange,
   parseSamples,
+  summarizeRange,
   type Sample,
 } from '../../supabase/functions/football-import/parse';
 import {
   describeRangeSummary,
-  describeWatchWindow,
-  summarizeWatchSamples,
-  visibleWatchWindows,
+  diagnoseWatchRange,
+  hasWatchValues,
   watchShortcutUrl,
-  watchWindowToForm,
   WATCH_SHORTCUT_NAME,
-  type WatchSample,
-  type WatchWindow,
+  type WatchRangeRecord,
 } from './footballWatch';
-import type { HistFootballSession } from './storage';
 
 const MIN = 60_000;
 const T0 = Date.parse('2026-10-01T19:00:00+02:00');
-
-/** Herzfrequenz-Samples im Abstand von stepMin Minuten ab startOffsetMin. */
-function hrSeries(startOffsetMin: number, count: number, stepMin: number, value = 130): Sample[] {
-  return Array.from({ length: count }, (_, i) => {
-    const t = T0 + (startOffsetMin + i * stepMin) * MIN;
-    return { startMs: t, endMs: t, value: value + (i % 3) * 10 };
-  });
-}
+const FROM = '2026-10-01T17:00:00Z';
+const TO = '2026-10-01T18:30:00Z';
 
 describe('parseDateWithZone', () => {
   it('liest ISO 8601 mit Offset, Z und das Apple-Export-Format', () => {
@@ -110,195 +102,6 @@ describe('parseSamples', () => {
   });
 });
 
-describe('detectWindows', () => {
-  it('erkennt eine Einheit aus 5-Minuten-Herzfrequenzwerten und summiert Schritte/Distanz im Fenster', () => {
-    // 22 Werte von 19:00 bis 20:45 (Abstand 5 min)
-    const hr = hrSeries(0, 22, 5);
-    const steps: Sample[] = [
-      { startMs: T0 + 10 * MIN, endMs: T0 + 12 * MIN, value: 300 },
-      { startMs: T0 + 60 * MIN, endMs: T0 + 62 * MIN, value: 450 },
-      { startMs: T0 - 600 * MIN, endMs: T0 - 598 * MIN, value: 9999 }, // außerhalb
-    ];
-    const distance: Sample[] = [
-      { startMs: T0 + 10 * MIN, endMs: T0 + 12 * MIN, value: 0.25 },
-      { startMs: T0 + 60 * MIN, endMs: T0 + 62 * MIN, value: 0.35 },
-    ];
-    const { windows, skipped } = detectWindows(hr, steps, distance);
-    expect(skipped).toEqual([]);
-    expect(windows).toHaveLength(1);
-    const w = windows[0];
-    expect(w.startedAt).toBe(new Date(T0).toISOString());
-    expect(w.endedAt).toBe(new Date(T0 + 105 * MIN).toISOString());
-    expect(w.hrSamples).toBe(22);
-    expect(w.maxHeartRate).toBe(150);
-    expect(w.avgHeartRate).toBeGreaterThanOrEqual(130);
-    expect(w.avgHeartRate).toBeLessThanOrEqual(150);
-    expect(w.steps).toBe(750);
-    expect(w.distanceKm).toBe(0.6);
-  });
-
-  it('trennt zwei Einheiten an einer Lücke ab 45 Minuten', () => {
-    const hr = [...hrSeries(0, 10, 5), ...hrSeries(24 * 60, 10, 5)]; // zweiter Abend, +1 Tag
-    const { windows } = detectWindows(hr, [], []);
-    expect(windows).toHaveLength(2);
-    expect(windows[0].steps).toBeNull();
-    expect(windows[0].distanceKm).toBeNull();
-  });
-
-  it('zerreißt eine Einheit nicht bei einer kleinen Lücke (z. B. 30 min ohne Messwert)', () => {
-    const hr = [...hrSeries(0, 6, 5), ...hrSeries(55, 6, 5)]; // Lücke 30 min
-    expect(detectWindows(hr, [], []).windows).toHaveLength(1);
-  });
-
-  it('meldet zu kurze, zu lange und zu dünne Fenster mit Grund statt sie anzulegen', () => {
-    const tooShort = hrSeries(0, 4, 5); // 15 min
-    const tooFew = [...hrSeries(1000, 2, 30)]; // 2 Werte
-    const tooLong = hrSeries(3000, 70, 5); // ~345 min
-    const { windows, skipped } = detectWindows([...tooShort, ...tooFew, ...tooLong], [], []);
-    expect(windows).toEqual([]);
-    expect(skipped.map((s) => s.reason)).toEqual([
-      expect.stringContaining('zu kurz'),
-      expect.stringContaining('zu wenige'),
-      expect.stringContaining('zu lang'),
-    ]);
-  });
-
-  it('ignoriert unplausible Herzfrequenzwerte', () => {
-    const hr = hrSeries(0, 10, 5);
-    hr.push({ startMs: T0 + 50 * MIN, endMs: T0 + 50 * MIN, value: 500 });
-    hr.push({ startMs: T0 + 52 * MIN, endMs: T0 + 52 * MIN, value: 0 });
-    const { windows } = detectWindows(hr, [], []);
-    expect(windows[0].hrSamples).toBe(10);
-    expect(windows[0].maxHeartRate).toBeLessThanOrEqual(220);
-  });
-
-  it('ohne Herzfrequenz gibt es keine Fenster', () => {
-    expect(detectWindows([], [{ startMs: T0, endMs: T0, value: 5 }], [])).toEqual({ windows: [], skipped: [] });
-  });
-
-  it('Standardwerte entsprechen 45 min Lücke / 20 min Mindestdauer / 4 h Höchstdauer / 3 Messwerten', () => {
-    expect(DEFAULT_DETECT_OPTIONS).toEqual({
-      gapMs: 45 * MIN,
-      minDurationMs: 20 * MIN,
-      maxDurationMs: 240 * MIN,
-      minHrSamples: 3,
-    });
-  });
-});
-
-function win(partial: Partial<WatchWindow> = {}): WatchWindow {
-  return {
-    id: 'w1',
-    startedAt: new Date(2026, 9, 1, 19, 12).toISOString(),
-    endedAt: new Date(2026, 9, 1, 20, 58).toISOString(),
-    hrSamples: 20,
-    avgHeartRate: 132,
-    maxHeartRate: 171,
-    steps: 7000,
-    distanceKm: 4.23,
-    sessionId: null,
-    dismissed: false,
-    ...partial,
-  };
-}
-
-function session(partial: Partial<HistFootballSession> = {}): HistFootballSession {
-  return {
-    id: 's1',
-    playedOn: '2026-10-01',
-    startedAt: new Date(2026, 9, 1, 19, 15).toISOString(),
-    kind: 'training',
-    minutes: 90,
-    rpe: 6,
-    note: null,
-    distanceKm: null,
-    calories: null,
-    avgHeartRate: null,
-    source: 'manual',
-    ...partial,
-  };
-}
-
-describe('visibleWatchWindows', () => {
-  const now = new Date(2026, 9, 2, 10, 0).getTime();
-
-  it('zeigt offene Vorschläge, neueste zuerst', () => {
-    const older = win({ id: 'old', startedAt: new Date(2026, 8, 29, 19, 0).toISOString(), endedAt: new Date(2026, 8, 29, 20, 30).toISOString() });
-    expect(visibleWatchWindows([older, win()], [], now).map((w) => w.id)).toEqual(['w1', 'old']);
-  });
-
-  it('blendet übernommene, ausgeblendete und zu alte Vorschläge aus', () => {
-    const tooOld = win({ id: 'old', startedAt: new Date(2026, 8, 1, 19, 0).toISOString(), endedAt: new Date(2026, 8, 1, 20, 30).toISOString() });
-    expect(visibleWatchWindows([win({ sessionId: 's1' }), win({ id: 'd', dismissed: true }), tooOld], [], now)).toEqual([]);
-  });
-
-  it('blendet einen Vorschlag aus, wenn ein Eintrag zeitlich überlappt (z. B. offline noch nicht verknüpft)', () => {
-    expect(visibleWatchWindows([win()], [session()], now)).toEqual([]);
-  });
-
-  it('ein Eintrag ohne Startzeit oder an einem anderen Abend blendet nichts aus', () => {
-    const noStart = session({ startedAt: null });
-    const otherDay = session({ startedAt: new Date(2026, 8, 28, 19, 0).toISOString() });
-    expect(visibleWatchWindows([win()], [noStart, otherDay], now)).toHaveLength(1);
-  });
-});
-
-describe('summarizeWatchSamples', () => {
-  const from = T0;
-  const to = T0 + 90 * MIN;
-  const s = (kind: WatchSample['kind'], offsetMin: number, value: number, lenMin = 0): WatchSample => ({
-    kind,
-    startMs: T0 + offsetMin * MIN,
-    endMs: T0 + (offsetMin + lenMin) * MIN,
-    value,
-  });
-
-  it('mittelt Puls, nimmt das Maximum und summiert Schritte und Distanz nur im gewählten Zeitraum', () => {
-    const samples = [
-      s('hr', -30, 90), // davor
-      s('hr', 5, 120),
-      s('hr', 40, 150),
-      s('hr', 85, 130),
-      s('hr', 120, 100), // danach
-      s('steps', 10, 300, 2),
-      s('steps', 60, 450, 2),
-      s('steps', -5, 999, 2), // davor
-      s('distance', 10, 0.25, 2),
-      s('distance', 60, 0.35, 2),
-    ];
-    expect(summarizeWatchSamples(samples, from, to)).toEqual({
-      hrSamples: 3,
-      avgHeartRate: 133,
-      maxHeartRate: 150,
-      steps: 750,
-      distanceKm: 0.6,
-    });
-  });
-
-  it('lässt Felder ohne Werte im Zeitraum null (kein Raten)', () => {
-    expect(summarizeWatchSamples([s('hr', 200, 140)], from, to)).toEqual({
-      hrSamples: 0,
-      avgHeartRate: null,
-      maxHeartRate: null,
-      steps: null,
-      distanceKm: null,
-    });
-  });
-
-  it('ignoriert unplausible Herzfrequenzwerte', () => {
-    const r = summarizeWatchSamples([s('hr', 5, 500), s('hr', 10, 0), s('hr', 15, 140)], from, to);
-    expect(r.hrSamples).toBe(1);
-    expect(r.avgHeartRate).toBe(140);
-  });
-
-  it('beschreibt nur vorhandene Werte', () => {
-    expect(describeRangeSummary({ hrSamples: 7, avgHeartRate: 135, maxHeartRate: 168, steps: 6200, distanceKm: 5.12 })).toBe(
-      'Ø 135 / max 168 bpm (7 Messwerte) · 5,1 km · 6.200 Schritte',
-    );
-    expect(describeRangeSummary({ hrSamples: 0, avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null })).toBe('');
-  });
-});
-
 describe('watchShortcutUrl', () => {
   it('startet den Kurzbefehl mit "<Start>|<Ende>" (UTC, ohne Millisekunden) als Texteingabe', () => {
     const from = Date.parse('2026-10-01T19:00:00+02:00');
@@ -316,26 +119,258 @@ describe('watchShortcutUrl', () => {
   });
 });
 
-describe('watchWindowToForm / describeWatchWindow', () => {
-  it('übernimmt Datum, Startzeit, Dauer, Puls und Distanz in lokaler Zeit', () => {
-    expect(watchWindowToForm(win())).toEqual({
-      playedOn: '2026-10-01',
-      startedAtTime: '19:12',
-      minutes: 106,
-      avgHeartRate: 132,
-      distanceKm: 4.23,
+describe('parseSamples: Liste von Textzeilen (Kurzbefehl)', () => {
+  it('liest ein Array aus "Start|Ende|Wert"-Strings', () => {
+    const r = parseSamples(
+      ['2026-10-01T19:00:00+02:00|2026-10-01T19:00:00+02:00|118 count/min', '2026-10-01T19:07:00+02:00|2026-10-01T19:07:00+02:00|141 count/min'],
+      'hr',
+    );
+    expect(r.samples).toHaveLength(2);
+    expect(r.invalid).toBe(0);
+  });
+});
+
+describe('parseRange', () => {
+  it('liest "<Start>|<Ende>" unverändert aus der Kurzbefehl-Eingabe', () => {
+    expect(parseRange({ range: `${FROM}|${TO}` })).toEqual({ fromMs: Date.parse(FROM), toMs: Date.parse(TO) });
+  });
+
+  it('toleriert Leerzeichen, Semikolon, Zeilenumbruch und Offset-Schreibweise', () => {
+    const expected = { fromMs: Date.parse(FROM), toMs: Date.parse(TO) };
+    expect(parseRange({ range: ` ${FROM} ; ${TO} ` })).toEqual(expected);
+    expect(parseRange({ range: `${FROM}\n${TO}` })).toEqual(expected);
+    expect(parseRange({ range: '2026-10-01T19:00:00+02:00|2026-10-01T20:30:00+02:00' })).toEqual(expected);
+  });
+
+  it('akzeptiert alternativ die Felder from und to', () => {
+    expect(parseRange({ from: FROM, to: TO })).toEqual({ fromMs: Date.parse(FROM), toMs: Date.parse(TO) });
+  });
+
+  it('lehnt fehlende Zeitzone, vertauschte Reihenfolge und Unsinn ab', () => {
+    expect(parseRange({ range: '2026-10-01T19:00:00|2026-10-01T20:30:00' })).toBeNull();
+    expect(parseRange({ range: `${TO}|${FROM}` })).toBeNull();
+    expect(parseRange({ range: 'gestern|heute' })).toBeNull();
+    expect(parseRange({ range: FROM })).toBeNull();
+    expect(parseRange({})).toBeNull();
+  });
+});
+
+describe('summarizeRange (Rückfall: Rohzeilen)', () => {
+  const from = T0;
+  const to = T0 + 90 * MIN;
+  const s = (offsetMin: number, value: number, lenMin = 0): Sample => ({
+    startMs: T0 + offsetMin * MIN,
+    endMs: T0 + (offsetMin + lenMin) * MIN,
+    value,
+  });
+
+  it('mittelt Puls, nimmt das Maximum und summiert Schritte und Distanz nur im Zeitraum', () => {
+    const hr = [s(-30, 90), s(5, 120), s(40, 150), s(85, 130), s(120, 100)];
+    const steps = [s(10, 300, 2), s(60, 450, 2), s(-5, 999, 2)];
+    const distance = [s(10, 0.25, 2), s(60, 0.35, 2)];
+    expect(summarizeRange(hr, steps, distance, from, to)).toEqual({
+      hrSamples: 3,
+      avgHeartRate: 133,
+      maxHeartRate: 150,
+      steps: 750,
+      distanceKm: 0.6,
     });
   });
 
-  it('begrenzt die Dauer auf 1–240 Minuten wie das Formular', () => {
-    const long = win({ endedAt: new Date(2026, 9, 1, 23, 59).toISOString() });
-    expect(watchWindowToForm(long).minutes).toBe(240);
+  it('lässt Felder ohne Werte im Zeitraum null (kein Raten)', () => {
+    expect(summarizeRange([s(200, 140)], [], [], from, to)).toEqual({
+      hrSamples: 0,
+      avgHeartRate: null,
+      maxHeartRate: null,
+      steps: null,
+      distanceKm: null,
+    });
   });
 
-  it('beschreibt Dauer, Puls (mit Anzahl der Messwerte) und Distanz', () => {
-    const text = describeWatchWindow(win());
-    expect(text).toContain('106 min');
-    expect(text).toContain('Ø 132 / max 171 bpm (20 Messwerte)');
-    expect(text).toContain('4,2 km');
+  it('ignoriert unplausible Herzfrequenzwerte und schließt das Ende des Zeitraums aus', () => {
+    const r = summarizeRange([s(5, 500), s(10, 0), s(15, 140), s(90, 160)], [], [], from, to);
+    expect(r.hrSamples).toBe(1);
+    expect(r.avgHeartRate).toBe(140);
+  });
+});
+
+describe('buildRangeResult', () => {
+  it('übernimmt fertige Zahlen vom Kurzbefehl', () => {
+    const r = buildRangeResult({
+      range: `${FROM}|${TO}`,
+      avg_hr: 132,
+      max_hr: 171,
+      hr_count: 14,
+      steps_total: 6200,
+      distance_km: 4.2,
+    });
+    expect(r).toMatchObject({
+      ok: true,
+      fromMs: Date.parse(FROM),
+      toMs: Date.parse(TO),
+      source: 'values',
+      invalid: 0,
+      result: { hrSamples: 14, avgHeartRate: 132, maxHeartRate: 171, steps: 6200, distanceKm: 4.2 },
+    });
+  });
+
+  it('liest Zahlen auch als Text mit Komma und Einheit (so liefern Kurzbefehle sie oft)', () => {
+    const r = buildRangeResult({
+      range: `${FROM}|${TO}`,
+      avg_hr: '131,6 count/min',
+      max_hr: '171 count/min',
+      hr_count: '14',
+      steps_total: '6.200 count',
+      distance_km: '4,25 km',
+    });
+    expect(r).toMatchObject({ ok: true, result: { avgHeartRate: 132, maxHeartRate: 171, hrSamples: 14, steps: 6200, distanceKm: 4.25 } });
+  });
+
+  it('rechnet eine Distanz in Metern um', () => {
+    const r = buildRangeResult({ range: `${FROM}|${TO}`, distance_km: '4200 m' });
+    expect(r).toMatchObject({ ok: true, result: { distanceKm: 4.2 } });
+  });
+
+  it('wertet Rohzeilen im Zeitraum selbst aus, wenn keine fertigen Zahlen kommen', () => {
+    const r = buildRangeResult({
+      range: '2026-10-01T19:00:00+02:00|2026-10-01T20:30:00+02:00',
+      hr: '2026-10-01T19:05:00+02:00|118 count/min\n2026-10-01T19:40:00+02:00|150 count/min\n2026-10-01T22:00:00+02:00|90 count/min',
+      distance: '2026-10-01T19:10:00+02:00|2026-10-01T19:12:00+02:00|0,3 km',
+    });
+    expect(r).toMatchObject({
+      ok: true,
+      source: 'raw',
+      result: { hrSamples: 2, avgHeartRate: 134, maxHeartRate: 150, steps: null, distanceKm: 0.3 },
+    });
+  });
+
+  it('fertige Zahlen haben je Feld Vorrang, Rohzeilen füllen den Rest', () => {
+    const r = buildRangeResult({
+      range: `${FROM}|${TO}`,
+      avg_hr: 140,
+      max_hr: 170,
+      distance: '2026-10-01T17:10:00Z|2026-10-01T17:12:00Z|0.5',
+    });
+    expect(r).toMatchObject({ ok: true, source: 'mixed', result: { avgHeartRate: 140, distanceKm: 0.5 } });
+  });
+
+  it('akzeptiert einen Lauf ohne Werte als Ergebnis (zeigt: Kurzbefehl lief, Health war leer)', () => {
+    const r = buildRangeResult({ range: `${FROM}|${TO}` });
+    expect(r).toMatchObject({
+      ok: true,
+      source: 'none',
+      result: { hrSamples: 0, avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null },
+    });
+  });
+
+  it('verwirft unplausible Werte und zählt sie, statt sie zu speichern', () => {
+    const r = buildRangeResult({ range: `${FROM}|${TO}`, avg_hr: 20, max_hr: 400, steps_total: -5, distance_km: 900 });
+    expect(r).toMatchObject({ ok: true, invalid: 4, result: { avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null } });
+  });
+
+  it('meldet vertauschte Felder (Ø über Max) als Fehler statt falsche Werte zu speichern', () => {
+    const r = buildRangeResult({ range: `${FROM}|${TO}`, avg_hr: 171, max_hr: 132 });
+    expect(r.ok).toBe(false);
+  });
+
+  it('nennt bei unlesbarem Zeitraum, was erhalten wurde', () => {
+    const r = buildRangeResult({ range: 'Heute, 19:00' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('Heute, 19:00');
+  });
+
+  it('lehnt Zeiträume über 24 Stunden ab', () => {
+    const r = buildRangeResult({ range: '2026-10-01T00:00:00Z|2026-10-03T00:00:00Z' });
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe('describeRangeResult / describeRangeSummary', () => {
+  const full = { hrSamples: 7, avgHeartRate: 135, maxHeartRate: 168, steps: 6200, distanceKm: 5.12 };
+  const empty = { hrSamples: 0, avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null };
+
+  it('beschreibt nur vorhandene Werte', () => {
+    expect(describeRangeSummary(full)).toBe('Ø 135 / max 168 bpm (7 Messwerte) · 5,1 km · 6.200 Schritte');
+    expect(describeRangeSummary(empty)).toBe('');
+    expect(describeRangeSummary({ ...empty, steps: 800 })).toBe('800 Schritte');
+  });
+
+  it('die Antwort an den Kurzbefehl unterscheidet gespeichert von „ohne Werte“', () => {
+    expect(describeRangeResult(full)).toBe('Gespeichert: Ø 135 / max 168 bpm (7 Messwerte) · 5,1 km · 6.200 Schritte');
+    expect(describeRangeResult(empty)).toContain('ohne Werte');
+  });
+
+  it('hasWatchValues erkennt ein leeres Ergebnis', () => {
+    expect(hasWatchValues(full)).toBe(true);
+    expect(hasWatchValues(empty)).toBe(false);
+    expect(hasWatchValues({ ...empty, steps: 10 })).toBe(true);
+  });
+});
+
+describe('diagnoseWatchRange', () => {
+  const from = Date.parse(FROM);
+  const to = Date.parse(TO);
+  const now = Date.parse('2026-10-01T18:40:00Z');
+  const rec = (over: Partial<WatchRangeRecord> = {}): WatchRangeRecord => ({
+    fromAt: FROM,
+    toAt: TO,
+    receivedAt: '2026-10-01T18:38:00Z',
+    hrSamples: 9,
+    avgHeartRate: 128,
+    maxHeartRate: 166,
+    steps: 5100,
+    distanceKm: 4.1,
+    ...over,
+  });
+  const since = Date.parse('2026-10-01T18:36:00Z');
+
+  it('ok: Ergebnis mit Werten für genau diesen Zeitraum', () => {
+    const d = diagnoseWatchRange(rec(), rec(), from, to, now, since);
+    expect(d.kind).toBe('ok');
+    expect(d.text).toContain('Ø 128 / max 166 bpm');
+  });
+
+  it('empty: Kurzbefehl lief, Health lieferte nichts', () => {
+    const empty = rec({ hrSamples: 0, avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null });
+    const d = diagnoseWatchRange(empty, empty, from, to, now, since);
+    expect(d.kind).toBe('empty');
+    expect(d.text).toContain('Health hat');
+  });
+
+  it('stale: nur ein Ergebnis von vor dem Antippen zählt nicht als Antwort auf diesen Lauf', () => {
+    const old = rec({ receivedAt: '2026-10-01T10:00:00Z' });
+    expect(diagnoseWatchRange(old, old, from, to, now, since).kind).toBe('stale');
+    // Ohne Antippen (Erneut prüfen) darf das ältere Ergebnis übernommen werden.
+    expect(diagnoseWatchRange(old, old, from, to, now, null).kind).toBe('ok');
+  });
+
+  it('stale: ein alter Leer-Eintrag überdeckt keinen neuen Lauf', () => {
+    const oldEmpty = rec({ receivedAt: '2026-10-01T10:00:00Z', avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null, hrSamples: 0 });
+    expect(diagnoseWatchRange(oldEmpty, oldEmpty, from, to, now, since).kind).toBe('stale');
+  });
+
+  it('toleriert eine Uhrabweichung von unter einer Minute zwischen iPhone und Server', () => {
+    const slightlyBefore = rec({ receivedAt: '2026-10-01T18:35:30Z' });
+    expect(diagnoseWatchRange(slightlyBefore, slightlyBefore, from, to, now, since).kind).toBe('ok');
+  });
+
+  it('other-range: kürzlich kam etwas an, aber für einen anderen Zeitraum', () => {
+    const other = rec({ fromAt: '2026-10-01T09:00:00Z', toAt: '2026-10-01T10:30:00Z' });
+    const d = diagnoseWatchRange(null, other, from, to, now, since);
+    expect(d.kind).toBe('other-range');
+    expect(d.text).toContain('range');
+  });
+
+  it('none: nichts angekommen, mit Hinweis auf das letzte Ergebnis', () => {
+    const old = rec({ fromAt: '2026-09-20T17:00:00Z', toAt: '2026-09-20T18:00:00Z', receivedAt: '2026-09-20T18:05:00Z' });
+    const d = diagnoseWatchRange(null, old, from, to, now, since);
+    expect(d.kind).toBe('none');
+    expect(d.text).toContain('Das letzte Ergebnis überhaupt');
+  });
+
+  it('none: noch nie etwas angekommen verweist auf den Test-Kurzbefehl', () => {
+    const d = diagnoseWatchRange(null, null, from, to, now, since);
+    expect(d.kind).toBe('none');
+    expect(d.text).toContain('Stufe 1');
   });
 });

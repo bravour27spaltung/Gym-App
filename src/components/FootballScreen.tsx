@@ -3,13 +3,10 @@ import { summarizeAppleHealthWindow } from '../lib/appleHealthImport';
 import { fmtDay, todayIso } from '../lib/format';
 import type { Result } from '../lib/api';
 import {
-  describeRangeSummary,
-  describeWatchWindow,
-  summarizeWatchSamples,
+  diagnoseWatchRange,
+  WATCH_CLOCK_TOLERANCE_MS,
   watchShortcutUrl,
-  watchWindowToForm,
-  type WatchSample,
-  type WatchWindow,
+  type WatchRangeRecord,
 } from '../lib/footballWatch';
 import {
   addMinutesToTime,
@@ -26,11 +23,10 @@ import { Icon, IconButton, MetricField } from './ui';
 
 interface Props {
   history: HistFootballSession[];
-  /** Von der Apple Watch erkannte Trainingsfenster, die noch als Vorschlag angeboten werden. */
-  watchWindows: WatchWindow[];
-  onDismissWatchWindow: (id: string) => void;
-  /** Lädt die Apple-Watch-Rohwerte, deren Start im gewählten Zeitraum liegt. */
-  onLoadSamples: (fromMs: number, toMs: number) => Promise<Result<WatchSample[]>>;
+  /** Apple-Watch-Ergebnis für genau diesen Zeitraum (null: dafür ist nichts angekommen). */
+  onLoadWatchRange: (fromMs: number, toMs: number) => Promise<Result<WatchRangeRecord | null>>;
+  /** Zuletzt eingegangenes Apple-Watch-Ergebnis überhaupt, für die Fehlersuche. */
+  onLoadLatestWatchRange: () => Promise<Result<WatchRangeRecord | null>>;
   pending: number;
   busy: boolean;
   notice: string | null;
@@ -53,9 +49,8 @@ const DEFAULT_MINUTES = 90;
  */
 export function FootballScreen({
   history,
-  watchWindows,
-  onDismissWatchWindow,
-  onLoadSamples,
+  onLoadWatchRange,
+  onLoadLatestWatchRange,
   pending,
   busy,
   notice,
@@ -75,18 +70,17 @@ export function FootballScreen({
   const [calories, setCalories] = useState<number | null>(null);
   const [avgHeartRate, setAvgHeartRate] = useState<number | null>(null);
   const [source, setSource] = useState<FootballSource>('manual');
-  const [watchWindowId, setWatchWindowId] = useState<string | null>(null);
-  const [watchNotice, setWatchNotice] = useState<string | null>(null);
   const [watchRangeBusy, setWatchRangeBusy] = useState(false);
   const [watchRangeNotice, setWatchRangeNotice] = useState<string | null>(null);
-  /** true, solange der Kurzbefehl läuft: beim Zurückkehren in die App wird automatisch gerechnet. */
-  const awaitingWatch = useRef(false);
+  /** Zeitpunkt des Antippens von „Apple-Watch-Daten holen“, solange der Kurzbefehl läuft; null sonst. */
+  const awaitingWatchSince = useRef<number | null>(null);
 
   useEffect(() => {
     const onVisible = () => {
-      if (document.visibilityState !== 'visible' || !awaitingWatch.current) return;
-      awaitingWatch.current = false;
-      void applyWatchRange();
+      if (document.visibilityState !== 'visible' || awaitingWatchSince.current === null) return;
+      const since = awaitingWatchSince.current;
+      awaitingWatchSince.current = null;
+      void applyWatchRange(since);
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
@@ -111,26 +105,8 @@ export function FootballScreen({
     setCalories(null);
     setAvgHeartRate(null);
     setSource('manual');
-    setWatchWindowId(null);
-    setWatchNotice(null);
     setWatchRangeNotice(null);
     setHealthNotice(null);
-  }
-
-  /** Übernimmt Startzeit, Dauer, Ø Puls und Distanz eines Apple-Watch-Vorschlags ins Formular. */
-  function applyWatchWindow(w: WatchWindow) {
-    const v = watchWindowToForm(w);
-    setPlayedOn(v.playedOn);
-    setStartedAtTime(v.startedAtTime);
-    setMinutes(v.minutes);
-    setAvgHeartRate(v.avgHeartRate);
-    setDistanceKm(v.distanceKm);
-    setCalories(null);
-    setSource('apple_health');
-    setWatchWindowId(w.id);
-    setWatchNotice(
-      `Von der Apple Watch übernommen: ${describeWatchWindow(w)}. Jetzt noch Art der Einheit und RPE eintragen.`,
-    );
   }
 
   function submit() {
@@ -146,35 +122,50 @@ export function FootballScreen({
       calories,
       avgHeartRate,
       source,
-      watchWindowId,
     });
     resetForm();
   }
 
-  /** Berechnet Ø Puls und Distanz für den im Formular gewählten Zeitraum (Datum, Startzeit, Dauer). */
-  async function applyWatchRange() {
-    if (startedAtTime.trim() === '' || !(minutes > 0)) return;
+  /**
+   * Holt das Apple-Watch-Ergebnis für den im Formular gewählten Zeitraum (Datum, Startzeit, Dauer) und trägt
+   * Ø Puls und Distanz ein. Mit `since` (Zeitpunkt des Antippens, direkt nach der Rückkehr aus dem Kurzbefehl)
+   * wird bis zu ~45 s erneut geprüft, weil der Kurzbefehl das Ergebnis oft erst sendet, wenn man schon zurück
+   * in der App ist, und nur ein Ergebnis NACH dem Antippen zählt. Kommt nichts an, erklärt die Meldung, an
+   * welcher Stelle es hakt (siehe diagnoseWatchRange).
+   */
+  async function applyWatchRange(since: number | null = null) {
+    if (!rangeReady) return;
     setWatchRangeBusy(true);
-    setWatchRangeNotice(null);
-    const fromMs = new Date(`${playedOn}T${startedAtTime}:00`).getTime();
-    const res = await onLoadSamples(fromMs, fromMs + minutes * 60_000);
+    setWatchRangeNotice(since !== null ? 'Warte auf die Daten vom Kurzbefehl …' : null);
+    const fromMs = rangeFromMs;
+    const toMs = fromMs + minutes * 60_000;
+    const attempts = since !== null ? 10 : 1;
+    let match: WatchRangeRecord | null = null;
+    for (let i = 0; i < attempts; i++) {
+      const res = await onLoadWatchRange(fromMs, toMs);
+      if (!res.ok) {
+        setWatchRangeBusy(false);
+        setWatchRangeNotice(`Abruf fehlgeschlagen: ${res.error}`);
+        return;
+      }
+      match = res.data;
+      // Ein Ergebnis von vor dem Antippen ist keine Antwort auf diesen Lauf: weiter warten.
+      const fresh = match !== null && (since === null || new Date(match.receivedAt).getTime() >= since - WATCH_CLOCK_TOLERANCE_MS);
+      if (fresh) break;
+      if (i < attempts - 1) await new Promise((r) => window.setTimeout(r, 4500));
+    }
+    const latest = await onLoadLatestWatchRange();
     setWatchRangeBusy(false);
-    if (!res.ok) {
-      setWatchRangeNotice(`Abruf fehlgeschlagen: ${res.error}`);
+    const diag = diagnoseWatchRange(match, latest.ok ? latest.data : null, fromMs, toMs, Date.now(), since);
+    if (diag.kind === 'ok' && match) {
+      setAvgHeartRate(match.avgHeartRate);
+      setDistanceKm(match.distanceKm);
+      setCalories(null);
+      setSource('apple_health');
+      setWatchRangeNotice(`${diag.text} Bei Bedarf unten anpassen.`);
       return;
     }
-    const sum = summarizeWatchSamples(res.data, fromMs, fromMs + minutes * 60_000);
-    if (sum.avgHeartRate === null && sum.distanceKm === null) {
-      setWatchRangeNotice(
-        'Für diesen Zeitraum liegen keine Apple-Watch-Daten vor. Zuerst „Apple-Watch-Daten abrufen“ antippen und Datum, Startzeit und Dauer prüfen.',
-      );
-      return;
-    }
-    setAvgHeartRate(sum.avgHeartRate);
-    setDistanceKm(sum.distanceKm);
-    setCalories(null);
-    setSource('apple_health');
-    setWatchRangeNotice(`Übernommen: ${describeRangeSummary(sum)}. Bei Bedarf unten anpassen.`);
+    setWatchRangeNotice(diag.text);
   }
 
   function handleHealthFile(file: File) {
@@ -236,46 +227,7 @@ export function FootballScreen({
         </p>
       )}
 
-      {watchWindows.length > 0 && (
-        <>
-          <h2 className="section-title">Apple Watch erkannt</h2>
-          <ul className="exlist">
-            {watchWindows.map((w) => (
-              <li key={w.id}>
-                <div className="exrow static">
-                  <span className="exrow-text">
-                    <strong>{fmtDay(w.startedAt)}</strong>
-                    <small>{describeWatchWindow(w)}</small>
-                  </span>
-                  <button
-                    type="button"
-                    className={watchWindowId === w.id ? 'btn compact primary' : 'btn compact'}
-                    onClick={() => applyWatchWindow(w)}
-                  >
-                    Übernehmen
-                  </button>
-                  <IconButton
-                    icon="x"
-                    label={`Vorschlag vom ${fmtDay(w.startedAt)} ausblenden`}
-                    onClick={() => onDismissWatchWindow(w.id)}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-          <p className="muted newex-hint">
-            Ohne gestartete Aufzeichnung misst die Uhr die Herzfrequenz nur alle paar Minuten; Ø und Max
-            beruhen auf wenigen Messwerten, Dauer und Distanz sind Näherungen. Deine RPE bleibt die Hauptgröße.
-          </p>
-        </>
-      )}
-
       <div className="card">
-        {watchNotice && (
-          <p className="notice" role="status">
-            {watchNotice}
-          </p>
-        )}
         <label className="field stack">
           <span>Datum</span>
           <input
@@ -386,7 +338,7 @@ export function FootballScreen({
                 className="btn compact primary"
                 href={watchShortcutUrl(rangeFromMs, rangeFromMs + minutes * 60_000)}
                 onClick={() => {
-                  awaitingWatch.current = true;
+                  awaitingWatchSince.current = Date.now();
                 }}
               >
                 <Icon name="heart" size={16} /> Apple-Watch-Daten holen
@@ -402,14 +354,15 @@ export function FootballScreen({
               disabled={!rangeReady || watchRangeBusy}
               onClick={() => void applyWatchRange()}
             >
-              {watchRangeBusy ? 'Berechne …' : 'Nur berechnen'}
+              {watchRangeBusy ? 'Prüfe …' : 'Erneut prüfen'}
             </button>
           </div>
           <p className="muted newex-hint">
             Stelle oben Datum und Zeitraum (Von/Bis oder Dauer) frei ein und tippe auf „Apple-Watch-Daten holen“: Der
-            Kurzbefehl lädt nur diesen Zeitraum aus Health. Danach kommst du über den Rücksprung-Link oben links in der Statusleiste
-            zurück, die App rechnet Ø/Max-Puls, Distanz und Schritte dann automatisch. „Nur berechnen“ nutzt bereits
-            abgerufene Daten.
+            Kurzbefehl liest nur diesen Zeitraum aus Health (iPhone entsperrt lassen). Danach kommst du über den
+            Rücksprung-Link oben links in der Statusleiste zurück, die App holt Ø-Puls und Distanz dann automatisch.
+            Ohne gestartete Aufzeichnung misst die Uhr die Herzfrequenz nur alle paar Minuten, Ø und Max beruhen daher auf
+            wenigen Messwerten; deine RPE bleibt die Hauptgröße. „Erneut prüfen“ holt das Ergebnis noch einmal ab.
           </p>
           {watchRangeNotice && <p className="muted">{watchRangeNotice}</p>}
 

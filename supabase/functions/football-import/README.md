@@ -1,93 +1,132 @@
-# football-import: Fußball-Daten der Apple Watch automatisch holen
+# football-import: Apple-Watch-Werte für den Fußball-Eintrag holen
 
-Die App ist eine Web-App und kann Apple Health nicht direkt lesen (HealthKit gibt es nur
-auf dem iPhone für native Apps). Deshalb liest ein **iOS-Kurzbefehl** (kostenlos) die
-Rohwerte aus Health und schickt sie an diese Edge Function. Sie erkennt daraus
-Trainingsfenster und legt sie in `fit_football_watch_windows` ab. Im Fußball-Tab erscheinen
-sie als Vorschlag („Apple Watch erkannt“): ein Tipp übernimmt Startzeit, Dauer, Ø Puls und
-Distanz ins Formular. Art der Einheit und RPE trägst du weiterhin selbst ein.
+Die App ist eine Web-App und kann Apple Health nicht direkt lesen (HealthKit gibt es nur für native
+iPhone-Apps). Deshalb liest ein **iOS-Kurzbefehl** (kostenlos) die Werte aus Health und schickt sie an diese
+Edge Function.
 
-**Zeitraum selbst wählen:** Die Funktion speichert zusätzlich alle Rohwerte in `fit_health_samples`
-(Upsert, keine Dopplung). Im Formular stellst du Datum, Startzeit und Dauer selbst ein und tippst auf
-„Werte aus Apple Watch berechnen“: Ø/Max-Puls, Distanz und Schritte werden für genau diesen Zeitraum
-aus den Rohwerten berechnet (`summarizeWatchSamples`). Das ist der Weg, wenn die Zeiten jedes Mal
-anders sind oder die automatische Erkennung danebenliegt. Die Vorschläge bleiben als Abkürzung bestehen.
+## Ablauf (Neustart, Oktober 2026)
 
-## Welche Daten
+1. Im Fußball-Tab stellst du Datum und Zeitraum (Von/Bis oder Dauer) ein und tippst auf „Apple-Watch-Daten holen“.
+2. Die App startet den Kurzbefehl `Fussball-Import` mit der Eingabe `<Start>|<Ende>` (ISO 8601, UTC).
+3. Der Kurzbefehl liest **nur diesen Zeitraum** aus Health und schickt **wenige Zahlen** (Ø/Max-Puls, Anzahl
+   Messwerte, Schritte, Distanz) plus die Eingabe unverändert als `range`. **Keine Schleife über Messwerte.**
+4. Die Funktion speichert genau **ein Ergebnis pro Zeitraum** in `fit_watch_ranges` (Upsert, wiederholbar) und
+   antwortet im Klartext (`message`), den der Kurzbefehl anzeigt.
+5. Du kehrst über den Rücksprung-Link oben links zurück; die App holt das Ergebnis ab (bis zu ~45 s Geduld) und
+   trägt Ø Puls und Distanz ins Formular ein. Art der Einheit und RPE trägst du weiterhin selbst ein.
 
-| Wert | Verwendung | Hinweis |
+**Was sich gegenüber dem ersten Versuch geändert hat:** Das Zerlegen von Messwerten in Textzeilen per Schleife, die
+Fenster-Erkennung (`detect`), die Rohwert-Tabelle und die Berechnung in der App sind weg. Sie waren viele Glieder
+hintereinander, bei denen jedes still scheitern konnte. Die Tabellen `fit_health_samples` und
+`fit_football_watch_windows` bleiben unangetastet in der Datenbank, werden aber nicht mehr befüllt. Die Funktion
+nimmt weiterhin Rohzeilen an (Rückfall, siehe unten), wertet sie dann aber selbst im Zeitraum aus.
+
+Die App erkennt drei Fehlerbilder und benennt sie (Funktion `diagnoseWatchRange`, getestet):
+
+| Meldung in der App | Bedeutung | Wo suchen |
 |---|---|---|
-| Herzfrequenz (Start, Wert) | Kern: erkennt das Zeitfenster, Ø/Max-Puls | Ohne gestartete Aufzeichnung versucht die Uhr laut Apple nur etwa alle 5 Minuten einen Wert zu liefern (Series 10), Ø/Max beruhen also auf wenigen Messwerten |
-| Schritte (Start, Ende, Wert) | Summe im Fenster | optional |
-| Distanz Gehen/Laufen (Start, Ende, Wert) | Summe im Fenster | optional, Näherung der Uhr, für Fußball nicht validiert |
-| Aktive Energie (kcal) | **wird bewusst nicht übernommen** | Schätzfehler in Studien von rund 10 % bis über 150 % (npj Digit Med 2025) |
-
-Fenster-Erkennung (siehe `parse.ts`, getestet in `src/lib/footballWatch.test.ts`): Die Uhr wird
-nur im Training getragen, also bilden zusammenhängende Herzfrequenzwerte (Lücke unter 45 min) eine
-Einheit. Mindestens 20 min und 3 Messwerte, höchstens 4 h; alles andere wird mit Grund
-gemeldet (`skipped`) und nicht angelegt. Die Dauer ist wegen der seltenen Messung eine leichte
-Unterschätzung.
+| „Es ist nichts angekommen“ / „noch nie etwas angekommen“ | Die Funktion hat nichts gespeichert | Kurzbefehl brach vor dem Senden ab, oder die Funktion lehnte ab; der Kurzbefehl zeigt deren Meldung |
+| „Kurzbefehl ist durchgelaufen …, aber Health hat nichts geliefert“ | Ergebnis ohne Werte angekommen | Health-Berechtigung für Kurzbefehle, iPhone entsperrt, Zeitraum, Quelle |
+| „… für einen anderen Zeitraum“ | Ergebnis angekommen, aber mit anderem `range` | Kurzbefehl hat die Eingabe verändert statt sie unverändert zurückzugeben |
+| „Es kam nichts Neues an … älteres Ergebnis“ | Nur ein Ergebnis von vor dem Antippen | Kurzbefehl lief nicht bis zum Senden |
 
 ## Einrichtung (einmalig)
 
-1. **Migrationen** `supabase/migrations/0013_football_watch_windows.sql` und `0014_health_samples.sql` nacheinander im SQL-Editor von Supabase ausführen.
-2. **Token und Nutzer-ID festlegen.** Token erzeugen: `openssl rand -hex 32`. Die Nutzer-ID steht in Supabase unter
-   Authentication → Users (deine UUID).
-3. **Secrets setzen und deployen** (Supabase CLI, Projekt verlinkt):
+1. **Migration** `supabase/migrations/0020_watch_ranges.sql` im SQL-Editor von Supabase ausführen. Ohne sie antwortet
+   die Funktion mit „relation "fit_watch_ranges" does not exist“.
+2. **Secrets** `IMPORT_TOKEN` und `IMPORT_USER_ID` sind von der bisherigen Funktion schon gesetzt; unverändert lassen.
+   (Neu: `openssl rand -hex 32` für das Token, die Nutzer-ID steht in Supabase unter Authentication → Users.)
+3. **Neu deployen:**
    ```sh
-   supabase secrets set IMPORT_TOKEN=<token> IMPORT_USER_ID=<deine-uuid>
    supabase functions deploy football-import --no-verify-jwt
    ```
-   `--no-verify-jwt` ist nötig, weil der Kurzbefehl kein ablaufendes Supabase-JWT erneuern kann; die
-   Funktion prüft stattdessen das Token im Header `x-import-token`. Das Token erlaubt nur, Vorschlags-Fenster
-   anzulegen oder zu aktualisieren, nicht zu lesen.
-4. **Testen ohne Kurzbefehl** (`?dry=1` schreibt nichts, zeigt nur die erkannten Fenster):
-   ```sh
-   curl -s -X POST "https://<projekt>.supabase.co/functions/v1/football-import?dry=1" \
-     -H "x-import-token: <token>" -H "Content-Type: application/json" \
-     -d '{"hr":"2026-10-01T19:00:00+02:00|2026-10-01T19:00:00+02:00|118\n2026-10-01T19:07:00+02:00|2026-10-01T19:07:00+02:00|141\n2026-10-01T19:14:00+02:00|2026-10-01T19:14:00+02:00|152\n2026-10-01T19:21:00+02:00|2026-10-01T19:21:00+02:00|147\n2026-10-01T19:28:00+02:00|2026-10-01T19:28:00+02:00|139"}'
-   ```
-   (Das Beispiel hat 28 Minuten und 5 Messwerte und liefert ein Fenster.)
+   `--no-verify-jwt` ist nötig, weil ein Kurzbefehl kein ablaufendes Supabase-JWT erneuern kann; die Funktion prüft
+   stattdessen das Token im Header `x-import-token`. Das Token erlaubt nur, Zeitraum-Ergebnisse anzulegen oder zu
+   aktualisieren, nicht zu lesen.
 
-## Der Kurzbefehl „Fussball-Import“
+## Testleiter (von unten nach oben, jede Stufe einzeln)
 
-Der Name muss genau `Fussball-Import` lauten (die App startet ihn per URL-Schema).
+**Stufe 0, ohne iPhone:** Erreichbarkeit und Token.
+```sh
+curl -s -X POST "https://<projekt>.supabase.co/functions/v1/football-import?ping=1" -H "x-import-token: <token>"
+```
+Erwartet: `"message":"Verbindung und Token in Ordnung. Es wurde nichts gespeichert."`
 
-**Wichtig: Die Uhr wird ganztägig getragen.** Dann liegen pro Woche tausende Herzfrequenzwerte vor, und
-eine Schleife über alle Werte hängt in der Kurzbefehle-App. Deshalb lädt der Kurzbefehl **nur den Zeitraum,
-den du in der App gewählt hast** (Datum, Startzeit, Dauer). Die App übergibt ihn als Texteingabe
-`<Start>|<Ende>` (ISO 8601 in UTC, z. B. `2026-10-01T17:00:00Z|2026-10-01T18:30:00Z`). Damit sind es für
-90 Minuten nur wenige Dutzend Werte. Und die automatische Fenster-Erkennung ist standardmäßig aus (sie ginge
-bei ganztägigem Tragen nicht, siehe `detect` unten).
+Auswertung ansehen, ohne zu speichern (`?dry=1`):
+```sh
+curl -s -X POST "https://<projekt>.supabase.co/functions/v1/football-import?dry=1" \
+  -H "x-import-token: <token>" -H "Content-Type: application/json" \
+  -d '{"range":"2026-10-01T17:00:00Z|2026-10-01T18:30:00Z","avg_hr":132,"max_hr":171,"hr_count":14,"steps_total":6200,"distance_km":4.2}'
+```
 
-Änderungen gegenüber der ersten Version („letzte 7 Tage“):
+**Stufe 1, Kurzbefehl nur mit Ping:** beweist URL-Schema, Eingabe-Übergabe, Netz und Token (Text unten).
+**Stufe 2, Health lesen:** Werte nur anzeigen (Berechtigungen erteilen). **Stufe 3:** vollständiger Kurzbefehl.
+Erst zur nächsten Stufe, wenn die vorige sichtbar läuft. So zeigt sich, an welchem Glied es hängt.
 
-1. Ganz oben: **Text teilen** (Split Text) auf die **Kurzbefehl-Eingabe**, Trennzeichen **Benutzerdefiniert** `|`.
-2. **Element aus Liste abrufen** (Get Item from List) → **Erstes Element**, danach **Daten aus Eingabe abrufen**
-   (Get Dates from Input) → **Variable festlegen** `von`.
-3. Dasselbe mit **Letztes Element** → Variable `bis`.
-4. In **allen drei** „Health-Werte suchen“-Aktionen den Datumsfilter ändern: statt „Startdatum liegt in den letzten 7 Tagen“
-   **„Startdatum liegt zwischen“ `von` und `bis`** (die beiden Variablen einsetzen). Quelle = deine Apple Watch bleibt.
-5. Bei **Schritte** den leeren Filter „Wert“ löschen.
-6. Header `x-import-token` mit deinem Token füllen (nicht den Kurzbefehl mit Token teilen).
+## Body
 
-Ohne Eingabe (z. B. direkt aus der Kurzbefehle-App gestartet) fehlt der Zeitraum. Dann am besten oben mit
-**Wenn** (If) die Eingabe prüfen und sonst **Nach Eingabe fragen** (Ask for Input) nutzen.
+| Feld | Bedeutung |
+|---|---|
+| `range` | **Pflicht.** `<Start>\|<Ende>`, die Kurzbefehl-Eingabe **unverändert** zurückgeben (ISO 8601 mit `Z` oder Offset, Ende nach Start, höchstens 24 h). Alternativ `from` und `to` |
+| `avg_hr`, `max_hr` | Ø/Max-Puls, 30–220 bpm. Zahl oder Text („131,6 count/min“) |
+| `hr_count` | Anzahl der Herzfrequenz-Messwerte, auf denen Ø/Max beruhen |
+| `steps_total` | Summe der Schritte im Zeitraum („6.200“ wird als 6200 gelesen) |
+| `distance_km` | Summe Gehen + Laufen; mit Einheit („4200 m“) wird umgerechnet, ohne Einheit gilt km |
+| `hr`, `steps`, `distance` | **Rückfall:** Rohzeilen `<Start>\|<Ende>\|<Wert>`; die Funktion wertet nur Messwerte im Zeitraum aus. Fertige Zahlen haben je Feld Vorrang |
 
-## Auslösen
+Unplausible Werte (Puls außerhalb 30–220, negative Zahlen, Distanz über 100 km) werden nicht gespeichert und in
+`invalid` gezählt. Liegt Ø über Max (vertauschte Felder), lehnt die Funktion mit Klartext ab. Ein Lauf ohne Werte wird
+bewusst als leeres Ergebnis gespeichert; das unterscheidet „Health war leer“ von „nichts angekommen“.
 
-Health-Daten lesen darf ein Kurzbefehl nur, solange das iPhone **entsperrt** ist. Im Fußball-Tab: Datum, Startzeit
-und Dauer einstellen, „Apple-Watch-Daten holen“ antippen (öffnet den Kurzbefehl mit dem Zeitraum), danach über den
-Rücksprung-Link oben links in der Statusleiste zurück in die App. Die App rechnet Ø/Max-Puls, Distanz und
-Schritte automatisch aus den gespeicherten Rohwerten (läuft die App danach nicht mehr, hilft „Nur berechnen“).
+## Kurzbefehl „Fussball-Import“ (Text zum Einfügen in „Änderung beschreiben“)
 
-Bewusst **ohne** x-callback-url: Eine https-Rücksprungadresse würde in Safari statt in der Home-Bildschirm-App
-landen, mit anderer Anmeldung und anderem Speicher.
+Der Name muss genau `Fussball-Import` lauten (die App startet ihn per URL-Schema). URL und Token sind dieselben wie
+beim bisherigen Kurzbefehl. Nicht auf einem iPhone getestet von mir; Aktionsnamen können je nach iOS-Version abweichen.
 
-Ein erneuter Aufruf erzeugt keine Dopplungen (Upsert auf Art/Start/Ende).
+**Stufe 1 (nur Ping und Eingabe):**
 
-## Optional: Fenster-Erkennung (`"detect": true`)
+```
+Erstelle bzw. ersetze den Kurzbefehl "Fussball-Import" durch einen reinen Verbindungstest, ohne Health-Zugriff und ohne Schleifen:
+1. Setze die Variable "range" auf die Kurzbefehl-Eingabe (Text). Ist keine Eingabe vorhanden, dann Text "2026-10-01T17:00:00Z|2026-10-01T18:30:00Z".
+2. "Inhalte von URL abrufen": URL <FUNKTIONS-URL>/football-import?ping=1 , Methode POST, Header x-import-token = <TOKEN>, Anfragetext JSON mit dem Feld range (Text) = Variable range.
+3. "Wörterbuchwert abrufen": Wert für Schlüssel message aus dem Ergebnis von Schritt 2.
+4. "Ergebnis anzeigen": zuerst die Variable range, darunter die message.
+Alle Dialoge und Nachfragen weglassen.
+```
 
-Nur sinnvoll, wenn die Uhr **nur im Training** getragen wird. Dann bilden zusammenhängende Herzfrequenzwerte
-(Lücke unter 45 min) eine Einheit; mindestens 20 min und 3 Messwerte, höchstens 4 h. Als Body-Feld
-`"detect": true` mitschicken. Die erkannten Fenster erscheinen im Fußball-Tab als „Apple Watch erkannt“.
+**Stufe 3 (vollständig, Variante A mit Statistik, ohne Schleife):**
+
+```
+Ändere den Kurzbefehl "Fussball-Import" so, dass er ohne jede Schleife den Zeitraum aus Health auswertet und das Ergebnis sendet:
+1. Variable "range" = Kurzbefehl-Eingabe (Text im Format "<Start>|<Ende>", ISO 8601, z. B. 2026-10-01T17:00:00Z|2026-10-01T18:30:00Z). Ohne Eingabe: "Nach Eingabe fragen" (Text) nach Start|Ende.
+2. "Text teilen" von range an "|"; "Element aus Liste abrufen" Erstes Element, dann "Daten aus Eingabe abrufen" -> Variable "von". Dasselbe mit Letztes Element -> Variable "bis".
+3. "Health-Werte suchen": Typ Herzfrequenz, Startdatum liegt zwischen von und bis, Quelle Apple Watch, Limit aus -> Variable "hr". "Statistik berechnen" Durchschnitt von hr -> "avgHr"; "Statistik berechnen" Maximum von hr -> "maxHr"; "Anzahl" von hr -> "hrCount". Es darf keine Schleife benutzt werden.
+4. "Health-Werte suchen": Typ Schritte, Startdatum zwischen von und bis, Quelle Apple Watch. "Statistik berechnen" Summe -> "stepsTotal".
+5. "Health-Werte suchen": Typ Gehen- und Laufen-Distanz, Startdatum zwischen von und bis, Quelle Apple Watch. "Statistik berechnen" Summe -> "distanceKm" (in Kilometern).
+6. "Inhalte von URL abrufen": URL <FUNKTIONS-URL>/football-import , Methode POST, Header x-import-token = <TOKEN>, Anfragetext JSON: range (Text) = range, avg_hr (Zahl) = avgHr, max_hr (Zahl) = maxHr, hr_count (Zahl) = hrCount, steps_total (Zahl) = stepsTotal, distance_km (Zahl) = distanceKm.
+7. "Wörterbuchwert abrufen" message aus dem Ergebnis, dann "Ergebnis anzeigen".
+Die Eingabe muss in Schritt 6 unverändert als range gesendet werden (nicht neu formatieren). Wenn ein Health-Typ keine Werte liefert, den Kurzbefehl trotzdem bis zum Senden weiterlaufen lassen.
+```
+
+**Rückfall Variante B (nur, falls „Statistik berechnen“ die Health-Werte nicht annimmt):** In Schritt 3 bis 5 statt der
+Statistik je Typ **eine** Schleife „Für jedes Element wiederholen“ über die gefundenen Werte, die pro Element eine Textzeile
+`<Startdatum ISO 8601>|<Wert>` erzeugt, und die Zeilen zusammengefügt als `hr`, `steps`, `distance` senden (statt
+`avg_hr` usw.). Bei einem begrenzten Zeitraum von 1 bis 2 Stunden sind das wenige Dutzend Werte. Die Funktion rechnet dann selbst.
+
+## Auslösen und Grenzen
+
+- Health-Daten liest ein Kurzbefehl nur, solange das iPhone **entsperrt** ist. Ein einzelner Forenbeitrag
+  (talk.automators.fm, 2022, ohne Antwort) berichtet für „Get Workouts from Health“ den Fehler „Protected health data is
+  inaccessible“ bei gesperrtem Gerät; das ist eine Einzelbeobachtung, keine Apple-Dokumentation, passt aber zum Verhalten
+  geschützter Health-Daten. Deshalb: iPhone entsperrt lassen.
+- Beim ersten Lauf fragt iOS pro Health-Typ (Herzfrequenz, Schritte, Gehen + Laufen) nach Zugriff. Alles erlauben.
+- **Messtakt:** Ohne gestartete Aufzeichnung (bei dir der Normalfall, kein HKWorkout) versucht die Uhr laut Apple-Whitepaper
+  „Using Apple Watch to measure heart rate, calorimetry, and activity“ (11/2024, Herstellerangabe, von mir hier nicht erneut
+  geprüft) nur etwa alle 5 Minuten einen Herzfrequenzwert. Ø und Max beruhen deshalb auf wenigen Messwerten (die App zeigt die
+  Anzahl). Dauer, Distanz und Schritte sind Näherungen. Deine RPE bleibt die Hauptgröße.
+- **Aktive Energie (kcal)** wird bewusst nicht übernommen (Schätzfehler in Studien von rund 10 % bis über 150 %,
+  npj Digit Med 2025; aus dem früheren README übernommen, nicht erneut geprüft).
+- Ein erneuter Lauf für denselben Zeitraum überschreibt das Ergebnis (Upsert), erzeugt also keine Dopplung. Liefert Health
+  dabei nichts, wird das frühere Ergebnis durch ein leeres ersetzt; die bereits ins Formular übernommenen Werte bleiben.
+- Bewusst **ohne** x-callback-url: Eine https-Rücksprungadresse würde in Safari statt in der Home-Bildschirm-App landen
+  (andere Anmeldung, anderer Speicher).

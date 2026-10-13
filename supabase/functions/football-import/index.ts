@@ -1,29 +1,33 @@
-// Supabase Edge Function: nimmt rohe Apple-Health-Werte (Herzfrequenz, Schritte,
-// Distanz) von einem iOS-Kurzbefehl entgegen, erkennt daraus Trainingsfenster der
-// Apple Watch (siehe parse.ts) und legt sie in fit_football_watch_windows ab. Die App
-// zeigt sie im Fußball-Tab als Vorschlag. Es wird nie selbst ein Fußball-Eintrag
+// Supabase Edge Function: nimmt die Apple-Watch-Werte für EINEN Zeitraum von einem iOS-Kurzbefehl
+// entgegen und legt genau ein Ergebnis pro Zeitraum in fit_watch_ranges ab (Migration 0020). Die App
+// liest es und trägt Ø Puls und Distanz ins Fußball-Formular ein. Es wird nie selbst ein Fußball-Eintrag
 // angelegt: Art der Einheit und RPE bleiben deine Eingabe.
 //
-// Aufruf: POST .../functions/v1/football-import[?dry=1]
+// Aufruf: POST .../functions/v1/football-import[?ping=1|?dry=1]
 // Header: x-import-token: <IMPORT_TOKEN>
-// Body (JSON), alle drei Felder optional, Format siehe parse.ts / README.md:
-//   { "hr": "<Start>|<Ende>|<Wert>\n...", "steps": "...", "distance": "..." }
-// Optional: "detect": true erkennt zusätzlich Trainingsfenster (nur sinnvoll, wenn die Uhr nur im
-// Training getragen wird); ohne das Feld werden nur die Rohwerte gespeichert.
+// Body (JSON), Details und Beispiele in README.md:
+//   {
+//     "range": "<Start>|<Ende>",     // Pflicht: die Kurzbefehl-Eingabe unverändert zurückgeben
+//     "avg_hr": 132, "max_hr": 171, "hr_count": 14,   // fertige Zahlen (bevorzugt)
+//     "steps_total": 6200, "distance_km": 4.2,
+//     "hr": "<Start>|<Ende>|<Wert>\n...", "steps": "...", "distance": "..."   // Rückfall: Rohzeilen
+//   }
 //
-// ?dry=1 liefert nur die erkannten Fenster, ohne etwas zu schreiben (zum Testen).
+// ?ping=1  prüft nur Erreichbarkeit und Token (Stufe 1 des Kurzbefehl-Tests), schreibt nichts.
+// ?dry=1   wertet aus und antwortet, schreibt aber nichts.
 //
-// Authentifizierung: ein langes zufälliges Geheimnis (IMPORT_TOKEN) statt eines
-// Nutzer-JWT, weil ein Kurzbefehl keinen ablaufenden Supabase-Token erneuern kann. Die
-// Funktion schreibt mit der Service-Rolle für genau einen Nutzer (IMPORT_USER_ID).
-// Das Token berechtigt nur dazu, Vorschlags-Fenster anzulegen oder zu aktualisieren,
-// nicht zum Lesen. Deshalb mit --no-verify-jwt deployen (siehe README.md).
+// Die Antwort enthält immer `message` (Klartext, im Kurzbefehl mit „Ergebnis anzeigen“ sichtbar).
+//
+// Authentifizierung: ein langes zufälliges Geheimnis (IMPORT_TOKEN) statt eines Nutzer-JWT, weil ein
+// Kurzbefehl keinen ablaufenden Supabase-Token erneuern kann. Die Funktion schreibt mit der Service-Rolle
+// für genau einen Nutzer (IMPORT_USER_ID). Das Token berechtigt nur dazu, Zeitraum-Ergebnisse anzulegen
+// oder zu aktualisieren, nicht zum Lesen. Deshalb mit --no-verify-jwt deployen (siehe README.md).
 //
 // Secrets (supabase secrets set ...): IMPORT_TOKEN, IMPORT_USER_ID.
 // SUPABASE_URL und SUPABASE_SERVICE_ROLE_KEY stellt Supabase automatisch bereit.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { detectWindows, parseSamples, type Sample, type WatchWindow } from './parse.ts';
+import { buildRangeResult, describeRangeResult } from './parse.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -32,8 +36,13 @@ const IMPORT_USER_ID = Deno.env.get('IMPORT_USER_ID');
 
 const MAX_BODY_BYTES = 2_000_000;
 
-function json(body: unknown, status = 200): Response {
+function json(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+/** Fehlerantwort mit `message`, damit der Kurzbefehl den Grund anzeigen kann. */
+function fail(error: string, status: number, extra: Record<string, unknown> = {}): Response {
+  return json({ ok: false, error, message: `Fehler: ${error}`, ...extra }, status);
 }
 
 /** Vergleich ohne frühes Abbrechen (kein Zeitkanal über die Länge des gemeinsamen Präfixes). */
@@ -46,151 +55,63 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-const UPSERT_CHUNK = 500;
-
-/**
- * Speichert die Rohwerte (Upsert über Nutzer/Art/Start/Ende, wiederholbar ohne Dopplung),
- * damit die App beliebige Zeiträume auswerten kann. Doppelte Schlüssel im selben Aufruf
- * werden vorher zusammengefasst, sonst lehnt Postgres das Upsert ab. Herzfrequenzwerte
- * außerhalb von 30–220 bpm werden nicht gespeichert.
- */
-async function storeSamples(
-  // deno-lint-ignore no-explicit-any
-  supabase: any,
-  userId: string,
-  hr: Sample[],
-  steps: Sample[],
-  distance: Sample[],
-): Promise<{ count: number; error: string | null }> {
-  const rows = new Map<string, Record<string, unknown>>();
-  const add = (kind: string, samples: Sample[]) => {
-    for (const s of samples) {
-      if (s.value < 0) continue;
-      if (kind === 'hr' && (s.value < 30 || s.value > 220)) continue;
-      const startAt = new Date(s.startMs).toISOString();
-      const endAt = new Date(s.endMs).toISOString();
-      rows.set(`${kind}|${startAt}|${endAt}`, { user_id: userId, kind, start_at: startAt, end_at: endAt, value: s.value });
-    }
-  };
-  add('hr', hr);
-  add('steps', steps);
-  add('distance', distance);
-
-  const all = [...rows.values()];
-  for (let i = 0; i < all.length; i += UPSERT_CHUNK) {
-    const { error } = await supabase
-      .from('fit_health_samples')
-      .upsert(all.slice(i, i + UPSERT_CHUNK), { onConflict: 'user_id,kind,start_at,end_at' });
-    if (error) return { count: 0, error: error.message };
-  }
-  return { count: all.length, error: null };
-}
-
-interface ExistingRow {
-  id: string;
-  started_at: string;
-  ended_at: string;
-  session_id: string | null;
-}
-
 Deno.serve(async (req: Request) => {
-  if (req.method !== 'POST') return json({ ok: false, error: 'Nur POST erlaubt' }, 405);
+  if (req.method !== 'POST') return fail('Nur POST erlaubt', 405);
 
   if (!IMPORT_TOKEN || !IMPORT_USER_ID) {
-    return json({ ok: false, error: 'IMPORT_TOKEN/IMPORT_USER_ID sind nicht als Secrets gesetzt' }, 500);
+    return fail('IMPORT_TOKEN/IMPORT_USER_ID sind nicht als Secrets gesetzt', 500);
   }
   const given = req.headers.get('x-import-token') ?? '';
-  if (!safeEqual(given, IMPORT_TOKEN)) return json({ ok: false, error: 'Ungültiges Token' }, 401);
+  if (!safeEqual(given, IMPORT_TOKEN)) return fail('Ungültiges Token (Header x-import-token)', 401);
+
+  const url = new URL(req.url);
+  if (url.searchParams.get('ping') === '1') {
+    return json({ ok: true, ping: true, message: 'Verbindung und Token in Ordnung. Es wurde nichts gespeichert.' });
+  }
 
   const length = Number(req.headers.get('content-length') ?? '0');
-  if (length > MAX_BODY_BYTES) return json({ ok: false, error: 'Anfrage zu groß' }, 413);
+  if (length > MAX_BODY_BYTES) return fail('Anfrage zu groß', 413);
 
   let body: Record<string, unknown>;
   try {
-    body = await req.json();
+    const parsed = await req.json();
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('kein Objekt');
+    body = parsed as Record<string, unknown>;
   } catch {
-    return json({ ok: false, error: 'Ungültiges JSON' }, 400);
+    return fail('Ungültiges JSON (Anfragetext muss ein JSON-Objekt sein)', 400);
   }
 
-  const hr = parseSamples(body.hr, 'hr');
-  const steps = parseSamples(body.steps, 'steps');
-  const distance = parseSamples(body.distance, 'distance');
-  const invalid = hr.invalid + steps.invalid + distance.invalid;
+  const built = buildRangeResult(body);
+  if (!built.ok) return fail(built.error, 400, { receivedKeys: Object.keys(body) });
 
-  if (hr.samples.length === 0) {
-    return json(
-      { ok: false, error: 'Keine lesbaren Herzfrequenz-Messwerte (Feld "hr" prüfen)', invalid },
-      400,
-    );
-  }
+  const message = describeRangeResult(built.result);
+  const summary = {
+    from: new Date(built.fromMs).toISOString(),
+    to: new Date(built.toMs).toISOString(),
+    result: built.result,
+    source: built.source,
+    invalid: built.invalid,
+  };
 
-  // Fenster-Erkennung nur auf Wunsch (Body-Feld "detect": true): Wird die Uhr den ganzen Tag
-  // getragen, gibt es keine Lücken zwischen den Herzfrequenzwerten, und der Kurzbefehl schickt
-  // ohnehin nur den in der App gewählten Zeitraum. Standard ist daher: nur Rohwerte speichern.
-  const detect = body.detect === true;
-  const { windows, skipped } = detect
-    ? detectWindows(hr.samples, steps.samples, distance.samples)
-    : { windows: [], skipped: [] };
-  const dry = new URL(req.url).searchParams.get('dry') === '1';
-  if (dry) return json({ ok: true, dry, windows, skipped, invalid, created: 0, updated: 0 });
+  if (url.searchParams.get('dry') === '1') return json({ ok: true, dry: true, message, ...summary });
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+  const { error } = await supabase.from('fit_watch_ranges').upsert(
+    {
+      user_id: IMPORT_USER_ID,
+      from_at: summary.from,
+      to_at: summary.to,
+      hr_samples: built.result.hrSamples,
+      avg_heart_rate: built.result.avgHeartRate,
+      max_heart_rate: built.result.maxHeartRate,
+      steps: built.result.steps,
+      distance_km: built.result.distanceKm,
+      source: built.source,
+      received_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id,from_at,to_at' },
+  );
+  if (error) return fail(`Speichern fehlgeschlagen: ${error.message}`, 500);
 
-  const stored = await storeSamples(supabase, IMPORT_USER_ID, hr.samples, steps.samples, distance.samples);
-  if (stored.error) return json({ ok: false, error: stored.error }, 500);
-
-  if (windows.length === 0) {
-    return json({ ok: true, dry: false, windows, skipped, invalid, samplesStored: stored.count, created: 0, updated: 0 });
-  }
-
-  // Bereits vorhandene Fenster, die sich zeitlich überlappen: so erzeugt ein erneuter
-  // Aufruf (oder ein anderer Datenausschnitt desselben Trainings) keine Dopplung.
-  const minStart = windows.reduce((m, w) => (w.startedAt < m ? w.startedAt : m), windows[0].startedAt);
-  const maxEnd = windows.reduce((m, w) => (w.endedAt > m ? w.endedAt : m), windows[0].endedAt);
-  const { data: existing, error: selectError } = await supabase
-    .from('fit_football_watch_windows')
-    .select('id, started_at, ended_at, session_id')
-    .eq('user_id', IMPORT_USER_ID)
-    .lt('started_at', maxEnd)
-    .gt('ended_at', minStart);
-  if (selectError) return json({ ok: false, error: selectError.message }, 500);
-
-  const rows = (existing ?? []) as ExistingRow[];
-  let created = 0;
-  let updated = 0;
-  let alreadyUsed = 0;
-
-  const toRow = (w: WatchWindow) => ({
-    started_at: w.startedAt,
-    ended_at: w.endedAt,
-    hr_samples: w.hrSamples,
-    avg_heart_rate: w.avgHeartRate,
-    max_heart_rate: w.maxHeartRate,
-    steps: w.steps,
-    distance_km: w.distanceKm,
-  });
-
-  for (const w of windows) {
-    const overlap = rows.find(
-      (r) => Date.parse(r.started_at) < Date.parse(w.endedAt) && Date.parse(r.ended_at) > Date.parse(w.startedAt),
-    );
-    if (overlap) {
-      // Schon in einen Eintrag übernommen: nicht mehr anfassen.
-      if (overlap.session_id) {
-        alreadyUsed += 1;
-        continue;
-      }
-      const { error } = await supabase.from('fit_football_watch_windows').update(toRow(w)).eq('id', overlap.id);
-      if (error) return json({ ok: false, error: error.message }, 500);
-      updated += 1;
-      continue;
-    }
-    const { error } = await supabase
-      .from('fit_football_watch_windows')
-      .insert({ user_id: IMPORT_USER_ID, ...toRow(w) });
-    if (error) return json({ ok: false, error: error.message }, 500);
-    created += 1;
-  }
-
-  return json({ ok: true, dry: false, windows, skipped, invalid, samplesStored: stored.count, created, updated, alreadyUsed });
+  return json({ ok: true, dry: false, message, ...summary });
 });

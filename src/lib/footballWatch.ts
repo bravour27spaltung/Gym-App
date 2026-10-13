@@ -1,34 +1,18 @@
-import { fmtTime, isoDate } from './format';
-import type { HistFootballSession } from './storage';
-
 /**
- * Von der Apple Watch erkannte Trainingsfenster (Tabelle fit_football_watch_windows, von
- * der Edge Function football-import befüllt) als Vorschlag für einen Fußball-Eintrag.
- * Reine Logik ohne Browser-/DB-Zugriff.
+ * Apple-Watch-Werte für einen selbst gewählten Zeitraum (Tabelle fit_watch_ranges, von der Edge
+ * Function football-import befüllt). Reine Logik ohne Browser-/DB-Zugriff.
+ *
+ * Ablauf: Die App startet den iOS-Kurzbefehl mit dem Zeitraum, der Kurzbefehl liest Ø/Max-Puls, Schritte
+ * und Distanz aus Health und schickt sie an die Funktion; die App liest das Ergebnis und trägt es ins
+ * Formular ein. Fehlt etwas, sagt diagnoseWatchRange, an welcher Stelle es hakt.
  */
-export interface WatchWindow {
-  id: string;
-  startedAt: string;
-  endedAt: string;
-  hrSamples: number;
-  avgHeartRate: number | null;
-  maxHeartRate: number | null;
-  steps: number | null;
-  distanceKm: number | null;
-  /** Gesetzt, sobald der Vorschlag in einen Fußball-Eintrag übernommen wurde. */
-  sessionId: string | null;
-  dismissed: boolean;
-}
 
-/** Ein Rohwert aus fit_health_samples (hr: bpm, steps: Anzahl, distance: km). */
-export interface WatchSample {
-  kind: 'hr' | 'steps' | 'distance';
-  startMs: number;
-  endMs: number;
-  value: number;
-}
-
-export interface WatchRangeSummary {
+/** Ein Ergebnis aus fit_watch_ranges. */
+export interface WatchRangeRecord {
+  fromAt: string;
+  toAt: string;
+  /** Wann die Funktion das Ergebnis gespeichert hat (Serverzeit). */
+  receivedAt: string;
   hrSamples: number;
   avgHeartRate: number | null;
   maxHeartRate: number | null;
@@ -36,37 +20,15 @@ export interface WatchRangeSummary {
   distanceKm: number | null;
 }
 
-/**
- * Wertet einen selbst gewählten Zeitraum [fromMs, toMs] aus den Rohwerten aus: Ø/Max-Puls
- * aus den Herzfrequenz-Messwerten (nur 30–220 bpm), Schritte und Distanz als Summe der
- * Samples, deren Start im Zeitraum liegt. Ohne passende Werte bleibt das Feld null.
- * Der Puls-Mittelwert ist der einfache Mittelwert der Einzelmessungen, nicht zeitgewichtet.
- */
-export function summarizeWatchSamples(samples: WatchSample[], fromMs: number, toMs: number): WatchRangeSummary {
-  const hr: number[] = [];
-  let steps = 0;
-  let stepCount = 0;
-  let distance = 0;
-  let distanceCount = 0;
-  for (const s of samples) {
-    if (s.startMs < fromMs || s.startMs > toMs) continue;
-    if (s.kind === 'hr') {
-      if (s.value >= 30 && s.value <= 220) hr.push(s.value);
-    } else if (s.kind === 'steps' && s.startMs < toMs) {
-      steps += s.value;
-      stepCount += 1;
-    } else if (s.kind === 'distance' && s.startMs < toMs) {
-      distance += s.value;
-      distanceCount += 1;
-    }
-  }
-  return {
-    hrSamples: hr.length,
-    avgHeartRate: hr.length > 0 ? Math.round(hr.reduce((a, b) => a + b, 0) / hr.length) : null,
-    maxHeartRate: hr.length > 0 ? Math.round(Math.max(...hr)) : null,
-    steps: stepCount > 0 ? Math.round(steps) : null,
-    distanceKm: distanceCount > 0 ? Math.round(distance * 100) / 100 : null,
-  };
+/** Ø/Max-Puls, Schritte, Distanz (ohne Zeitangaben), zum Anzeigen und Übernehmen. */
+export type WatchRangeSummary = Pick<
+  WatchRangeRecord,
+  'hrSamples' | 'avgHeartRate' | 'maxHeartRate' | 'steps' | 'distanceKm'
+>;
+
+/** Hat das Ergebnis überhaupt einen Wert, den die App übernehmen kann? */
+export function hasWatchValues(r: WatchRangeSummary): boolean {
+  return r.avgHeartRate !== null || r.distanceKm !== null || r.steps !== null;
 }
 
 /** "Ø 135 / max 168 bpm (7 Messwerte) · 5,1 km · 6.200 Schritte" (nur vorhandene Werte). */
@@ -87,12 +49,10 @@ export const WATCH_SHORTCUT_NAME = 'Fussball-Import';
 /**
  * Link, der den Kurzbefehl mit dem gewählten Zeitraum als Texteingabe startet:
  * "<Start>|<Ende>" als ISO 8601 in UTC (z. B. 2026-10-01T17:00:00Z|2026-10-01T18:30:00Z).
- * Der Kurzbefehl lädt dann nur diese Zeitspanne aus Health (statt ganzer Tage, was bei
- * einer ganztägig getragenen Uhr tausende Werte wären). Die App ist dabei geöffnet und das
- * iPhone entsperrt, wie es das Lesen der Health-Daten verlangt. Bewusst ohne x-callback-url:
- * eine https-Rücksprungadresse würde in Safari statt in der Home-Bildschirm-App landen
- * (andere Anmeldung, anderer Speicher); stattdessen wechselst du per Rücksprung-Link oben
- * links zurück, die App rechnet dann automatisch.
+ * Der Kurzbefehl liest dann nur diese Zeitspanne aus Health und reicht den Text unverändert als
+ * "range" an die Funktion zurück. Bewusst ohne x-callback-url: eine https-Rücksprungadresse würde in
+ * Safari statt in der Home-Bildschirm-App landen (andere Anmeldung, anderer Speicher); stattdessen
+ * wechselst du per Rücksprung-Link oben links zurück, die App holt das Ergebnis dann automatisch.
  */
 export function watchShortcutUrl(fromMs: number, toMs: number): string {
   const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -100,73 +60,94 @@ export function watchShortcutUrl(fromMs: number, toMs: number): string {
   return `shortcuts://run-shortcut?name=${encodeURIComponent(WATCH_SHORTCUT_NAME)}&input=text&text=${text}`;
 }
 
-/** Älter als so viele Tage werden Vorschläge nicht mehr angeboten. */
-export const WATCH_WINDOW_MAX_AGE_DAYS = 14;
+export type WatchDiagnosisKind =
+  /** Ergebnis für genau diesen Zeitraum, mit Werten. */
+  | 'ok'
+  /** Ergebnis angekommen, aber Health lieferte nichts. */
+  | 'empty'
+  /** Nur ein Ergebnis von vor dem Antippen (nichts Neues angekommen). */
+  | 'stale'
+  /** Kürzlich kam ein Ergebnis, aber für einen anderen Zeitraum. */
+  | 'other-range'
+  /** Nichts (Neues) angekommen. */
+  | 'none';
 
-const DAY_MS = 86_400_000;
-
-/** Bereits bestehende Einträge mit Startzeit belegen das Intervall [Start, Start + Dauer). */
-function overlapsSession(w: WatchWindow, sessions: HistFootballSession[]): boolean {
-  const from = new Date(w.startedAt).getTime();
-  const to = new Date(w.endedAt).getTime();
-  return sessions.some((s) => {
-    if (!s.startedAt) return false;
-    const sFrom = new Date(s.startedAt).getTime();
-    const sTo = sFrom + s.minutes * 60_000;
-    return sFrom < to && sTo > from;
-  });
+export interface WatchDiagnosis {
+  kind: WatchDiagnosisKind;
+  text: string;
 }
+
+/** Ein Ergebnis ohne neuere Ankunft als so viele Millisekunden vor dem Antippen gilt als „nichts Neues“. */
+export const WATCH_CLOCK_TOLERANCE_MS = 60_000;
+
+const fmt = (iso: string | number): string =>
+  new Date(iso).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 /**
- * Vorschläge, die noch angeboten werden: nicht übernommen, nicht ausgeblendet, nicht
- * älter als 14 Tage und ohne zeitlich überlappenden Eintrag (fängt den Fall ab, dass ein
- * Eintrag schon gespeichert, die Verknüpfung aber noch nicht geschrieben ist, z. B. offline).
+ * Ordnet ein Ergebnis ein und erklärt, wo es hakt, wenn nichts übernommen werden kann.
+ *
+ * - `match`: Ergebnis für genau den gewählten Zeitraum (oder null)
+ * - `latest`: das zuletzt eingegangene Ergebnis überhaupt (oder null, wenn noch nie eines kam)
+ * - `sinceMs`: Zeitpunkt des Antippens; ein Ergebnis davor zählt nicht als Antwort auf diesen Lauf
+ *   (sonst würden alte Werte oder ein alter Leer-Eintrag den neuen Lauf überdecken)
  */
-export function visibleWatchWindows(
-  windows: WatchWindow[],
-  sessions: HistFootballSession[],
-  nowMs: number = Date.now(),
-): WatchWindow[] {
-  return windows
-    .filter((w) => w.sessionId === null && !w.dismissed)
-    .filter((w) => nowMs - new Date(w.endedAt).getTime() <= WATCH_WINDOW_MAX_AGE_DAYS * DAY_MS)
-    .filter((w) => !overlapsSession(w, sessions))
-    .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
-}
+export function diagnoseWatchRange(
+  match: WatchRangeRecord | null,
+  latest: WatchRangeRecord | null,
+  fromMs: number,
+  toMs: number,
+  nowMs: number,
+  sinceMs: number | null = null,
+): WatchDiagnosis {
+  const period = `${fmt(fromMs)}–${fmt(toMs)}`;
+  const isStale = (r: WatchRangeRecord) =>
+    sinceMs !== null && new Date(r.receivedAt).getTime() < sinceMs - WATCH_CLOCK_TOLERANCE_MS;
 
-export interface WatchFormValues {
-  /** "YYYY-MM-DD" (lokale Zeitzone). */
-  playedOn: string;
-  /** "HH:MM" (lokale Zeitzone). */
-  startedAtTime: string;
-  minutes: number;
-  avgHeartRate: number | null;
-  distanceKm: number | null;
-}
-
-/** Werte, die ein Vorschlag ins Fußball-Formular übernimmt (Dauer auf 1–240 min begrenzt wie im Formular). */
-export function watchWindowToForm(w: WatchWindow): WatchFormValues {
-  const start = new Date(w.startedAt);
-  const minutes = Math.round((new Date(w.endedAt).getTime() - start.getTime()) / 60_000);
-  const hh = String(start.getHours()).padStart(2, '0');
-  const mm = String(start.getMinutes()).padStart(2, '0');
-  return {
-    playedOn: isoDate(start),
-    startedAtTime: `${hh}:${mm}`,
-    minutes: Math.max(1, Math.min(240, minutes)),
-    avgHeartRate: w.avgHeartRate,
-    distanceKm: w.distanceKm,
-  };
-}
-
-/** "19:12–20:58 · 106 min · Ø 132 / max 171 bpm (6 Messwerte) · 4,2 km" */
-export function describeWatchWindow(w: WatchWindow): string {
-  const minutes = Math.round((new Date(w.endedAt).getTime() - new Date(w.startedAt).getTime()) / 60_000);
-  const parts = [`${fmtTime(w.startedAt)}–${fmtTime(w.endedAt)}`, `${minutes} min`];
-  if (w.avgHeartRate !== null) {
-    const max = w.maxHeartRate !== null ? ` / max ${w.maxHeartRate}` : '';
-    parts.push(`Ø ${w.avgHeartRate}${max} bpm (${w.hrSamples} Messwerte)`);
+  if (match && !isStale(match)) {
+    if (hasWatchValues(match)) return { kind: 'ok', text: `Übernommen: ${describeRangeSummary(match)}.` };
+    return {
+      kind: 'empty',
+      text:
+        'Der Kurzbefehl ist durchgelaufen und hat die Funktion erreicht, aber Health hat für ' +
+        `${period} nichts geliefert. Prüfe: iPhone war entsperrt? Hat „Kurzbefehle“ in Health Zugriff auf ` +
+        'Herzfrequenz, Schritte und Gehen + Laufen (Distanz)? Ist der Zeitraum richtig, und stammen die Werte von der Apple Watch?',
+    };
   }
-  if (w.distanceKm !== null) parts.push(`${w.distanceKm.toLocaleString('de-DE', { maximumFractionDigits: 1 })} km`);
-  return parts.join(' · ');
+
+  if (match) {
+    return {
+      kind: 'stale',
+      text:
+        `Es kam nichts Neues an. Vorhanden ist nur ein älteres Ergebnis für ${period} (empfangen ${fmt(match.receivedAt)}). ` +
+        'Der Kurzbefehl lief also nicht bis zum Senden. Öffne die Kurzbefehle-App und sieh nach, bei welcher Aktion er abbricht. ' +
+        'Mit „Erneut prüfen“ kannst du das ältere Ergebnis trotzdem übernehmen.',
+    };
+  }
+
+  if (latest) {
+    const ageMin = Math.round((nowMs - new Date(latest.receivedAt).getTime()) / 60_000);
+    const when = ageMin < 1 ? 'gerade eben' : ageMin < 120 ? `vor ${ageMin} min` : `am ${fmt(latest.receivedAt)}`;
+    if (ageMin <= 15 && !isStale(latest)) {
+      return {
+        kind: 'other-range',
+        text:
+          `Es kam ${when} ein Ergebnis an, aber für ${fmt(latest.fromAt)}–${fmt(latest.toAt)} statt ${period}. ` +
+          'Der Kurzbefehl hat den Zeitraum also verändert oder nicht aus der Eingabe gelesen. Er muss die Eingabe unverändert als „range“ zurückgeben.',
+      };
+    }
+    return {
+      kind: 'none',
+      text:
+        `Es ist nichts angekommen. Das letzte Ergebnis überhaupt kam ${when} (für ${fmt(latest.fromAt)}–${fmt(latest.toAt)}). ` +
+        'Entweder brach der Kurzbefehl vor dem Senden ab (Kurzbefehle-App öffnen, Fehlermeldung ansehen, iPhone entsperrt lassen), ' +
+        'oder die Funktion hat die Anfrage abgelehnt; der Kurzbefehl zeigt dann deren Meldung.',
+    };
+  }
+
+  return {
+    kind: 'none',
+    text:
+      'Es ist noch nie etwas angekommen. Teste zuerst die Verbindung mit dem Test-Kurzbefehl aus der README (Stufe 1), ' +
+      'dann den vollständigen Kurzbefehl. Bricht er ab, zeigt die Kurzbefehle-App die Aktion mit dem Fehler.',
+  };
 }

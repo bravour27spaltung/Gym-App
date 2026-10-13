@@ -21,12 +21,11 @@ import {
   archivePlan,
   archiveStretchPlan,
   deleteFootballSession,
-  dismissFootballWatchWindow,
   deleteRecoveryEntry,
   fetchExercises,
   fetchFootballHistory,
-  fetchFootballWatchWindows,
-  fetchHealthSamples,
+  fetchLatestWatchRange,
+  fetchWatchRange,
   fetchHistory,
   fetchLastPlanDayId,
   fetchLastSets,
@@ -38,8 +37,6 @@ import {
   fetchStretchHistory,
   fetchStretchPlans,
   flushFootballOutbox,
-  linkFootballWatchWindow,
-  unlinkFootballWatchWindows,
   flushOutbox,
   flushPlanPatches,
   flushRecoveryOutbox,
@@ -77,7 +74,6 @@ import {
 } from './lib/plan';
 import { beep } from './lib/sound';
 import { buildFootballPayload, type FootballEntryInput } from './lib/football';
-import { visibleWatchWindows, type WatchWindow } from './lib/footballWatch';
 import type { HealthImportMatch } from './lib/healthImport';
 import { buildRecoveryPayload, type RecoveryEntryInput } from './lib/recovery';
 import { normalizeCode } from './lib/authErrors';
@@ -189,7 +185,6 @@ export function App() {
   );
   const [footballPending, setFootballPending] = useState(() => store.loadFootballOutbox().length);
   const [footballBusy, setFootballBusy] = useState(false);
-  const [footballWatchWindows, setFootballWatchWindows] = useState<WatchWindow[]>([]);
 
   // Recovery: eigener, einfacher Bereich (kein Draft, ein Eintrag pro Tag).
   const [recoveryHistory, setRecoveryHistory] = useState<HistRecoveryEntry[]>(() =>
@@ -323,9 +318,6 @@ export function App() {
       setFootballHistory(footballHist.data);
       store.saveFootballHistory(footballHist.data);
     }
-    // Von der Apple Watch erkannte Trainingsfenster (Vorschläge); nur online sinnvoll, kein Offline-Cache.
-    const watchRes = await fetchFootballWatchWindows();
-    if (watchRes.ok) setFootballWatchWindows(watchRes.data);
 
     // Recovery: eigener Bereich, eigener Sync (gleiches Muster wie Fußball).
     const recoveryRes = await flushRecoveryOutbox(store);
@@ -398,19 +390,6 @@ export function App() {
     setScreen('recovery');
     setNotice('Guten Morgen: kurz die Erholung für heute eintragen.');
   }, [email, recoverySynced, recoveryHistory, draft, store]);
-
-  // Zurück aus dem Kurzbefehl (Apple-Watch-Daten abrufen): Vorschläge im Fußball-Tab neu laden.
-  useEffect(() => {
-    if (!email || screen !== 'football') return;
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible') return;
-      void fetchFootballWatchWindows().then((r) => {
-        if (r.ok) setFootballWatchWindows(r.data);
-      });
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [email, screen]);
 
   const loadLast = useCallback(
     async (exerciseId: string, isNew: boolean): Promise<LastInfo> => {
@@ -622,25 +601,7 @@ export function App() {
     }
     setFootballPending(store.loadFootballOutbox().length);
     setFootballBusy(false);
-    if (input.watchWindowId) {
-      // Vorschlag als übernommen markieren (lokal sofort, in der Datenbank im Hintergrund).
-      const windowId = input.watchWindowId;
-      setFootballWatchWindows((prev) =>
-        prev.map((w) => (w.id === windowId ? { ...w, sessionId: payload.session.id } : w)),
-      );
-      void linkFootballWatchWindow(windowId, payload.session.id);
-    }
     void sync();
-  }
-
-  /** Blendet einen Apple-Watch-Vorschlag dauerhaft aus. */
-  async function handleDismissWatchWindow(id: string) {
-    const res = await dismissFootballWatchWindow(id);
-    if (!res.ok) {
-      setNotice(`Ausblenden fehlgeschlagen: ${res.error}`);
-      return;
-    }
-    setFootballWatchWindows((prev) => prev.map((w) => (w.id === id ? { ...w, dismissed: true } : w)));
   }
 
   /** Löscht einen Fußball-Eintrag endgültig. */
@@ -653,10 +614,6 @@ export function App() {
     const next = footballHistory.filter((s) => s.id !== id);
     setFootballHistory(next);
     store.saveFootballHistory(next);
-    // War der Eintrag aus einem Watch-Vorschlag entstanden, wird dieser wieder angeboten.
-    void unlinkFootballWatchWindows(id).then((r) => {
-      if (r.ok) setFootballWatchWindows((prev) => prev.map((w) => (w.sessionId === id ? { ...w, sessionId: null } : w)));
-    });
   }
 
   /** Speichert einen Recovery-Eintrag: offline in den Ausgangskorb, sonst direkt senden. */
@@ -1123,12 +1080,11 @@ export function App() {
       <main>
         <FootballScreen
           history={footballHistory}
-          watchWindows={visibleWatchWindows(footballWatchWindows, footballHistory)}
           pending={footballPending}
           busy={footballBusy}
           notice={notice}
-          onDismissWatchWindow={(id) => void handleDismissWatchWindow(id)}
-          onLoadSamples={fetchHealthSamples}
+          onLoadWatchRange={fetchWatchRange}
+          onLoadLatestWatchRange={fetchLatestWatchRange}
           onSave={(input) => void saveFootball(input)}
           onSync={() => void sync()}
           onDelete={(id) => void handleDeleteFootball(id)}

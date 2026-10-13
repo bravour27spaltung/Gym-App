@@ -1,16 +1,17 @@
 // Reine Logik für die Edge Function football-import (kein Deno-/Browser-/DB-Zugriff),
 // damit sie sich mit vitest testen lässt (src/lib/footballWatch.test.ts).
 //
-// Eingabe sind rohe Apple-Health-Messwerte, wie sie ein iOS-Kurzbefehl liefern kann.
-// Kurzbefehle geben Health-Samples beim Einbetten in JSON nur als Text weiter, deshalb
-// ist das Hauptformat eine Textzeile pro Messwert:
+// Eingabe sind Apple-Health-Werte, wie sie ein iOS-Kurzbefehl liefern kann: bevorzugt fertige
+// Zahlen für den Zeitraum (avg_hr, max_hr, …), als Rückfall rohe Messwerte. Kurzbefehle geben
+// Health-Samples beim Einbetten in JSON nur als Text weiter, deshalb ist das Rohformat eine
+// Textzeile pro Messwert:
 //
 //     <Start>|<Ende>|<Wert>        z. B.  2026-10-01T19:14:03+02:00|2026-10-01T19:14:03+02:00|128 count/min
 //
 // (Ende darf fehlen: "<Start>|<Wert>".) Alternativ ein JSON-Array aus Objekten
-// { start, end?, value }. Datumsangaben brauchen eine Zeitzone (Z oder ±HH:MM bzw.
-// ±HHMM): ohne sie ließe sich der Zeitpunkt nicht eindeutig bestimmen, die Zeile wird
-// deshalb als ungültig gezählt, statt still falsch eingeordnet zu werden.
+// { start, end?, value } oder aus solchen Textzeilen. Datumsangaben brauchen eine Zeitzone
+// (Z oder ±HH:MM bzw. ±HHMM): ohne sie ließe sich der Zeitpunkt nicht eindeutig bestimmen,
+// die Zeile wird deshalb als ungültig gezählt, statt still falsch eingeordnet zu werden.
 
 export interface Sample {
   startMs: number;
@@ -23,43 +24,6 @@ export interface ParsedSamples {
   /** Zeilen/Einträge, die nicht gelesen werden konnten (unbekanntes Format, Datum ohne Zeitzone, …). */
   invalid: number;
 }
-
-export interface WatchWindow {
-  startedAt: string;
-  endedAt: string;
-  hrSamples: number;
-  avgHeartRate: number;
-  maxHeartRate: number;
-  steps: number | null;
-  distanceKm: number | null;
-}
-
-export interface SkippedWindow {
-  startedAt: string;
-  endedAt: string;
-  reason: string;
-}
-
-export interface DetectOptions {
-  /** Ab dieser Lücke zwischen zwei Herzfrequenz-Messwerten beginnt ein neues Fenster. */
-  gapMs: number;
-  minDurationMs: number;
-  maxDurationMs: number;
-  minHrSamples: number;
-}
-
-/**
- * Ohne aktive Aufzeichnung versucht die Uhr laut Apple etwa alle 5 Minuten einen
- * Herzfrequenzwert zu liefern (Apple Whitepaper "Using Apple Watch to measure heart
- * rate, calorimetry, and activity", 11/2024). 45 Minuten Lücke trennen daher sicher zwei
- * Einheiten, ohne eine einzelne Einheit mit ein paar fehlenden Werten zu zerreißen.
- */
-export const DEFAULT_DETECT_OPTIONS: DetectOptions = {
-  gapMs: 45 * 60_000,
-  minDurationMs: 20 * 60_000,
-  maxDurationMs: 4 * 3_600_000,
-  minHrSamples: 3,
-};
 
 const HR_MIN = 30;
 const HR_MAX = 220;
@@ -135,7 +99,15 @@ export function parseSamples(input: unknown, kind: SampleKind): ParsedSamples {
   if (input === undefined || input === null || input === '') return { samples, invalid };
 
   if (Array.isArray(input)) {
+    // Kurzbefehle schicken das Ergebnis von „Wiederholen mit jedem“ als Liste von Textzeilen
+    // („Start|Ende|Wert“); jeder String wird deshalb wie eine Textzeile gelesen.
     for (const item of input) {
+      if (typeof item === 'string') {
+        const sub = parseSamples(item, kind);
+        samples.push(...sub.samples);
+        invalid += sub.invalid;
+        continue;
+      }
       const obj = item as { start?: unknown; end?: unknown; value?: unknown } | null;
       const s = obj && typeof obj === 'object' ? toSample(obj.start, obj.end, obj.value, kind) : null;
       if (s) samples.push(s);
@@ -159,86 +131,181 @@ export function parseSamples(input: unknown, kind: SampleKind): ParsedSamples {
   return { samples, invalid };
 }
 
-const iso = (ms: number): string => new Date(ms).toISOString();
+// ---------------------------------------------------------------------------------------------
+// Zeitraum-Ergebnis (Neustart des Imports)
+//
+// Der Kurzbefehl liefert für den in der App gewählten Zeitraum entweder fertige Zahlen
+// (avg_hr, max_hr, hr_count, steps_total, distance_km) oder, als Rückfall, Rohzeilen (hr, steps,
+// distance), die hier im Zeitraum ausgewertet werden. Zusätzlich kommt der Zeitraum selbst als
+// "range": "<Start>|<Ende>", unverändert aus der Kurzbefehl-Eingabe zurückgereicht (so muss der
+// Kurzbefehl kein Datum umformatieren).
+// ---------------------------------------------------------------------------------------------
 
-function sumInWindow(samples: Sample[], fromMs: number, toMs: number): number | null {
-  let total = 0;
-  let count = 0;
-  for (const s of samples) {
-    if (s.startMs < fromMs || s.startMs >= toMs) continue;
-    total += s.value;
-    count += 1;
+export interface RangeResult {
+  hrSamples: number;
+  avgHeartRate: number | null;
+  maxHeartRate: number | null;
+  steps: number | null;
+  distanceKm: number | null;
+}
+
+export type RangeSource = 'values' | 'raw' | 'mixed' | 'none';
+
+export type BuiltRange =
+  | {
+      ok: true;
+      fromMs: number;
+      toMs: number;
+      result: RangeResult;
+      source: RangeSource;
+      /** Nicht lesbare Zeilen/Werte (unbekanntes Format, unplausible Zahl), nie still verworfen. */
+      invalid: number;
+    }
+  | { ok: false; error: string };
+
+export const MAX_RANGE_MS = 24 * 3_600_000;
+
+/** "<Start>|<Ende>" (auch ; oder Zeilenumbruch als Trenner) oder die Felder from/to -> Millisekunden. */
+export function parseRange(body: Record<string, unknown>): { fromMs: number; toMs: number } | null {
+  let a: unknown = body.from;
+  let b: unknown = body.to;
+  if (typeof body.range === 'string') {
+    const parts = body.range.split(/[|;\n]/).map((p) => p.trim()).filter((p) => p !== '');
+    if (parts.length === 2) [a, b] = parts;
   }
-  return count > 0 ? total : null;
+  const fromMs = parseDateWithZone(a);
+  const toMs = parseDateWithZone(b);
+  if (fromMs === null || toMs === null || toMs <= fromMs) return null;
+  return { fromMs, toMs };
 }
 
 /**
- * Erkennt Trainingsfenster aus den Herzfrequenz-Messwerten: Die Uhr wird nur im Training
- * getragen, also bilden zusammenhängende Messwerte (Lücke < gapMs) eine Einheit. Start =
- * erster, Ende = letzter Messwert. Schritte und Distanz werden über die Startzeiten der
- * Samples im Fenster [Start, Ende) summiert; ohne Samples im Fenster bleiben sie null.
- *
- * Grenzen (bewusst nicht kaschiert): Bei seltener Messung liegt der erste/letzte Wert
- * einige Minuten nach dem echten Beginn bzw. vor dem echten Ende; die Dauer ist also
- * eine leichte Unterschätzung, und Schritte/Distanz am Rand fehlen. Fenster außerhalb
- * von Mindest-/Höchstdauer oder mit zu wenigen Messwerten werden mit Grund gemeldet statt
- * stillschweigend angelegt (z. B. Uhr den ganzen Tag getragen).
+ * Wertet Rohwerte für [fromMs, toMs] aus: Ø/Max-Puls aus den Herzfrequenz-Messwerten (nur 30–220 bpm),
+ * Schritte und Distanz als Summe der Samples, deren Start im Zeitraum liegt. Ohne passende Werte bleibt
+ * das Feld null. Der Puls-Mittelwert ist der einfache Mittelwert der Einzelmessungen, nicht zeitgewichtet.
  */
-export function detectWindows(
+export function summarizeRange(
   hr: Sample[],
   steps: Sample[],
   distance: Sample[],
-  options: DetectOptions = DEFAULT_DETECT_OPTIONS,
-): { windows: WatchWindow[]; skipped: SkippedWindow[] } {
-  const valid = hr
-    .filter((s) => s.value >= HR_MIN && s.value <= HR_MAX)
-    .sort((a, b) => a.startMs - b.startMs);
+  fromMs: number,
+  toMs: number,
+): RangeResult {
+  const inRange = (s: Sample) => s.startMs >= fromMs && s.startMs < toMs;
+  const bpm = hr.filter((s) => inRange(s) && s.value >= HR_MIN && s.value <= HR_MAX).map((s) => s.value);
+  const stepsIn = steps.filter((s) => inRange(s) && s.value >= 0);
+  const distIn = distance.filter((s) => inRange(s) && s.value >= 0);
+  return {
+    hrSamples: bpm.length,
+    avgHeartRate: bpm.length > 0 ? Math.round(bpm.reduce((x, y) => x + y, 0) / bpm.length) : null,
+    maxHeartRate: bpm.length > 0 ? Math.round(Math.max(...bpm)) : null,
+    steps: stepsIn.length > 0 ? Math.round(stepsIn.reduce((x, s) => x + s.value, 0)) : null,
+    distanceKm: distIn.length > 0 ? Math.round(distIn.reduce((x, s) => x + s.value, 0) * 100) / 100 : null,
+  };
+}
 
-  const clusters: Sample[][] = [];
-  for (const s of valid) {
-    const current = clusters[clusters.length - 1];
-    const last = current?.[current.length - 1];
-    if (current && last && s.startMs - last.endMs < options.gapMs) current.push(s);
-    else clusters.push([s]);
+/** Zahl aus Zahl oder Text ("132", "132,5", "132 count/min"); null bei leer/unlesbar. */
+function numberField(v: unknown): number | null {
+  if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) return null;
+  return parseNumber(v);
+}
+
+/**
+ * Zählwert (Schritte, Anzahl Messwerte): ganze Zahl. Ein Punkt oder Komma vor genau drei Ziffern ist hier
+ * ein Tausendertrenner ("6.200" und "6,200" sind 6200), anders als bei Dezimalwerten, wo "6.200" 6,2 hieße.
+ */
+function countField(v: unknown): number | null {
+  if (typeof v === 'string') {
+    const m = v.match(/\d[\d.,]*/);
+    const t = m ? m[0].replace(/[.,]+$/, '') : '';
+    if (/^\d{1,3}([.,]\d{3})+$/.test(t)) return Number(t.replace(/[.,]/g, ''));
+  }
+  return numberField(v);
+}
+
+/**
+ * Baut das Ergebnis für einen Zeitraum aus dem Body. Fertige Zahlen haben Vorrang je Feld, Rohzeilen
+ * füllen den Rest. Unplausible Werte (Puls außerhalb 30–220, negative Zahlen, Distanz über 100 km)
+ * werden nicht übernommen und als `invalid` gezählt.
+ */
+export function buildRangeResult(body: Record<string, unknown>): BuiltRange {
+  const range = parseRange(body);
+  if (!range) {
+    const shown = typeof body.range === 'string' ? ` Erhalten: "${body.range.slice(0, 80)}".` : ' Feld "range" fehlt.';
+    return {
+      ok: false,
+      error: `Zeitraum nicht lesbar. Erwartet "range": "<Start>|<Ende>" (ISO 8601 mit Z oder Offset, Ende nach Start).${shown}`,
+    };
+  }
+  if (range.toMs - range.fromMs > MAX_RANGE_MS) {
+    return { ok: false, error: 'Zeitraum länger als 24 Stunden' };
   }
 
-  const windows: WatchWindow[] = [];
-  const skipped: SkippedWindow[] = [];
-
-  for (const c of clusters) {
-    const startMs = c[0].startMs;
-    const endMs = c.reduce((max, s) => Math.max(max, s.endMs, s.startMs), startMs);
-    const base = { startedAt: iso(startMs), endedAt: iso(endMs) };
-    const duration = endMs - startMs;
-
-    if (c.length < options.minHrSamples) {
-      skipped.push({ ...base, reason: `zu wenige Herzfrequenz-Messwerte (${c.length})` });
-      continue;
+  let invalid = 0;
+  const pick = (v: unknown, min: number, max: number, read: (x: unknown) => number | null = numberField): number | null => {
+    const n = read(v);
+    if (n === null) {
+      if (v !== undefined && v !== null && !(typeof v === 'string' && v.trim() === '')) invalid += 1;
+      return null;
     }
-    if (duration < options.minDurationMs) {
-      skipped.push({ ...base, reason: `zu kurz (${Math.round(duration / 60_000)} min)` });
-      continue;
+    if (n < min || n > max) {
+      invalid += 1;
+      return null;
     }
-    if (duration > options.maxDurationMs) {
-      skipped.push({ ...base, reason: `zu lang (${Math.round(duration / 60_000)} min, Uhr länger getragen?)` });
-      continue;
-    }
+    return n;
+  };
 
-    const values = c.map((s) => s.value);
-    const avg = Math.round(values.reduce((a, b) => a + b, 0) / values.length);
-    const max = Math.round(Math.max(...values));
-    const stepSum = sumInWindow(steps, startMs, endMs);
-    const distSum = sumInWindow(distance, startMs, endMs);
-
-    windows.push({
-      ...base,
-      hrSamples: c.length,
-      avgHeartRate: avg,
-      maxHeartRate: max,
-      steps: stepSum === null ? null : Math.round(stepSum),
-      distanceKm: distSum === null ? null : Math.round(distSum * 100) / 100,
-    });
+  const avg = pick(body.avg_hr, HR_MIN, HR_MAX);
+  const max = pick(body.max_hr, HR_MIN, HR_MAX);
+  const count = pick(body.hr_count, 0, 100_000, countField);
+  const stepsTotal = pick(body.steps_total, 0, 200_000, countField);
+  let distanceKm: number | null = null;
+  const rawDistance = body.distance_km;
+  if (rawDistance !== undefined && rawDistance !== null && !(typeof rawDistance === 'string' && rawDistance.trim() === '')) {
+    const n = numberField(rawDistance);
+    const km = n === null ? null : n * distanceFactorToKm(rawDistance);
+    if (km === null || km < 0 || km > 100) invalid += 1;
+    else distanceKm = Math.round(km * 100) / 100;
   }
 
-  return { windows, skipped };
+  const hasValues = avg !== null || max !== null || stepsTotal !== null || distanceKm !== null;
+
+  const hr = parseSamples(body.hr, 'hr');
+  const steps = parseSamples(body.steps, 'steps');
+  const distance = parseSamples(body.distance, 'distance');
+  invalid += hr.invalid + steps.invalid + distance.invalid;
+  const hasRaw = hr.samples.length + steps.samples.length + distance.samples.length > 0;
+  const raw = hasRaw
+    ? summarizeRange(hr.samples, steps.samples, distance.samples, range.fromMs, range.toMs)
+    : null;
+
+  const result: RangeResult = {
+    hrSamples: count !== null ? Math.round(count) : (raw?.hrSamples ?? 0),
+    avgHeartRate: avg !== null ? Math.round(avg) : (raw?.avgHeartRate ?? null),
+    maxHeartRate: max !== null ? Math.round(max) : (raw?.maxHeartRate ?? null),
+    steps: stepsTotal !== null ? Math.round(stepsTotal) : (raw?.steps ?? null),
+    distanceKm: distanceKm !== null ? distanceKm : (raw?.distanceKm ?? null),
+  };
+  // Ø darf nicht über Max liegen (vertauschte Felder im Kurzbefehl würden sonst still falsche Werte speichern).
+  if (result.avgHeartRate !== null && result.maxHeartRate !== null && result.avgHeartRate > result.maxHeartRate) {
+    return { ok: false, error: `avg_hr (${result.avgHeartRate}) liegt über max_hr (${result.maxHeartRate}): Felder im Kurzbefehl vertauscht?` };
+  }
+
+  const rawUsed = raw !== null && (raw.avgHeartRate !== null || raw.steps !== null || raw.distanceKm !== null);
+  const source: RangeSource = hasValues && rawUsed ? 'mixed' : hasValues ? 'values' : rawUsed ? 'raw' : 'none';
+  return { ok: true, fromMs: range.fromMs, toMs: range.toMs, result, source, invalid };
+}
+
+/** Klartext für die Antwort an den Kurzbefehl ("Ergebnis anzeigen"): was wurde gespeichert. */
+export function describeRangeResult(r: RangeResult): string {
+  const parts: string[] = [];
+  if (r.avgHeartRate !== null) {
+    const max = r.maxHeartRate !== null ? ` / max ${r.maxHeartRate}` : '';
+    parts.push(`Ø ${r.avgHeartRate}${max} bpm (${r.hrSamples} Messwerte)`);
+  }
+  if (r.distanceKm !== null) parts.push(`${r.distanceKm.toLocaleString('de-DE', { maximumFractionDigits: 1 })} km`);
+  if (r.steps !== null) parts.push(`${r.steps.toLocaleString('de-DE')} Schritte`);
+  return parts.length > 0
+    ? `Gespeichert: ${parts.join(' · ')}`
+    : 'Angekommen, aber ohne Werte: Health hat für den Zeitraum nichts geliefert (Berechtigungen, entsperrtes iPhone, Quelle Apple Watch prüfen).';
 }
