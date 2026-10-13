@@ -3,6 +3,11 @@
  * Übungsdatenbank free-exercise-db, damit der spätere Import ohne Umrechnung
  * passt. In der Datenbank stehen die Schlüssel (englisch), angezeigt werden
  * die deutschen Namen.
+ *
+ * Drei Schlüssel sind eigene Ergänzungen für das Stretching, die free-exercise-db nicht
+ * kennt: 'hip flexors' (Hüftbeuger, vorher fälschlich unter Quadrizeps geführt),
+ * 'shins' (Schienbein) und 'feet' (Fußsohle). Kraftübungen aus der Datenbank bleiben davon
+ * unberührt, weil sie diese Schlüssel nie verwenden.
  */
 
 export const MUSCLES = [
@@ -23,6 +28,9 @@ export const MUSCLES = [
   { key: 'adductors', label: 'Adduktoren' },
   { key: 'abductors', label: 'Abduktoren' },
   { key: 'neck', label: 'Nacken' },
+  { key: 'hip flexors', label: 'Hüftbeuger' },
+  { key: 'shins', label: 'Schienbein' },
+  { key: 'feet', label: 'Fußsohle' },
 ] as const;
 
 export type MuscleKey = (typeof MUSCLES)[number]['key'];

@@ -9,6 +9,12 @@ describe('muscles', () => {
     expect(muscleLabel('unbekannt')).toBe('unbekannt');
   });
 
+  it('kennt die Stretching-Schlüssel mit deutschen Namen', () => {
+    expect(muscleLabel('hip flexors')).toBe('Hüftbeuger');
+    expect(muscleLabel('shins')).toBe('Schienbein');
+    expect(muscleLabel('feet')).toBe('Fußsohle');
+  });
+
   it('schaltet an und aus', () => {
     expect(toggleMuscle([], [], 'chest')).toEqual({ list: ['chest'], other: [] });
     expect(toggleMuscle(['chest'], [], 'chest')).toEqual({ list: [], other: [] });

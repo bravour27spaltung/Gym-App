@@ -53,8 +53,11 @@ const FRONT: MuscleRegion[] = [
   FOREARMS,
   { key: 'quadriceps', d: 'M53 108 L69 108 C70 124 68 138 65 150 L56 150 C54 138 52 124 53 108 Z', mirror: true },
   { key: 'adductors', d: 'M50 110 L55 112 L56 136 L50 128 Z', mirror: true },
+  { key: 'hip flexors', d: 'M54 101 L67 103 L69 111 L53 111 Z', mirror: true },
   ABDUCTORS,
   { key: 'calves', d: 'M55 154 L66 154 C67 168 65 182 62 190 L57 190 C55 180 54 166 55 154 Z', mirror: true },
+  { key: 'shins', d: 'M55 158 L59 158 L59 188 L57 188 C55 178 54 168 55 158 Z', mirror: true },
+  { key: 'feet', d: 'M54 191 L66 191 L69 199 L52 199 Z', mirror: true },
 ];
 
 const BACK: MuscleRegion[] = [

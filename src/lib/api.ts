@@ -397,6 +397,7 @@ interface StretchExerciseRow {
   default_hold_seconds: number | null;
   /** Fehlt in Datenbanken ohne Migration 0015. */
   default_reps?: number | null;
+  instructions_de?: string[] | null;
 }
 
 export async function fetchStretchExercises(): Promise<Result<StretchExerciseListItem[]>> {
@@ -406,6 +407,7 @@ export async function fetchStretchExercises(): Promise<Result<StretchExerciseLis
   let data: unknown[] | null = null;
   let lastError = '';
   for (const cols of [
+    'id, name_de, muscles, default_hold_seconds, default_reps, instructions_de',
     'id, name_de, muscles, default_hold_seconds, default_reps',
     'id, name_de, muscles, default_hold_seconds',
   ]) {
@@ -430,6 +432,7 @@ export async function fetchStretchExercises(): Promise<Result<StretchExerciseLis
       muscles: r.muscles ?? [],
       defaultHoldSeconds: r.default_hold_seconds === null ? null : Number(r.default_hold_seconds),
       defaultReps: r.default_reps == null ? null : Number(r.default_reps),
+      instructions: r.instructions_de ?? null,
     })),
   };
 }
@@ -678,6 +681,7 @@ export async function importStretchCatalog(
     muscles: s.muscles,
     default_hold_seconds: s.reps != null ? null : (s.holdSeconds ?? null),
     default_reps: s.reps ?? null,
+    instructions_de: s.instructions,
   }));
   if (exerciseRows.length > 0) {
     const { error } = await supabase.from('fit_stretch_exercises').upsert(exerciseRows, { onConflict: 'id' });

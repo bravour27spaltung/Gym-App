@@ -3187,3 +3187,28 @@ button.tile:disabled {
 .fx-timer.running .fx-timer-clock {
   color: var(--accent);
 }
+
+/* Anleitung zu einer Dehnübung (einklappbar) */
+.howto {
+  margin: 4px 0 12px;
+}
+.howto summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 8px 0;
+}
+.howto-body {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.howto-body ol {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+}
+.howto-note {
+  font-size: 13px;
+  margin: 8px 0 0;
+}

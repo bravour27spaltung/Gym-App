@@ -20,6 +20,7 @@ import { AddStretchExercise } from './AddStretchExercise';
 import { AutoPause } from './AutoPause';
 import { HoldTimer } from './HoldTimer';
 import { RepsDone } from './RepsDone';
+import { StretchHowTo } from './StretchHowTo';
 import { Icon, IconButton } from './ui';
 
 interface Props {
@@ -244,6 +245,10 @@ export function StretchScreen({ draft, stretchExercises, onUpdate, onFinish, onD
           return (
             <div className="card">
               <h3>{running.input.name}</h3>
+              <StretchHowTo
+                muscles={running.input.muscles ?? []}
+                instructions={stretchExercises.find((x) => x.id === running.input.stretchExerciseId)?.instructions}
+              />
               {running.done.length === 0 && (
                 <div className="chips" role="group" aria-label="Seite">
                   {SIDES.map((s) => (

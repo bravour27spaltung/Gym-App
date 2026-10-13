@@ -47,6 +47,8 @@ export interface StretchExerciseListItem {
   defaultHoldSeconds: number | null;
   /** Gesetzt = Übung ohne Timer, nach Wiederholungen. Fehlt in älteren Zwischenspeicher-Ständen. */
   defaultReps?: number | null;
+  /** Ausführung in Schritten (instructions_de); fehlt bei eigenen Übungen und älteren Zwischenspeicher-Ständen. */
+  instructions?: string[] | null;
 }
 
 export interface HistStretchItem {
