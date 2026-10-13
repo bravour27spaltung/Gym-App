@@ -1,6 +1,7 @@
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { HistRecoveryEntry } from '../lib/storage';
+import { DEFAULT_RECOVERY_THRESHOLDS } from '../lib/recoveryAnalysis';
 import { RecoveryHistoryScreen } from './RecoveryHistoryScreen';
 import { RecoveryScreen } from './RecoveryScreen';
 
@@ -40,6 +41,8 @@ describe('Recovery-Bildschirme (Smoke-Test)', () => {
     const html = renderToString(
       <RecoveryScreen
         history={history()}
+        thresholds={DEFAULT_RECOVERY_THRESHOLDS}
+        onThresholdsChange={noop}
         workouts={[]}
         footballs={[]}
         pending={0}
@@ -55,24 +58,25 @@ describe('Recovery-Bildschirme (Smoke-Test)', () => {
     expect(html).toContain('HRV (SDNN)');
     expect(html).toContain('Wissenschaftliche Grundlage');
     expect(html).toContain('Saw, Main');
+    expect(html).toContain('Eigene Schwellen');
   });
 
   it('Recovery-Tab ohne Einträge zeigt die Erfassung und kein Urteil', () => {
     const html = renderToString(
-      <RecoveryScreen history={[]} workouts={[]} footballs={[]} pending={0} busy={false} notice={null} onSave={noop} onSync={noop} onDelete={noop} />,
+      <RecoveryScreen history={[]} thresholds={DEFAULT_RECOVERY_THRESHOLDS} onThresholdsChange={noop} workouts={[]} footballs={[]} pending={0} busy={false} notice={null} onSave={noop} onSync={noop} onDelete={noop} />,
     );
     expect(html).toContain('Noch kein Urteil');
     expect(html).toContain('Eintrag speichern');
   });
 
   it('Verlauf rendert Signale und Diagramme', () => {
-    const html = renderToString(<RecoveryHistoryScreen entries={history()} />);
+    const html = renderToString(<RecoveryHistoryScreen entries={history()} thresholds={DEFAULT_RECOVERY_THRESHOLDS} />);
     expect(html).toContain('Schlaf, Ø 7 Tage');
     expect(html).toContain('HRV, Ø 7 Tage');
     expect(html).toContain('Ruhepuls, Ø 7 Tage');
   });
 
   it('Verlauf ohne Einträge zeigt den Leerzustand', () => {
-    expect(renderToString(<RecoveryHistoryScreen entries={[]} />)).toContain('Noch kein Recovery-Eintrag');
+    expect(renderToString(<RecoveryHistoryScreen entries={[]} thresholds={DEFAULT_RECOVERY_THRESHOLDS} />)).toContain('Noch kein Recovery-Eintrag');
   });
 });

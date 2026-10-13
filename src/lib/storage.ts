@@ -4,6 +4,7 @@ import type { HistWorkout } from './stats';
 import type { StretchDraft, StretchPayload, StretchPlan } from './stretch';
 import type { FootballKind, FootballPayload, FootballSource } from './football';
 import type { RecoveryPayload, RecoverySource } from './recovery';
+import { normalizeThresholds, type RecoveryThresholds } from './recoveryAnalysis';
 import type { Draft, WorkoutPayload } from './workout';
 
 /**
@@ -114,6 +115,7 @@ export interface HistRecoveryEntry {
 }
 
 const KEYS = {
+  recoveryThresholds: 'gym.recoveryThresholds.v1',
   draft: 'gym.draft.v1',
   outbox: 'gym.outbox.v1',
   lastSets: 'gym.lastSets.v1',
@@ -296,6 +298,11 @@ export function createStore(storage: KeyValueStorage | null) {
     /** Tag, an dem die Recovery-Abfrage zuletzt automatisch gezeigt wurde (einmal pro Tag). */
     getRecoveryPromptDate: () => read<string | null>(KEYS.recoveryPromptDate, null),
     setRecoveryPromptDate: (d: string) => write(KEYS.recoveryPromptDate, d),
+
+    /** Persönliche Recovery-Schwellen (nur auf diesem Gerät); ungültige Werte werden korrigiert. */
+    loadRecoveryThresholds: (): RecoveryThresholds =>
+      normalizeThresholds(read<Partial<RecoveryThresholds> | null>(KEYS.recoveryThresholds, null)),
+    saveRecoveryThresholds: (t: RecoveryThresholds) => write(KEYS.recoveryThresholds, normalizeThresholds(t)),
 
     loadRecoveryHistory: () => read<HistRecoveryEntry[]>(KEYS.recoveryHistory, []),
     saveRecoveryHistory: (items: HistRecoveryEntry[]) => write(KEYS.recoveryHistory, items),

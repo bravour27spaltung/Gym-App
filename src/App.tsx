@@ -103,6 +103,7 @@ import {
 import { muscleLabel } from './lib/muscles';
 import { num1, todayIso } from './lib/format';
 import { inboxPatchFor, shouldPromptRecovery } from './lib/recoveryInbox';
+import { normalizeThresholds, type RecoveryThresholds } from './lib/recoveryAnalysis';
 import {
   browserStore,
   type ExerciseListItem,
@@ -193,6 +194,9 @@ export function App() {
   // Recovery: eigener, einfacher Bereich (kein Draft, ein Eintrag pro Tag).
   const [recoveryHistory, setRecoveryHistory] = useState<HistRecoveryEntry[]>(() =>
     store.loadRecoveryHistory(),
+  );
+  const [recoveryThresholds, setRecoveryThresholds] = useState<RecoveryThresholds>(() =>
+    store.loadRecoveryThresholds(),
   );
   const [recoveryPending, setRecoveryPending] = useState(() => store.loadRecoveryOutbox().length);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
@@ -1139,6 +1143,12 @@ export function App() {
       <main>
         <RecoveryScreen
           history={recoveryHistory}
+          thresholds={recoveryThresholds}
+          onThresholdsChange={(t) => {
+            const next = normalizeThresholds(t);
+            setRecoveryThresholds(next);
+            store.saveRecoveryThresholds(next);
+          }}
           workouts={mergedHistory}
           footballs={footballHistory}
           pending={recoveryPending}
@@ -1203,7 +1213,7 @@ export function App() {
           <StretchHistoryScreen sessions={stretchHistory} nameOf={stretchNameOf} />
         )}
         {historyFilter === 'football' && <FootballHistoryScreen sessions={footballHistory} />}
-        {historyFilter === 'recovery' && <RecoveryHistoryScreen entries={recoveryHistory} />}
+        {historyFilter === 'recovery' && <RecoveryHistoryScreen entries={recoveryHistory} thresholds={recoveryThresholds} />}
         {historyFilter === 'all' && (
           <CombinedHistoryScreen
             workouts={mergedHistory}

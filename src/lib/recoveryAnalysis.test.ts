@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyThresholdChange,
   assessRecovery,
+  DEFAULT_RECOVERY_THRESHOLDS,
+  normalizeThresholds,
   dayNumber,
   hrvTrend,
   restingHrTrend,
@@ -305,5 +308,52 @@ describe('Tief-/REM-Schlaf (nur Trend, ohne Status)', () => {
   });
   it('ohne Phasen bleibt stages null', () => {
     expect(assessRecovery([entry(day(0), { sleepHours: 7 })], day(0)).sleep.stages).toBeNull();
+  });
+});
+
+describe('persönliche Schwellen', () => {
+  it('ohne Angabe gelten die bisherigen Voreinstellungen', () => {
+    expect(normalizeThresholds(undefined)).toEqual(DEFAULT_RECOVERY_THRESHOLDS);
+    expect(assessRecovery([entry(day(0), { sleepHours: 6.5 })], day(0)).thresholds).toEqual(DEFAULT_RECOVERY_THRESHOLDS);
+  });
+
+  it('niedrigeres Schlafminimum macht dieselbe Nacht unauffällig, höheres auffällig', () => {
+    const e = [entry(day(0), { sleepHours: 6.5 })];
+    expect(assessRecovery(e, day(0), { sleepMinHours: 6.5 }).sleep.status).toBe('ok');
+    expect(assessRecovery(e, day(0), { sleepMinHours: 7.5, sleepTargetHours: 8 }).sleep.status).toBe('watch');
+    expect(assessRecovery(e, day(0), { sleepLowHours: 7, sleepMinHours: 7.5 }).sleep.status).toBe('low');
+  });
+
+  it('das Schlafziel bestimmt die Schlafschuld', () => {
+    const e = [0, 1, 2, 3].map((i) => entry(day(i), { sleepHours: 7 }));
+    expect(assessRecovery(e, day(3)).sleep.debt7).toBeCloseTo(4);
+    expect(assessRecovery(e, day(3), { sleepTargetHours: 7.5 }).sleep.debt7).toBeCloseTo(2);
+    expect(assessRecovery(e, day(3), { sleepTargetHours: 7.5 }).thresholds.sleepTargetHours).toBe(7.5);
+  });
+
+  it('PRS-Grenzen sind einstellbar', () => {
+    const e = [entry(day(0), { perceivedRecovery: 5 })];
+    expect(assessRecovery(e, day(0)).prs.status).toBe('watch');
+    expect(assessRecovery(e, day(0), { prsWatch: 5, prsLow: 3 }).prs.status).toBe('ok');
+    expect(assessRecovery(e, day(0), { prsWatch: 7, prsLow: 6 }).prs.status).toBe('low');
+  });
+
+  it('ungültige oder unlogische Werte fallen gruppenweise auf die Voreinstellung zurück', () => {
+    expect(normalizeThresholds({ sleepLowHours: 8, sleepMinHours: 7 })).toEqual(DEFAULT_RECOVERY_THRESHOLDS);
+    expect(normalizeThresholds({ prsLow: 7, prsWatch: 5 })).toEqual(DEFAULT_RECOVERY_THRESHOLDS);
+    expect(normalizeThresholds({ sleepTargetHours: Number.NaN })).toEqual(DEFAULT_RECOVERY_THRESHOLDS);
+    expect(normalizeThresholds({ sleepTargetHours: 99 }).sleepTargetHours).toBe(11);
+    expect(normalizeThresholds({ sleepTargetHours: 8.3 }).sleepTargetHours).toBe(8.5);
+  });
+
+  it('applyThresholdChange lehnt unlogische Einzeländerungen ab und lässt den Rest unberührt', () => {
+    const d = DEFAULT_RECOVERY_THRESHOLDS;
+    expect(applyThresholdChange(d, 'sleepTargetHours', 9)).toEqual({ ...d, sleepTargetHours: 9 });
+    expect(applyThresholdChange(d, 'sleepMinHours', 5.5)).toBeNull(); // unter dem Auffällig-Wert
+    expect(applyThresholdChange(d, 'sleepMinHours', 9)).toBeNull(); // über dem Ziel
+    expect(applyThresholdChange(d, 'sleepMinHours', 6.5)).toEqual({ ...d, sleepMinHours: 6.5 });
+    expect(applyThresholdChange(d, 'prsLow', 6)).toBeNull(); // nicht unter "beobachten"
+    expect(applyThresholdChange(d, 'prsWatch', 20)).toBeNull(); // außerhalb des Bereichs
+    expect(applyThresholdChange(d, 'prsWatch', Number.NaN)).toBeNull();
   });
 });

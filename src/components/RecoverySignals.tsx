@@ -6,7 +6,6 @@ import {
   MIN_ACUTE_SAMPLES,
   MIN_BASELINE_SAMPLES,
   RECOVERY_EVIDENCE,
-  SLEEP_TARGET_HOURS,
   type RecoveryAssessment,
   type RecoveryLevel,
   type SignalStatus,
@@ -123,7 +122,7 @@ export function SignalList({ a }: { a: RecoveryAssessment }) {
   if (sleep.avg7 !== null) {
     sleepLines.push(
       `${ACUTE_DAYS}-Nächte-Ø ${dec(sleep.avg7)} h (${sleep.nights7} Nächte)${
-        sleep.debt7 !== null ? `, Schlafschuld gegenüber ${SLEEP_TARGET_HOURS} h: ${dec(sleep.debt7)} h` : ''
+        sleep.debt7 !== null ? `, Schlafschuld gegenüber ${dec(a.thresholds.sleepTargetHours)} h: ${dec(sleep.debt7)} h` : ''
       }`,
     );
   }

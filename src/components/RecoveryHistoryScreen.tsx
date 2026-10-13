@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { fmtDay, fmtTime, num1 } from '../lib/format';
 import { prsAnchor } from '../lib/recovery';
-import { assessRecovery, rollingSeries, type TrendPoint } from '../lib/recoveryAnalysis';
+import { assessRecovery, rollingSeries, type RecoveryThresholds, type TrendPoint } from '../lib/recoveryAnalysis';
 import type { HistRecoveryEntry } from '../lib/storage';
 import { LineChart, type ChartPoint } from './Chart';
 import { EvidenceDetails, RecoveryHero, SignalList } from './RecoverySignals';
@@ -9,6 +9,7 @@ import { Icon } from './ui';
 
 interface Props {
   entries: HistRecoveryEntry[];
+  thresholds: RecoveryThresholds;
 }
 
 function toPoints(series: TrendPoint[], unit: string): ChartPoint[] {
@@ -20,13 +21,13 @@ function toPoints(series: TrendPoint[], unit: string): ChartPoint[] {
  * Diagramme der gefühlten Erholung und der 7-Tage-Mittel von Schlaf, HRV und Ruhepuls (die
  * Tageswerte von Wearables rauschen stark, der gleitende Mittelwert zeigt den Trend), dazu die Liste.
  */
-export function RecoveryHistoryScreen({ entries }: Props) {
+export function RecoveryHistoryScreen({ entries, thresholds }: Props) {
   const chrono = useMemo(
     () => [...entries].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)),
     [entries],
   );
   const latest = chrono[chrono.length - 1] ?? null;
-  const assessment = useMemo(() => (latest ? assessRecovery(entries, latest.date) : null), [entries, latest]);
+  const assessment = useMemo(() => (latest ? assessRecovery(entries, latest.date, thresholds) : null), [entries, latest, thresholds]);
   const sleepPoints = useMemo(() => toPoints(rollingSeries(entries, 'sleep'), 'h'), [entries]);
   const hrvPoints = useMemo(() => toPoints(rollingSeries(entries, 'hrv'), 'ms'), [entries]);
   const rhrPoints = useMemo(() => toPoints(rollingSeries(entries, 'restingHr'), 'bpm'), [entries]);

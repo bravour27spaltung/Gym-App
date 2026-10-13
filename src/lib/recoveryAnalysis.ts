@@ -42,8 +42,97 @@ const RHR_SWC_FLOOR_BPM = 1;
 export const SLEEP_MIN_HOURS = 7;
 /** Schlaf: unter diesem Wert gilt die Nacht als klar zu kurz. */
 export const SLEEP_LOW_HOURS = 6;
-/** Zielwert für die Schlafschuld (Konsens für Sportler: 7–9 h, Athleten eher mehr, Walsh et al. 2021). */
+/** Voreinstellung für die Schlafschuld: eigene Wahl; Walsh et al. 2021 rät zu individuellem Bedarf statt pauschalem Ziel. */
 export const SLEEP_TARGET_HOURS = 8;
+/**
+ * Persönliche Schwellen. Die Voreinstellungen sind die bisherigen festen Werte; sie sind eigene
+ * Setzungen und keine Studienwerte. Walsh et al. 2021 rät beim Schlaf zu einem individuellen
+ * Bedarf statt eines pauschalen Ziels und nennt nur habituell unter 7 h als Marker für
+ * unzureichenden Schlaf (nicht eine einzelne Nacht).
+ */
+export interface RecoveryThresholds {
+  /** Zielwert für die Schlafschuld in Stunden. */
+  sleepTargetHours: number;
+  /** Einzelnacht unter diesem Wert: Status "watch". */
+  sleepMinHours: number;
+  /** Einzelnacht unter diesem Wert: Status "low". */
+  sleepLowHours: number;
+  /** Gefühlte Erholung (0–10) unter diesem Wert: "low". */
+  prsLow: number;
+  /** Gefühlte Erholung (0–10) unter diesem Wert: "watch". */
+  prsWatch: number;
+}
+
+export const DEFAULT_RECOVERY_THRESHOLDS: RecoveryThresholds = {
+  sleepTargetHours: 8,
+  sleepMinHours: 7,
+  sleepLowHours: 6,
+  prsLow: 4,
+  prsWatch: 6,
+};
+
+function num(v: unknown, fallback: number, min: number, max: number, step: number): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(v / step) * step));
+}
+
+/** Wertebereich und Rasterung je Feld. */
+const THRESHOLD_RANGE: Record<keyof RecoveryThresholds, { min: number; max: number; step: number }> = {
+  sleepLowHours: { min: 3, max: 9, step: 0.5 },
+  sleepMinHours: { min: 4, max: 10, step: 0.5 },
+  sleepTargetHours: { min: 5, max: 11, step: 0.5 },
+  prsLow: { min: 1, max: 9, step: 1 },
+  prsWatch: { min: 2, max: 10, step: 1 },
+};
+
+/**
+ * Wendet die Änderung eines einzelnen Feldes an (auf das Raster gerundet). Gibt null zurück, wenn
+ * der Wert außerhalb des Bereichs liegt oder die Reihenfolge verletzt (Schlaf: niedrig < Minimum
+ * ≤ Ziel; Erholung: niedrig < beobachten). So bleiben die übrigen Werte unberührt, und während des
+ * Tippens entstehen keine Zwischenstände, die alles zurücksetzen.
+ */
+export function applyThresholdChange(
+  current: RecoveryThresholds,
+  field: keyof RecoveryThresholds,
+  raw: number,
+): RecoveryThresholds | null {
+  const r = THRESHOLD_RANGE[field];
+  if (!Number.isFinite(raw)) return null;
+  const n = Math.round(raw / r.step) * r.step;
+  if (n < r.min || n > r.max) return null;
+  const next = { ...current, [field]: n };
+  const ok =
+    next.sleepLowHours < next.sleepMinHours &&
+    next.sleepMinHours <= next.sleepTargetHours &&
+    next.prsLow < next.prsWatch;
+  return ok ? next : null;
+}
+
+/**
+ * Macht aus beliebiger Eingabe (z. B. aus dem Zwischenspeicher) gültige Schwellen: ungültige oder
+ * unlogische Werte fallen gruppenweise auf die Voreinstellung zurück (Schlaf: niedrig < Minimum
+ * ≤ Ziel; Erholung: niedrig < beobachten).
+ */
+export function normalizeThresholds(input: Partial<RecoveryThresholds> | null | undefined): RecoveryThresholds {
+  const d = DEFAULT_RECOVERY_THRESHOLDS;
+  const i = input ?? {};
+  let sleepLowHours = num(i.sleepLowHours, d.sleepLowHours, 3, 9, 0.5);
+  let sleepMinHours = num(i.sleepMinHours, d.sleepMinHours, 4, 10, 0.5);
+  let sleepTargetHours = num(i.sleepTargetHours, d.sleepTargetHours, 5, 11, 0.5);
+  if (!(sleepLowHours < sleepMinHours && sleepMinHours <= sleepTargetHours)) {
+    sleepLowHours = d.sleepLowHours;
+    sleepMinHours = d.sleepMinHours;
+    sleepTargetHours = d.sleepTargetHours;
+  }
+  let prsLow = num(i.prsLow, d.prsLow, 1, 9, 1);
+  let prsWatch = num(i.prsWatch, d.prsWatch, 2, 10, 1);
+  if (!(prsLow < prsWatch)) {
+    prsLow = d.prsLow;
+    prsWatch = d.prsWatch;
+  }
+  return { sleepTargetHours, sleepMinHours, sleepLowHours, prsLow, prsWatch };
+}
+
 /** Mindestanzahl Nächte für Durchschnitt, Schlafschuld und Regelmäßigkeit. */
 const MIN_SLEEP_NIGHTS = 4;
 const STAGE_BASELINE_DAYS = 14;
@@ -242,7 +331,12 @@ export interface SleepSignal {
   regularityMin: number | null;
 }
 
-function sleepSignal(entries: HistRecoveryEntry[], asOf: string, today: HistRecoveryEntry | null): SleepSignal {
+function sleepSignal(
+  entries: HistRecoveryEntry[],
+  asOf: string,
+  today: HistRecoveryEntry | null,
+  t: RecoveryThresholds,
+): SleepSignal {
   const asOfDay = dayNumber(asOf);
   const hours = series(entries, (e) => e.sleepHours);
   const week = within(hours, asOfDay, ACUTE_DAYS);
@@ -284,10 +378,10 @@ function sleepSignal(entries: HistRecoveryEntry[], asOf: string, today: HistReco
     stages,
     lastNight:
       last !== null ? { hours: last, start: today?.sleepStart ?? null, end: today?.sleepEnd ?? null } : null,
-    status: last === null ? null : last < SLEEP_LOW_HOURS ? 'low' : last < SLEEP_MIN_HOURS ? 'watch' : 'ok',
+    status: last === null ? null : last < t.sleepLowHours ? 'low' : last < t.sleepMinHours ? 'watch' : 'ok',
     avg7: enough ? mean(week) : null,
     nights7: week.length,
-    debt7: enough ? week.reduce((s, h) => s + Math.max(0, SLEEP_TARGET_HOURS - h), 0) : null,
+    debt7: enough ? week.reduce((s, h) => s + Math.max(0, t.sleepTargetHours - h), 0) : null,
     regularityMin: mids.length >= MIN_SLEEP_NIGHTS ? sampleSd(mids) : null,
   };
 }
@@ -303,6 +397,8 @@ export interface RecoveryAssessment {
   hrv: TrendSignal;
   restingHr: TrendSignal;
   level: RecoveryLevel | null;
+  /** Die bei dieser Auswertung verwendeten Schwellen. */
+  thresholds: RecoveryThresholds;
   /** Anzahl der Signale mit Status (von maximal 5). */
   signals: number;
   lows: number;
@@ -326,7 +422,12 @@ function pct(n: number): string {
  * Marker (besonders Wearable-HRV) stark rauschen. Ohne Eintrag und ohne Trendsignale gibt es
  * kein Urteil (level = null).
  */
-export function assessRecovery(entries: HistRecoveryEntry[], asOf: string): RecoveryAssessment {
+export function assessRecovery(
+  entries: HistRecoveryEntry[],
+  asOf: string,
+  thresholds: Partial<RecoveryThresholds> = DEFAULT_RECOVERY_THRESHOLDS,
+): RecoveryAssessment {
+  const t = normalizeThresholds(thresholds);
   const entry = entries.find((e) => e.date === asOf) ?? null;
   const asOfDay = dayNumber(asOf);
   const prior = (pick: (e: HistRecoveryEntry) => number | null): number[] =>
@@ -334,7 +435,7 @@ export function assessRecovery(entries: HistRecoveryEntry[], asOf: string): Reco
 
   const prs: SubjectiveSignal = { value: entry ? entry.perceivedRecovery : null, baseline: null, status: null };
   if (entry) {
-    const c = classifySubjective(entry.perceivedRecovery, prior((e) => e.perceivedRecovery), { low: 4, watch: 6 }, 1);
+    const c = classifySubjective(entry.perceivedRecovery, prior((e) => e.perceivedRecovery), { low: t.prsLow, watch: t.prsWatch }, 1);
     prs.status = c.status;
     prs.baseline = c.baseline;
   }
@@ -347,7 +448,7 @@ export function assessRecovery(entries: HistRecoveryEntry[], asOf: string): Reco
     wellness.baseline = c.baseline;
   }
 
-  const sleep = sleepSignal(entries, asOf, entry);
+  const sleep = sleepSignal(entries, asOf, entry, t);
   const hrv = hrvTrend(entries, asOf);
   const restingHr = restingHrTrend(entries, asOf);
 
@@ -372,14 +473,14 @@ export function assessRecovery(entries: HistRecoveryEntry[], asOf: string): Reco
   }
   if (wellness.status && wellness.status !== 'ok') reasons.push('Muskelkater, Stress und Schlafqualität zusammen unter deinem Normalbereich');
   if (sleep.status && sleep.status !== 'ok' && sleep.lastNight) {
-    reasons.push(`Letzte Nacht ${sleep.lastNight.hours.toFixed(1).replace('.', ',')} h Schlaf (Richtwert ab ${SLEEP_MIN_HOURS} h)`);
+    reasons.push(`Letzte Nacht ${sleep.lastNight.hours.toFixed(1).replace('.', ',')} h Schlaf (Richtwert ab ${t.sleepMinHours.toFixed(1).replace('.', ',')} h)`);
   }
   if (hrv.status === 'low' && hrv.change !== null) reasons.push(`HRV im 7-Tage-Schnitt ${pct(hrv.change)} unter deiner Baseline`);
   if (restingHr.status === 'low' && restingHr.change !== null) {
     reasons.push(`Ruhepuls im 7-Tage-Schnitt ${Math.round(restingHr.change)} bpm über deiner Baseline`);
   }
 
-  return { asOf, entry, prs, wellness, sleep, hrv, restingHr, level, signals: statuses.length, lows, watches, reasons };
+  return { asOf, entry, prs, wellness, sleep, hrv, restingHr, level, thresholds: t, signals: statuses.length, lows, watches, reasons };
 }
 
 /** Werte der 28 Tage vor dem Bezugstag (ohne diesen selbst) für den eigenen Verlauf subjektiver Werte. */
@@ -559,12 +660,13 @@ export const RECOVERY_EVIDENCE: EvidenceNote[] = [
   },
   {
     topic: 'Schlafdauer',
-    use: 'Richtwert ab 7 h, Schlafschuld gegenüber 8 h, Regelmäßigkeit der Schlafmitte.',
+    use: 'Einzelnacht-Grenzen, Schlafziel für die Schlafschuld (alle einstellbar) und Regelmäßigkeit der Schlafmitte.',
     grade: 'mittel',
-    basis: 'Konsensus-Empfehlungen: 7–9 h für Erwachsene; Sportler brauchen eher mehr.',
+    basis:
+      'Expertenkonsens (Walsh 2021, selbst ohne formales Grading): kein pauschales Ziel, sondern individueller Bedarf; habituell unter 7 h gilt als Marker für unzureichenden Schlaf. AASM/SRS: mindestens 7 h für Erwachsene.',
     source: 'Walsh et al. 2021, Br J Sports Med 55(7):356–368; Watson et al. 2015 (AASM/SRS), Sleep 38(6):843–844',
     caveat:
-      'Der Wert 8 h für die Schlafschuld ist eine Wahl innerhalb des Konsensbereichs. Consumer-Wearables erkennen Schlaf gut, Wachphasen schlecht und überschätzen die Schlafzeit tendenziell (Chinoy et al. 2021, Sleep 44(5), ohne Apple Watch geprüft). Schlafphasen (Tief/REM) werden bewusst nicht verwendet.',
+      'Die 7 h im Konsens gelten für den gewohnten Schlaf, nicht für eine Einzelnacht; die Einzelnacht-Grenzen (7 h und 6 h) und die 8 h der Schlafschuld sind eigene Setzungen der App und unter „Eigene Schwellen“ änderbar. Consumer-Wearables erkennen Schlaf gut, Wachphasen schlecht und überschätzen die Schlafzeit tendenziell (Chinoy et al. 2021, Sleep 44(5), ohne Apple Watch geprüft). Schlafphasen (Tief/REM) werden bewusst nicht verwendet.',
   },
   {
     topic: 'Fußballspiel als Belastung',

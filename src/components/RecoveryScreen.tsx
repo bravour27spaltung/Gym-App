@@ -3,14 +3,17 @@ import { parseRelevantRecords } from '../lib/appleHealthImport';
 import { fmtDay, fmtTime, todayIso } from '../lib/format';
 import { summarizeRecoveryDay } from '../lib/healthImport';
 import { prsAnchor, type RecoveryEntryInput, type RecoverySource } from '../lib/recovery';
-import { assessRecovery, trainingContext } from '../lib/recoveryAnalysis';
+import { assessRecovery, trainingContext, type RecoveryThresholds } from '../lib/recoveryAnalysis';
 import type { HistWorkout } from '../lib/stats';
 import type { HistFootballSession, HistRecoveryEntry } from '../lib/storage';
 import { EvidenceDetails, RecoveryHero, SignalList, TrainingContextCard } from './RecoverySignals';
+import { RecoveryThresholdsCard } from './RecoveryThresholdsCard';
 import { Icon, IconButton, MetricField } from './ui';
 
 interface Props {
   history: HistRecoveryEntry[];
+  thresholds: RecoveryThresholds;
+  onThresholdsChange: (t: RecoveryThresholds) => void;
   /** Krafttrainings und Fußball-Einheiten für den Belastungskontext. */
   workouts: HistWorkout[];
   footballs: HistFootballSession[];
@@ -76,7 +79,7 @@ function Scale1to5({
  * Ist für heute noch nichts eingetragen, steht die Erfassung oben, sonst die Auswertung.
  * Die Diagramme sind im Verlauf-Tab.
  */
-export function RecoveryScreen({ history, workouts, footballs, pending, busy, notice, onSave, onSync, onDelete }: Props) {
+export function RecoveryScreen({ history, thresholds, onThresholdsChange, workouts, footballs, pending, busy, notice, onSave, onSync, onDelete }: Props) {
   const [date, setDate] = useState(() => todayIso());
   const [perceivedRecovery, setPerceivedRecovery] = useState(DEFAULT_PRS);
   const [soreness, setSoreness] = useState<number | null>(null);
@@ -109,7 +112,7 @@ export function RecoveryScreen({ history, workouts, footballs, pending, busy, no
 
   // Bezugstag der Auswertung: heute, sonst der letzte eingetragene Tag.
   const asOf = loggedToday ? today : (history[0]?.date ?? today);
-  const assessment = useMemo(() => assessRecovery(history, asOf), [history, asOf]);
+  const assessment = useMemo(() => assessRecovery(history, asOf, thresholds), [history, asOf, thresholds]);
   const context = useMemo(() => trainingContext(workouts, footballs, Date.now()), [workouts, footballs]);
 
   function resetForm() {
@@ -327,6 +330,8 @@ export function RecoveryScreen({ history, workouts, footballs, pending, busy, no
           {analysis}
         </>
       )}
+
+      <RecoveryThresholdsCard value={thresholds} onChange={onThresholdsChange} />
 
       <EvidenceDetails />
 

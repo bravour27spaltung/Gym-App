@@ -76,3 +76,21 @@ describe('lokaler Speicher', () => {
     expect(createStore(raw).loadDraft()).toBeNull();
   });
 });
+
+describe('Recovery-Schwellen im Speicher', () => {
+  it('liefert ohne Eintrag die Voreinstellung und speichert Änderungen', () => {
+    const raw = fakeStorage();
+    const s = createStore(raw);
+    expect(s.loadRecoveryThresholds().sleepTargetHours).toBe(8);
+    s.saveRecoveryThresholds({ ...s.loadRecoveryThresholds(), sleepTargetHours: 8.5 });
+    expect(createStore(raw).loadRecoveryThresholds().sleepTargetHours).toBe(8.5);
+  });
+
+  it('korrigiert beschädigte Einträge, statt zu werfen', () => {
+    const raw = fakeStorage();
+    raw.setItem('gym.recoveryThresholds.v1', JSON.stringify({ sleepLowHours: 9, sleepMinHours: 4 }));
+    expect(createStore(raw).loadRecoveryThresholds().sleepMinHours).toBe(7);
+    raw.setItem('gym.recoveryThresholds.v1', '{kaputt');
+    expect(createStore(raw).loadRecoveryThresholds().sleepLowHours).toBe(6);
+  });
+});
