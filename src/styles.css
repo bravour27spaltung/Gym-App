@@ -3212,3 +3212,74 @@ button.tile:disabled {
   font-size: 13px;
   margin: 8px 0 0;
 }
+
+/* ---------- Bewegung: Rückmeldung auf Aktionen ----------
+ * Nur kurze Reaktionen auf Eingaben (Satz abhaken, Tippen); keine Dauer-Animation.
+ * Wird bei "Bewegung reduzieren" (iOS-Einstellung) komplett abgeschaltet. */
+
+.fx-line,
+.btn,
+.tab,
+.chip {
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.12s ease;
+}
+
+.fx-line:active,
+.btn:active:not(:disabled),
+.chip:active {
+  transform: scale(0.97);
+}
+
+@keyframes fx-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes fx-glow {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 14px transparent;
+  }
+}
+
+.fx-state.on svg {
+  animation: fx-pop 0.34s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.fx-line.done:not(.warm) {
+  animation: fx-glow 0.5s ease-out;
+}
+
+.tab.on svg {
+  animation: fx-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .fx-line:active,
+  .btn:active:not(:disabled),
+  .chip:active {
+    transform: none;
+  }
+}
