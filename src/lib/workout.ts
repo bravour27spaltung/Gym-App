@@ -177,7 +177,7 @@ export function setFocusExercise(draft: Draft, exId: string | null): Draft {
 export function updateExercise(
   draft: Draft,
   exId: string,
-  patch: Partial<Pick<DraftExercise, 'restSeconds' | 'equipmentKg'>>,
+  patch: Partial<Pick<DraftExercise, 'restSeconds' | 'equipmentKg' | 'note'>>,
 ): Draft {
   return mapEx(draft, exId, (e) => ({ ...e, ...patch }));
 }

@@ -411,6 +411,16 @@ export function App() {
     [store],
   );
 
+  /** Notiz einer Planübung (z. B. Sitzeinstellung): sofort lokal, die Datenbank folgt im Sync. */
+  function savePlanNote(planExerciseId: string, note: string) {
+    const patches = [{ planExerciseId, note }];
+    store.savePlanPatches(mergePlanPatches(store.loadPlanPatches(), patches));
+    const nextPlans = applyPlanPatches(plans, patches);
+    setPlans(nextPlans);
+    store.savePlans(nextPlans);
+    void flushPlanPatches(store);
+  }
+
   async function finish(opts: { applyPlanChanges: boolean }) {
     if (!draft) return;
     const finishedAt = new Date();
@@ -879,6 +889,7 @@ export function App() {
           busy={busy}
           weakSpotHint={weakSpotHint}
           onDismissWeakSpotHint={() => setWeakSpotHint(null)}
+          onPlanNote={savePlanNote}
         />
       </main>
     );

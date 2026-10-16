@@ -133,7 +133,7 @@ describe('Double Progression', () => {
   it('macht bei "Halten" keinen Gewichtsvorschlag', () => {
     const r = suggestProgression({ ...base, sets: [work(60, 7, null), work(60, 6, null)] });
     expect(r.action).toBe('hold');
-    expect(r.reason).toContain('halten');
+    expect(r.reason).toContain('Obergrenze');
     expect(r.incrementKg).toBeNull();
   });
 

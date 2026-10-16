@@ -44,6 +44,8 @@ interface Props {
   /** Kurzer Hinweis zu Beginn ("Schwachstelle: …"); null = nichts anzuzeigen. */
   weakSpotHint?: string | null;
   onDismissWeakSpotHint?: () => void;
+  /** Notiz einer Planübung wurde im Training geändert; in den Plan übernehmen. */
+  onPlanNote?: (planExerciseId: string, note: string) => void;
 }
 
 const REST_STALE_MS = 10 * 60 * 1000;
@@ -115,6 +117,7 @@ export function WorkoutScreen({
   busy,
   weakSpotHint,
   onDismissWeakSpotHint,
+  onPlanNote,
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -291,6 +294,10 @@ export function WorkoutScreen({
             }}
             onRest={(seconds) => onUpdate((d) => updateExercise(d, current.id, { restSeconds: seconds }))}
             onEquipment={(kg) => onUpdate((d) => updateExercise(d, current.id, { equipmentKg: kg }))}
+            onNote={(note) => {
+              onUpdate((d) => updateExercise(d, current.id, { note }));
+              if (current.planExerciseId) onPlanNote?.(current.planExerciseId, note);
+            }}
             onRemove={() => {
               onUpdate((d) => removeExercise(d, current.id));
               setFocus(null);

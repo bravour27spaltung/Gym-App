@@ -3399,3 +3399,67 @@ button.tile:disabled {
 .link.danger {
   color: var(--danger);
 }
+
+/* Sitzeinstellung / Notiz: schmale Zeile unter dem Übungsnamen */
+.seatnote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 3px 10px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.seatnote svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.seatnote input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 6px 0;
+  text-overflow: ellipsis;
+}
+
+.seatnote input::placeholder {
+  color: var(--muted);
+}
+
+.seatnote:focus-within {
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.seatnote-state {
+  flex: none;
+  min-width: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* Kompakter Hinweis: eine Zeile plus kurze Begründung */
+.fx-hint .fx-hint-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px 10px;
+  flex-wrap: wrap;
+}
+
+.fx-hint .fx-hint-target {
+  display: inline;
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.fx-hint .fx-hint-reason {
+  margin-top: 2px;
+  font-size: 0.8rem;
+}

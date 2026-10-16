@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { formatClock } from '../lib/timer';
 import { fmtKg, fmtShortYear } from '../lib/format';
 import { exerciseSessions, recentOneRmSeries, setSlotHistory, type HistWorkout } from '../lib/stats';
@@ -26,6 +26,8 @@ interface Props {
   onWarmup: (level: 'full' | 'short') => void;
   onRest: (seconds: number) => void;
   onEquipment: (kg: number | null) => void;
+  /** Notiz (z. B. Sitzeinstellung) fertig bearbeitet; wird im Plan gespeichert. */
+  onNote: (note: string) => void;
   onRemove: () => void;
   /** Große Schaltfläche nach dem letzten Satz ("Weiter: …" bzw. "Training beenden"). */
   next: { label: string; onClick: () => void } | null;
@@ -42,6 +44,13 @@ export function ExerciseCard(props: Props) {
   const { exercise: e, activeSetId } = props;
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [showWarm, setShowWarm] = useState(false);
+  const [noteText, setNoteText] = useState(e.note ?? '');
+  const [noteSaved, setNoteSaved] = useState(false);
+  useEffect(() => {
+    if (!noteSaved) return;
+    const t = setTimeout(() => setNoteSaved(false), 1800);
+    return () => clearTimeout(t);
+  }, [noteSaved]);
   const last = describeLastSets(e.lastSets);
   const sessions = exerciseSessions(props.history, e.exerciseId);
   // Ziel je Arbeitssatz: Zielwiederholungen × empfohlenes Gewicht (bei "Halten" das bisherige,
@@ -169,24 +178,46 @@ export function ExerciseCard(props: Props) {
         </span>
       </header>
 
-      {e.note && (
-        <p className="note">
-          <Icon name="note" size={16} /> {e.note}
-        </p>
-      )}
+      <label className="seatnote">
+        <Icon name="note" size={14} />
+        <input
+          type="text"
+          value={noteText}
+          placeholder="Sitzeinstellung / Notiz hinzufügen"
+          aria-label={`Sitzeinstellung und Notiz für ${e.name}`}
+          enterKeyHint="done"
+          onChange={(ev) => {
+            setNoteText(ev.target.value);
+            setNoteSaved(false);
+          }}
+          onBlur={() => {
+            if (noteText.trim() === (e.note ?? '').trim()) return;
+            props.onNote(noteText.trim());
+            setNoteSaved(true);
+          }}
+          onKeyDown={(ev) => {
+            if (ev.key === 'Enter') ev.currentTarget.blur();
+          }}
+        />
+        <span className={noteSaved ? 'seatnote-state on' : 'seatnote-state'} role="status">
+          {noteSaved ? 'Gespeichert' : ''}
+        </span>
+      </label>
 
-      <div className={`hint ${s.action}`}>
-        <strong>
-          {s.action === 'no-data'
-            ? 'Empfehlung: Gewicht wählen'
-            : s.action === 'increase'
-              ? s.incrementKg !== null
-                ? `Empfehlung: Steigern (+${formatKg(s.incrementKg)})`
-                : 'Empfehlung: Steigern (du wählst das Gewicht)'
-              : 'Empfehlung: Halten'}
-        </strong>
-        <span className="fx-hint-target">Ziel: {targetText}</span>
-        {s.action !== 'no-data' && <small className="fx-hint-reason">{s.reason}</small>}
+      <div className={`hint fx-hint ${s.action}`}>
+        <div className="fx-hint-row">
+          <strong>
+            {s.action === 'no-data'
+              ? 'Gewicht wählen'
+              : s.action === 'increase'
+                ? s.incrementKg !== null
+                  ? `Steigern (+${formatKg(s.incrementKg)})`
+                  : 'Steigern'
+                : 'Halten'}
+          </strong>
+          <span className="fx-hint-target">{targetText}</span>
+        </div>
+        <small className="fx-hint-reason">{s.reason}</small>
       </div>
 
       <p className="lasttime">

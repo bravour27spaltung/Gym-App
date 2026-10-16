@@ -105,7 +105,7 @@ export function suggestProgression(input: ProgressionInput): ProgressionSuggesti
       weightKg: null,
       targetReps: repMax,
       incrementKg: null,
-      reason: `Keine Arbeitssätze vom letzten Training vorhanden. Ziel: ${repMax} Wiederholungen (Obergrenze).`,
+      reason: `Kein letztes Training. Ziel: ${repMax} Wdh.`,
     };
   }
 
@@ -120,19 +120,16 @@ export function suggestProgression(input: ProgressionInput): ProgressionSuggesti
     const incrementKg = incrementFromOvershoot(atTop, repMax, workWeight);
     const newWeight = fromQuarters(toQuarters(workWeight) + toQuarters(incrementKg));
     const reason =
-      `${atTop.length} Sätze mit ${repMax} oder mehr Wiederholungen: Gewicht erhöhen. ` +
-      `Vorschlag: ${formatKg(newWeight)} (+${formatKg(incrementKg)}). Änderbar.` +
-      ` Ziel bleibt bei ${repMax} Wiederholungen.`;
+      `${atTop.length} Sätze mit ${repMax}+ Wdh.: steigern auf ${formatKg(newWeight)} ` +
+      `(+${formatKg(incrementKg)}), änderbar.`;
     return { action: 'increase', weightKg: newWeight, targetReps: repMax, incrementKg, reason };
   }
 
   let reason: string;
   if (atTop.length === 1) {
-    reason =
-      `Obere Grenze nur in einem Satz erreicht. Für die Steigerung sind mehr ` +
-      `als ein Satz nötig. Gewicht halten, weiter auf ${repMax} Wiederholungen zielen.`;
+    reason = `Nur 1 Satz an der Obergrenze (${repMax} Wdh.).`;
   } else {
-    reason = `Obere Grenze (${repMax}) noch nicht erreicht. Gewicht halten, ${repMax} Wiederholungen anstreben.`;
+    reason = `Obergrenze (${repMax} Wdh.) noch nicht erreicht.`;
   }
 
   return { action: 'hold', weightKg: workWeight, targetReps: repMax, incrementKg: null, reason };

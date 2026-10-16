@@ -546,6 +546,8 @@ export interface PlanPatch {
   planExerciseId: string;
   sets?: number;
   warmup?: boolean;
+  /** Notiz der Planübung (z. B. Sitzeinstellung); leer = Notiz entfernen. */
+  note?: string;
 }
 
 /**
@@ -604,7 +606,7 @@ export function mergePlanPatches(existing: PlanPatch[], incoming: PlanPatch[]): 
   return [...byId.values()];
 }
 
-/** Überschreibt Sätze und Aufwärmen der betroffenen Planübungen; alles andere bleibt unberührt. */
+/** Überschreibt Sätze, Aufwärmen und Notiz der betroffenen Planübungen; alles andere bleibt unberührt. */
 export function applyPlanPatches(plans: Plan[], patches: PlanPatch[]): Plan[] {
   if (patches.length === 0) return plans;
   const byId = new Map(patches.map((p) => [p.planExerciseId, p] as const));
@@ -619,6 +621,7 @@ export function applyPlanPatches(plans: Plan[], patches: PlanPatch[]): Plan[] {
           ...ex,
           ...(patch.sets !== undefined ? { sets: patch.sets } : {}),
           ...(patch.warmup !== undefined ? { warmup: patch.warmup } : {}),
+          ...(patch.note !== undefined ? { note: patch.note } : {}),
         };
       }),
     })),
