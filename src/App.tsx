@@ -3,6 +3,7 @@ import { CombinedHistoryScreen } from './components/CombinedHistoryScreen';
 import { FootballHistoryScreen } from './components/FootballHistoryScreen';
 import { FootballScreen } from './components/FootballScreen';
 import { HealthImportSheet } from './components/HealthImportSheet';
+import { HomeAreas } from './components/HomeAreas';
 import { MoreScreen } from './components/MoreScreen';
 import { applyTheme, readTheme, saveTheme, type ThemeId } from './lib/theme';
 import { HistoryScreen } from './components/HistoryScreen';
@@ -1330,6 +1331,13 @@ export function App() {
             </section>
           );
         })}
+
+        <HomeAreas
+          recovery={recoveryHistory}
+          stretches={stretchHistory}
+          footballs={footballHistory}
+          onOpen={setScreen}
+        />
 
         {templates.length > 0 && (
           <>
