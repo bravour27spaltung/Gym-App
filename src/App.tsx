@@ -3,6 +3,8 @@ import { CombinedHistoryScreen } from './components/CombinedHistoryScreen';
 import { FootballHistoryScreen } from './components/FootballHistoryScreen';
 import { FootballScreen } from './components/FootballScreen';
 import { HealthImportSheet } from './components/HealthImportSheet';
+import { MoreScreen } from './components/MoreScreen';
+import { applyTheme, readTheme, saveTheme, type ThemeId } from './lib/theme';
 import { HistoryScreen } from './components/HistoryScreen';
 import { musclesOfDay } from './components/PlanEditor';
 import { PlansScreen } from './components/PlansScreen';
@@ -141,6 +143,7 @@ export function App() {
   const [plansReady, setPlansReady] = useState(() => store.loadPlans().length > 0);
   const [lastPlanDayId, setLastPlanDayId] = useState<string | null>(() => store.getLastPlanDayId());
   const [screen, setScreen] = useState<Tab>('home');
+  const [theme, setTheme] = useState<ThemeId>(() => readTheme());
   const [history, setHistory] = useState<HistWorkout[]>(() => store.loadHistory());
   const [summary, setSummary] = useState<WorkoutSummary | null>(null);
   const [weeklyReview, setWeeklyReview] = useState<WeeklyReview | null>(null);
@@ -940,6 +943,27 @@ export function App() {
     </>
   );
 
+  if (screen === 'more') {
+    return (
+      <main>
+        <MoreScreen
+          email={email}
+          theme={theme}
+          onTheme={(id) => {
+            setTheme(id);
+            applyTheme(id);
+            saveTheme(id);
+          }}
+          onOpen={setScreen}
+          onSignOut={() => void signOut()}
+          onReset={() => setResetOpen(true)}
+        />
+        {resetOpen && <ResetData onReset={handleReset} onClose={() => setResetOpen(false)} />}
+        {tabs}
+      </main>
+    );
+  }
+
   if (screen === 'stretch') {
     return (
       <main>
@@ -1365,19 +1389,7 @@ export function App() {
           <Icon name="plus" size={20} /> Freies Training
         </button>
 
-        <p className="muted footnote">
-          Angemeldet als {email} ·{' '}
-          <button type="button" className="link" onClick={() => void signOut()}>
-            Abmelden
-          </button>
-        </p>
-        <p className="muted footnote footnote-danger">
-          <button type="button" className="link danger" onClick={() => setResetOpen(true)}>
-            Testdaten zurücksetzen
-          </button>
-        </p>
       </div>
-      {resetOpen && <ResetData onReset={handleReset} onClose={() => setResetOpen(false)} />}
       {tabs}
     </main>
   );

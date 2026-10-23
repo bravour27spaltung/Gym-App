@@ -61,6 +61,13 @@ const PATHS = {
       <path d="M12 6.8V3.5M15.4 9.3l3.3-1.1M14.1 13.4l2 3.3M9.9 13.4l-2 3.3M8.6 9.3l-3.3-1.1" />
     </>
   ),
+  dots: (
+    <>
+      <circle cx="5" cy="12" r="1.4" />
+      <circle cx="12" cy="12" r="1.4" />
+      <circle cx="19" cy="12" r="1.4" />
+    </>
+  ),
   heart: (
     <path d="M20.8 8.6c0 4.5-4.8 7.7-8.8 10.8-4-3.1-8.8-6.3-8.8-10.8a4.9 4.9 0 0 1 8.8-3 4.9 4.9 0 0 1 8.8 3Z" />
   ),
@@ -199,32 +206,36 @@ export function AppBar(props: {
   );
 }
 
-export type Tab = 'home' | 'stretch' | 'football' | 'recovery' | 'history' | 'plans';
+export type Tab = 'home' | 'history' | 'plans' | 'more' | 'stretch' | 'football' | 'recovery';
 
-/** Untere Navigation (Training / Stretching / Fußball / Recovery / Verlauf / Pläne). */
+/** Bereiche, die unter "Mehr" liegen: In der Navigation bleibt dann "Mehr" markiert. */
+const MORE_TABS: Tab[] = ['more', 'stretch', 'football', 'recovery'];
+
+/** Untere Navigation als schwebende Pille: Training / Verlauf / Pläne / Mehr. */
 export function TabBar(props: { active: Tab; onChange: (tab: Tab) => void }) {
   const tabs: { key: Tab; label: string; icon: IconName }[] = [
     { key: 'home', label: 'Training', icon: 'dumbbell' },
-    { key: 'stretch', label: 'Stretching', icon: 'flame' },
-    { key: 'football', label: 'Fußball', icon: 'football' },
-    { key: 'recovery', label: 'Recovery', icon: 'heart' },
     { key: 'history', label: 'Verlauf', icon: 'chart' },
     { key: 'plans', label: 'Pläne', icon: 'list' },
+    { key: 'more', label: 'Mehr', icon: 'dots' },
   ];
   return (
     <nav className="tabbar" aria-label="Hauptnavigation">
-      {tabs.map((t) => (
-        <button
-          key={t.key}
-          type="button"
-          className={props.active === t.key ? 'tab on' : 'tab'}
-          aria-current={props.active === t.key ? 'page' : undefined}
-          onClick={() => props.onChange(t.key)}
-        >
-          <Icon name={t.icon} size={24} />
-          <span>{t.label}</span>
-        </button>
-      ))}
+      {tabs.map((t) => {
+        const on = t.key === 'more' ? MORE_TABS.includes(props.active) : props.active === t.key;
+        return (
+          <button
+            key={t.key}
+            type="button"
+            className={on ? 'tab on' : 'tab'}
+            aria-current={on ? 'page' : undefined}
+            onClick={() => props.onChange(t.key)}
+          >
+            <Icon name={t.icon} size={22} />
+            <span>{t.label}</span>
+          </button>
+        );
+      })}
     </nav>
   );
 }

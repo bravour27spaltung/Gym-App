@@ -1,45 +1,69 @@
 /* ------------------------------------------------------------------ *
- * Gym-Log Design: dunkel zuerst, sportlich. Hell folgt der Systemeinstellung.
+ * Gym-Log Design: hell, weich, mit Pillen-Navigation.
  * Alle Farben stehen als Variablen oben; Komponenten nutzen nur diese.
+ * Drei Farbschemata über data-theme am <html>: indigo (Standard), limette, terrakotta.
  * ------------------------------------------------------------------ */
 
 :root {
-  color-scheme: dark;
-  --bg: #0a0a0c;
-  --surface: #141417;
-  --surface-2: #1d1d22;
-  --surface-3: #292930;
-  --line: #2a2a31;
-  --text: #f4f4f6;
-  --muted: #9b9ba6;
-  --accent: #bff23d;
-  --accent-text: #0c1002;
-  --accent-soft: rgba(191, 242, 61, 0.14);
-  --danger: #ff6b5e;
-  --danger-soft: rgba(255, 107, 94, 0.14);
-  --warn: #f2b53c;
-  --radius: 20px;
+  color-scheme: light;
+  --font: 'Plus Jakarta Sans Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --bg: #f3f1ec;
+  --surface: #ffffff;
+  --surface-2: #f3f1ec;
+  --surface-3: #e7e4dc;
+  --line: #e7e4dc;
+  --text: #17161f;
+  --muted: #5e5b6b;
+  --ink: #17161f;
+  --ink-text: #ffffff;
+  --ink-muted: #bdbacb;
+  --good: #136b3a;
+  --good-soft: #e3f3ea;
+  --danger: #b3261e;
+  --danger-soft: rgba(179, 38, 30, 0.1);
+  --warn: #9a6700;
+  --radius: 26px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* Schema indigo */
+  --accent: #4338e0;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(67, 56, 224, 0.12);
+  --accent-ink: #2d23a8;
+  --accent-bright: #8f86ff;
+  --hero-bg: #4338e0;
+  --hero-text: #ffffff;
+  --hero-muted: #dcd9ff;
+  --hero-chip: rgba(255, 255, 255, 0.18);
+  --hero-btn-bg: #ffffff;
+  --hero-btn-text: #2d23a8;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
-    --bg: #f2f2f5;
-    --surface: #ffffff;
-    --surface-2: #efeff3;
-    --surface-3: #e3e3e9;
-    --line: #e1e1e7;
-    --text: #111114;
-    --muted: #6a6a75;
-    --accent: #4b8b00;
-    --accent-text: #ffffff;
-    --accent-soft: rgba(75, 139, 0, 0.12);
-    --danger: #d23b2e;
-    --danger-soft: rgba(210, 59, 46, 0.1);
-    --warn: #9a6700;
-  }
+:root[data-theme='limette'] {
+  --accent: #4b6a00;
+  --accent-soft: rgba(75, 106, 0, 0.13);
+  --accent-ink: #2e4200;
+  --accent-bright: #cdef4b;
+  --hero-bg: #cdef4b;
+  --hero-text: #101410;
+  --hero-muted: #2b3a05;
+  --hero-chip: rgba(16, 20, 16, 0.1);
+  --hero-btn-bg: #101410;
+  --hero-btn-text: #ffffff;
+}
+
+:root[data-theme='terrakotta'] {
+  --accent: #b83300;
+  --accent-soft: rgba(184, 51, 0, 0.11);
+  --accent-ink: #7a2200;
+  --accent-bright: #ff9b70;
+  --hero-bg: #b83300;
+  --hero-text: #ffffff;
+  --hero-muted: #ffe0d2;
+  --hero-chip: rgba(255, 255, 255, 0.2);
+  --hero-btn-bg: #ffffff;
+  --hero-btn-text: #7a2200;
 }
 
 * {
@@ -55,7 +79,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font);
   font-size: 16px;
   line-height: 1.4;
   -webkit-text-size-adjust: 100%;
@@ -3462,4 +3486,374 @@ button.tile:disabled {
 .fx-hint .fx-hint-reason {
   margin-top: 2px;
   font-size: 0.8rem;
+}
+
+
+/* ---------- Design E: weiche Karten, Pillen, dunkle schwebende Leisten ---------- */
+
+body {
+  font-variant-numeric: tabular-nums;
+}
+
+h1 {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.screen {
+  padding-bottom: calc(124px + var(--safe-bottom));
+}
+
+.card,
+.tile {
+  border: 0;
+  border-radius: var(--radius);
+}
+
+.stat {
+  border: 0;
+  border-radius: 20px;
+}
+
+/* Buttons und Chips: Pillenform, Hauptaktion dunkel */
+.btn {
+  border-radius: 999px;
+  background: var(--surface-3);
+  font-weight: 700;
+}
+
+.btn.compact,
+.btn.small {
+  border-radius: 999px;
+}
+
+.btn.primary {
+  min-height: 56px;
+  background: var(--ink);
+  color: var(--ink-text);
+}
+
+.btn.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.iconbtn {
+  background: var(--surface-3);
+}
+
+.iconbtn.accent {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.chip {
+  height: 44px;
+  padding: 0 16px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-weight: 700;
+}
+
+.chip.on {
+  background: var(--ink);
+  color: var(--ink-text);
+  box-shadow: none;
+}
+
+.chips.sm .chip {
+  height: 36px;
+  font-weight: 600;
+}
+
+.pill {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+/* Startseite: farbiger Hero */
+.hero {
+  border: 0;
+  border-radius: 32px;
+  background: var(--hero-bg);
+  color: var(--hero-text);
+}
+
+.hero .eyebrow,
+.hero .hero-sub,
+.hero .stat-label {
+  color: var(--hero-muted);
+}
+
+.hero .btn.primary {
+  background: var(--hero-btn-bg);
+  color: var(--hero-btn-text);
+}
+
+.hero .chip {
+  background: var(--hero-chip);
+  color: inherit;
+  box-shadow: none;
+}
+
+.hero .stat {
+  background: var(--hero-chip);
+}
+
+/* Navigation: schwebende dunkle Pille */
+.tabbar {
+  left: 16px;
+  right: 16px;
+  bottom: calc(14px + var(--safe-bottom));
+  max-width: 440px;
+  margin: 0 auto;
+  height: 68px;
+  padding: 0 8px;
+  gap: 4px;
+  align-items: center;
+  border: 0;
+  border-radius: 34px;
+  background: var(--ink);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 12px 32px rgba(23, 22, 31, 0.28);
+}
+
+.tab {
+  height: 52px;
+  border-radius: 26px;
+  color: #d5d1e6;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.tab::before {
+  display: none;
+}
+
+.tab.on {
+  background: var(--accent-bright);
+  color: var(--ink);
+}
+
+.workout-banner {
+  bottom: calc(14px + 68px + var(--safe-bottom) + 10px);
+  background: var(--ink);
+  color: var(--ink-text);
+  border-radius: 24px;
+}
+
+.workout-banner.low {
+  bottom: calc(14px + var(--safe-bottom));
+}
+
+.has-workout-banner .screen {
+  padding-bottom: calc(196px + var(--safe-bottom));
+}
+
+/* Training: Satzzeilen weiß, aktiver Satz als große Karte mit runden Schaltern */
+.fx-line {
+  min-height: 56px;
+  border-radius: 20px;
+  background: var(--surface);
+}
+
+.fx-line.done {
+  background: var(--surface);
+}
+
+.fx-line.warm {
+  background: none;
+}
+
+.fx-state.on {
+  color: var(--good);
+}
+
+.fx-ex.done:not(.on) .fx-ex-no {
+  background: var(--good);
+}
+
+.fx-editor {
+  padding: 16px 16px 12px;
+  border-radius: 28px;
+  background: var(--surface);
+}
+
+.fx-flabel {
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 0.8rem;
+}
+
+.fx-stepper {
+  grid-template-columns: 56px 1fr 56px;
+}
+
+.fx-stepper > button {
+  height: 56px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.fx-input .bigin {
+  font-size: 2.4rem;
+}
+
+/* Hinweise (Steigern / Halten): weiche Karte statt Randstreifen */
+.hint {
+  border-left: 0;
+  border-radius: 18px;
+  padding: 10px 14px;
+  background: var(--surface);
+}
+
+.hint.increase {
+  background: var(--good-soft);
+}
+
+.hint.increase .fx-hint-target {
+  color: var(--good);
+}
+
+.hint.hold {
+  background: #fbf1d6;
+}
+
+/* Kleinbeschriftungen ohne Versalien (wie im restlichen Design) */
+.lasttime span,
+.sethead,
+.group-title,
+.sumex-line span,
+.datatable thead th,
+.bm-sel figcaption {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Pausentimer: dunkle schwebende Leiste */
+.workout > .timer {
+  left: 16px;
+  right: 16px;
+  bottom: calc(14px + var(--safe-bottom));
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 10px 14px 10px 22px;
+  border: 0;
+  border-radius: 36px;
+  background: var(--ink);
+  color: var(--ink-text);
+  box-shadow: 0 12px 32px rgba(23, 22, 31, 0.28);
+}
+
+.workout > .timer .btn {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--ink-text);
+}
+
+.workout > .timer .clock {
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+  font-size: 1.6rem;
+  letter-spacing: -0.02em;
+}
+
+.workout > .timer.over {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.workout > .timer.over .btn {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.modal-card {
+  border-radius: 28px;
+}
+
+/* Mehr-Screen */
+.more-areas {
+  margin-top: 12px;
+}
+
+.tile-ico {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.tile-ico.ico-stretch {
+  background: #e2f4e8;
+  color: #136b3a;
+}
+
+.tile-ico.ico-football {
+  background: #ffe8d6;
+  color: #9a3d00;
+}
+
+.tile-ico.ico-recovery {
+  background: #ece9ff;
+  color: #2d23a8;
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.theme-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 112px;
+  padding: 12px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  box-shadow: inset 0 0 0 2px transparent;
+}
+
+.theme-opt.on {
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+.theme-opt strong {
+  font-size: 0.95rem;
+}
+
+.theme-opt small {
+  color: var(--muted);
+  line-height: 1.25;
+}
+
+.theme-swatch {
+  position: relative;
+  width: 100%;
+  height: 40px;
+  margin-bottom: 8px;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.theme-swatch > span {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
 }
