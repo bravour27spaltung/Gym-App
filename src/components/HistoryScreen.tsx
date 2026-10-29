@@ -3,7 +3,7 @@ import {
   fmtDay,
   fmtDayLong,
   fmtKg,
-  fmtPercent,
+  fmtPercent1,
   fmtShortYear,
   fmtTime,
   fmtVolume,
@@ -24,6 +24,13 @@ import {
   type HistWorkout,
 } from '../lib/stats';
 import { muscleLabel } from '../lib/muscles';
+import {
+  PROGRESS_RANGES,
+  rangeChange,
+  rangeStart,
+  withPctToPrevious,
+  type ProgressRange,
+} from '../lib/progressRange';
 import { formatClock } from '../lib/timer';
 import { totalLoad } from '../lib/weight';
 import {
@@ -35,7 +42,7 @@ import {
 } from '../lib/historyView';
 import { LineChart, type ChartPoint } from './Chart';
 import { MuscleVolume } from './MuscleVolume';
-import { AppBar, Icon, StatGrid } from './ui';
+import { AppBar, Icon, StatGrid, Info } from './ui';
 
 interface Props {
   workouts: HistWorkout[];
@@ -453,29 +460,38 @@ function ExerciseProgress(props: {
   const hasRm = all.some((p) => p.best1RM !== null);
   const hasLoad = all.some((p) => p.topLoadKg > 0);
   const [metric, setMetric] = useState<Metric>(hasRm ? 'e1rm' : hasLoad ? 'weight' : 'reps');
-  const [range, setRange] = useState<'90' | 'all'>('all');
-  
+  const [range, setRange] = useState<ProgressRange>('all');
+
   const format = (v: number): string =>
     metric === 'volume' ? fmtVolume(v) : metric === 'reps' ? `${num0(v)} Wdh.` : fmtKg(v);
 
-  const inRange = range === '90' ? all.filter((p) => p.at >= Date.now() - 90 * DAY_MS) : all;
-  const series: (ChartPoint & { sets: number; top: string; workoutId: string })[] = inRange.flatMap((p) => {
-    const v =
-      metric === 'e1rm' ? p.best1RM : metric === 'weight' ? p.topLoadKg : metric === 'volume' ? p.volumeKg : p.reps;
-    if (v === null || v <= 0) return [];
-    const top = p.topSet
-      ? p.topSet.loadKg === 0
-        ? `${p.topSet.reps} Wdh.`
-        : `${p.topSet.reps} × ${fmtKg(p.topSet.weightKg)}`
-      : '–';
-    return [{ at: p.at, value: v, caption: `Bester Satz ${top}`, sets: p.workingSets, top, workoutId: p.workoutId }];
-  });
+  // Erst die komplette Reihe der Kennzahl aufbauen, dann auf den Zeitraum zuschneiden: Die Veränderung
+  // rechnet gegen den Stand direkt vor dem Zeitraum (Woche = diese Woche gegenüber der Einheit davor).
+  const fullSeries = withPctToPrevious(
+    all.flatMap((p) => {
+      const v =
+        metric === 'e1rm' ? p.best1RM : metric === 'weight' ? p.topLoadKg : metric === 'volume' ? p.volumeKg : p.reps;
+      if (v === null || v <= 0) return [];
+      const top = p.topSet
+        ? p.topSet.loadKg === 0
+          ? `${p.topSet.reps} Wdh.`
+          : `${p.topSet.reps} × ${fmtKg(p.topSet.weightKg)}`
+        : '–';
+      return [{ at: p.at, value: v, sets: p.workingSets, top, workoutId: p.workoutId }];
+    }),
+  );
+  const start = rangeStart(range, Date.now());
+  const series: (ChartPoint & { sets: number; top: string; workoutId: string; pctPrev: number | null })[] = fullSeries
+    .filter((p) => start === null || p.at >= start)
+    .map((p) => ({
+      ...p,
+      caption: `Bester Satz ${p.top}${p.pctPrev === null ? '' : ` · ${fmtPercent1(p.pctPrev)} zur Einheit davor`}`,
+    }));
 
-  const first = series[0];
   const last = series[series.length - 1];
   const best = series.reduce<(typeof series)[number] | null>((b, s) => (b === null || s.value > b.value ? s : b), null);
-  const change = first && last && series.length > 1 ? last.value - first.value : null;
-  const changePct = change !== null && first.value > 0 ? Math.round((change / first.value) * 100) : null;
+  const chg = rangeChange(fullSeries, start);
+  const changeSign = chg === null ? '' : chg.abs > 0 ? '+' : chg.abs < 0 ? '−' : '±';
   const title = METRICS.find((m) => m.key === metric)!.title;
 
   // Rekorde über alle Einheiten, unabhängig von Kennzahl und Zeitraum.
@@ -505,24 +521,35 @@ function ExerciseProgress(props: {
             ))}
           </div>
           <div className="chips sm rangechips" role="group" aria-label="Zeitraum">
-            <button type="button" className={range === '90' ? 'chip on' : 'chip'} aria-pressed={range === '90'} onClick={() => setRange('90')}>
-              3 Monate
-            </button>
-            <button type="button" className={range === 'all' ? 'chip on' : 'chip'} aria-pressed={range === 'all'} onClick={() => setRange('all')}>
-              Alle
-            </button>
+            {PROGRESS_RANGES.map((r) => (
+              <button
+                key={r.key}
+                type="button"
+                className={range === r.key ? 'chip on' : 'chip'}
+                aria-pressed={range === r.key}
+                onClick={() => setRange(r.key)}
+              >
+                {r.label}
+              </button>
+            ))}
           </div>
         </div>
 
         {series.length > 0 && best && last && (
           <StatGrid
+            columns={2}
             items={[
               { label: 'Bestwert', value: format(best.value), sub: fmtShortYear(best.at) },
               { label: 'Zuletzt', value: format(last.value), sub: fmtShortYear(last.at) },
               {
                 label: 'Änderung',
-                value: change === null ? '–' : `${change > 0 ? '+' : change < 0 ? '−' : '±'}${format(Math.abs(change))}`,
-                sub: changePct === null ? `${series.length} Einheiten` : `${fmtPercent(changePct)} seit ${fmtShortYear(first.at)}`,
+                value: chg === null ? '–' : `${changeSign}${format(Math.abs(chg.abs))}`,
+                sub: chg === null ? `${series.length} ${series.length === 1 ? 'Einheit' : 'Einheiten'}` : `seit ${fmtShortYear(chg.base.at)}`,
+              },
+              {
+                label: 'Änderung in %',
+                value: chg === null || chg.pct === null ? '–' : fmtPercent1(chg.pct),
+                sub: chg === null ? 'ab 2 Einheiten' : `seit ${fmtShortYear(chg.base.at)}`,
               },
             ]}
           />
@@ -532,9 +559,11 @@ function ExerciseProgress(props: {
           <h2>{title}</h2>
           {series.length === 0 ? (
             <p className="muted">
-              {metric === 'e1rm'
-                ? `Für die 1RM-Schätzung braucht es Sätze mit Gewicht und höchstens ${ONE_RM_MAX_REPS} Wiederholungen.`
-                : 'Für diese Kennzahl gibt es im gewählten Zeitraum noch keine Werte.'}
+              {fullSeries.length > 0
+                ? 'Im gewählten Zeitraum gibt es keine Einheit. Wähle einen längeren Zeitraum.'
+                : metric === 'e1rm'
+                  ? `Für die 1RM-Schätzung braucht es Sätze mit Gewicht und höchstens ${ONE_RM_MAX_REPS} Wiederholungen.`
+                  : 'Für diese Kennzahl gibt es noch keine Werte.'}
             </p>
           ) : (
             <>
@@ -546,10 +575,10 @@ function ExerciseProgress(props: {
 
 
         {metric === 'e1rm' && (
-          <p className="evidence">
+          <Info title="Datenlage"><p className="evidence">
             Geschätzt nach Epley: Last × (1 + Wiederholungen ÷ 30), nur bis {ONE_RM_MAX_REPS} Wiederholungen. Schätzformeln
             sind bei wenigen Wiederholungen am genauesten; mit Stange oder Maschine zählt die Gesamtlast.
-          </p>
+          </p></Info>
         )}
 
         {records.length > 0 && (
@@ -570,6 +599,7 @@ function ExerciseProgress(props: {
                       <strong>{format(s.value)}</strong>
                       <small>
                         {fmtShortYear(s.at)} · Bester Satz {s.top} · {s.sets} {s.sets === 1 ? 'Satz' : 'Sätze'}
+                        {s.pctPrev !== null ? ` · ${fmtPercent1(s.pctPrev)}` : ''}
                       </small>
                     </span>
                     <Icon name="forward" size={20} />
@@ -605,29 +635,37 @@ function MuscleProgress(props: {
   );
   const hasRm = all.some((p) => p.best1RM !== null);
   const [metric, setMetric] = useState<MuscleMetric>(hasRm ? 'e1rm' : 'weight');
-  const [range, setRange] = useState<'90' | 'all'>('all');
+  const [range, setRange] = useState<ProgressRange>('all');
   const [table, setTable] = useState(false);
 
   const format = (v: number): string => fmtKg(v);
   const title = metric === 'e1rm' ? 'Geschätztes 1RM' : 'Höchste Last';
 
-  const inRange = range === '90' ? all.filter((p) => p.at >= Date.now() - 90 * DAY_MS) : all;
-  const series: (ChartPoint & { exerciseId: string; top: string })[] = inRange.flatMap((p) => {
-    const v = metric === 'e1rm' ? p.best1RM : p.topLoadKg;
-    if (v === null || v <= 0) return [];
-    const top = p.topSet
-      ? p.topSet.loadKg === 0
-        ? `${p.topSet.reps} Wdh.`
-        : `${p.topSet.reps} × ${fmtKg(p.topSet.weightKg)}`
-      : '–';
-    return [{ at: p.at, value: v, caption: `${nameOf(p.exerciseId)} · ${top}`, exerciseId: p.exerciseId, top }];
-  });
+  // Komplette Reihe zuerst, Zuschnitt auf den Zeitraum danach (siehe ExerciseProgress).
+  const fullSeries = withPctToPrevious(
+    all.flatMap((p) => {
+      const v = metric === 'e1rm' ? p.best1RM : p.topLoadKg;
+      if (v === null || v <= 0) return [];
+      const top = p.topSet
+        ? p.topSet.loadKg === 0
+          ? `${p.topSet.reps} Wdh.`
+          : `${p.topSet.reps} × ${fmtKg(p.topSet.weightKg)}`
+        : '–';
+      return [{ at: p.at, value: v, exerciseId: p.exerciseId, top }];
+    }),
+  );
+  const start = rangeStart(range, Date.now());
+  const series: (ChartPoint & { exerciseId: string; top: string; pctPrev: number | null })[] = fullSeries
+    .filter((p) => start === null || p.at >= start)
+    .map((p) => ({
+      ...p,
+      caption: `${nameOf(p.exerciseId)} · ${p.top}${p.pctPrev === null ? '' : ` · ${fmtPercent1(p.pctPrev)}`}`,
+    }));
 
-  const first = series[0];
   const last = series[series.length - 1];
   const best = series.reduce<(typeof series)[number] | null>((b, s) => (b === null || s.value > b.value ? s : b), null);
-  const change = first && last && series.length > 1 ? last.value - first.value : null;
-  const changePct = change !== null && first.value > 0 ? Math.round((change / first.value) * 100) : null;
+  const chg = rangeChange(fullSeries, start);
+  const changeSign = chg === null ? '' : chg.abs > 0 ? '+' : chg.abs < 0 ? '−' : '±';
 
   return (
     <div className="editor">
@@ -658,12 +696,17 @@ function MuscleProgress(props: {
             </button>
           </div>
           <div className="chips sm rangechips" role="group" aria-label="Zeitraum">
-            <button type="button" className={range === '90' ? 'chip on' : 'chip'} aria-pressed={range === '90'} onClick={() => setRange('90')}>
-              3 Monate
-            </button>
-            <button type="button" className={range === 'all' ? 'chip on' : 'chip'} aria-pressed={range === 'all'} onClick={() => setRange('all')}>
-              Alle
-            </button>
+            {PROGRESS_RANGES.map((r) => (
+              <button
+                key={r.key}
+                type="button"
+                className={range === r.key ? 'chip on' : 'chip'}
+                aria-pressed={range === r.key}
+                onClick={() => setRange(r.key)}
+              >
+                {r.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -671,9 +714,11 @@ function MuscleProgress(props: {
           <h2>{title}</h2>
           {series.length === 0 ? (
             <p className="muted">
-              {metric === 'e1rm'
-                ? `Für die 1RM-Schätzung braucht es Sätze mit Gewicht und höchstens ${ONE_RM_MAX_REPS} Wiederholungen.`
-                : 'Für diese Kennzahl gibt es im gewählten Zeitraum noch keine Werte.'}
+              {fullSeries.length > 0
+                ? 'Im gewählten Zeitraum gibt es keine Einheit. Wähle einen längeren Zeitraum.'
+                : metric === 'e1rm'
+                  ? `Für die 1RM-Schätzung braucht es Sätze mit Gewicht und höchstens ${ONE_RM_MAX_REPS} Wiederholungen.`
+                  : 'Für diese Kennzahl gibt es noch keine Werte.'}
             </p>
           ) : (
             <>
@@ -685,23 +730,29 @@ function MuscleProgress(props: {
 
         {series.length > 0 && best && last && (
           <StatGrid
+            columns={2}
             items={[
               { label: 'Bestwert', value: format(best.value), sub: fmtShortYear(best.at) },
               { label: 'Zuletzt', value: format(last.value), sub: fmtShortYear(last.at) },
               {
                 label: 'Änderung',
-                value: change === null ? '–' : `${change > 0 ? '+' : change < 0 ? '−' : '±'}${format(Math.abs(change))}`,
-                sub: changePct === null ? `${series.length} Einheiten` : `${fmtPercent(changePct)} seit ${fmtShortYear(first.at)}`,
+                value: chg === null ? '–' : `${changeSign}${format(Math.abs(chg.abs))}`,
+                sub: chg === null ? `${series.length} ${series.length === 1 ? 'Einheit' : 'Einheiten'}` : `seit ${fmtShortYear(chg.base.at)}`,
+              },
+              {
+                label: 'Änderung in %',
+                value: chg === null || chg.pct === null ? '–' : fmtPercent1(chg.pct),
+                sub: chg === null ? 'ab 2 Einheiten' : `seit ${fmtShortYear(chg.base.at)}`,
               },
             ]}
           />
         )}
 
         {metric === 'e1rm' && (
-          <p className="evidence">
+          <Info title="Datenlage"><p className="evidence">
             Geschätzt nach Epley: Last × (1 + Wiederholungen ÷ 30), nur bis {ONE_RM_MAX_REPS} Wiederholungen. Schätzformeln
             sind bei wenigen Wiederholungen am genauesten; mit Stange oder Maschine zählt die Gesamtlast.
-          </p>
+          </p></Info>
         )}
 
         {series.length > 0 && (
@@ -715,6 +766,7 @@ function MuscleProgress(props: {
                   <tr>
                     <th scope="col">Datum</th>
                     <th scope="col">{title}</th>
+                    <th scope="col">Δ %</th>
                     <th scope="col">Übung</th>
                     <th scope="col">Bester Satz</th>
                   </tr>
@@ -724,6 +776,7 @@ function MuscleProgress(props: {
                     <tr key={s.at}>
                       <th scope="row">{fmtShortYear(s.at)}</th>
                       <td>{format(s.value)}</td>
+                      <td>{s.pctPrev === null ? '–' : fmtPercent1(s.pctPrev)}</td>
                       <td>
                         <button type="button" className="link" onClick={() => props.onExercise(s.exerciseId)}>
                           {nameOf(s.exerciseId)}

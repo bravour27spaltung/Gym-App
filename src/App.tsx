@@ -36,6 +36,7 @@ import {
   deleteRecoveryInboxRow,
   fetchRecoveryHistory,
   fetchRecoveryInbox,
+  fetchSeatNotes,
   fetchStretchExercises,
   fetchStretchHistory,
   fetchStretchPlans,
@@ -43,6 +44,7 @@ import {
   flushOutbox,
   flushPlanPatches,
   flushRecoveryOutbox,
+  flushSeatNotes,
   flushStretchOutbox,
   getSessionEmail,
   importStretchCatalog,
@@ -75,6 +77,7 @@ import {
   visibleExercises,
   type Plan,
 } from './lib/plan';
+import { mergeSeatNotes } from './lib/seatNote';
 import { beep } from './lib/sound';
 import { buildFootballPayload, type FootballEntryInput } from './lib/football';
 import type { HealthImportMatch } from './lib/healthImport';
@@ -276,6 +279,12 @@ export function App() {
     // Erst die im Training geänderten Pläne senden, dann neu laden (sonst käme der alte Stand zurück).
     const patchRes = await flushPlanPatches(store);
     if (patchRes.error) setSyncError((prev) => prev ?? patchRes.error);
+    // Sitzeinstellungen je Übung: erst die lokalen Änderungen senden (die Übung existiert nach dem
+    // Senden der Trainings), dann den Stand vom Server holen; ungesendete lokale Änderungen gewinnen.
+    const noteRes = await flushSeatNotes(store);
+    if (noteRes.error) setSyncError((prev) => prev ?? noteRes.error);
+    const serverNotes = await fetchSeatNotes();
+    if (serverNotes.ok) store.saveSeatNotes(mergeSeatNotes(serverNotes.data, store.loadSeatNotesOutbox()));
     await refreshPlans(list.ok ? list.data : store.loadExercises());
     const hist = await fetchHistory();
     if (hist.ok) {
@@ -400,6 +409,7 @@ export function App() {
       const cached: LastInfo = {
         sets: store.getLastSets(exerciseId),
         equipmentKg: store.getLastEquipment(exerciseId),
+        note: store.getSeatNote(exerciseId),
       };
       if (isNew) return cached;
       // Liegen ungesendete Trainings vor, ist der lokale Stand aktueller als der Server.
@@ -408,7 +418,8 @@ export function App() {
       if (res && res.ok && res.data.sets.length > 0) {
         store.setLastSets(exerciseId, res.data.sets);
         store.setLastEquipment(exerciseId, res.data.equipmentKg);
-        return res.data;
+        // Die Sitzeinstellung kommt aus dem Zwischenspeicher (wird im Sync mit dem Server abgeglichen).
+        return { ...res.data, note: cached.note };
       }
       return cached;
     },
@@ -423,6 +434,17 @@ export function App() {
     setPlans(nextPlans);
     store.savePlans(nextPlans);
     void flushPlanPatches(store);
+  }
+
+  /**
+   * Sitzeinstellung / Notiz einer Übung: gehört zur Übung und gilt in jedem Training (auch freies
+   * Training und später hinzugefügte Übungen). Sofort lokal, die Datenbank folgt (Fehler bleiben im
+   * Ausgangskorb und werden beim nächsten Sync erneut gesendet). Aus dem Plan zusätzlich im Plan.
+   */
+  function saveExerciseNote(exerciseId: string, planExerciseId: string | undefined, note: string) {
+    store.setSeatNote(exerciseId, note);
+    void flushSeatNotes(store);
+    if (planExerciseId) savePlanNote(planExerciseId, note);
   }
 
   async function finish(opts: { applyPlanChanges: boolean }) {
@@ -776,6 +798,7 @@ export function App() {
         Object.fromEntries(entries.map(([id, info]) => [id, info.sets])),
         new Date(),
         Object.fromEntries(entries.map(([id, info]) => [id, info.equipmentKg])),
+        Object.fromEntries(entries.map(([id, info]) => [id, info.note])),
       ),
     );
     updateWeakSpotHint(ids);
@@ -893,7 +916,7 @@ export function App() {
           busy={busy}
           weakSpotHint={weakSpotHint}
           onDismissWeakSpotHint={() => setWeakSpotHint(null)}
-          onPlanNote={savePlanNote}
+          onExerciseNote={saveExerciseNote}
         />
       </main>
     );

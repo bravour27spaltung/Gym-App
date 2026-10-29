@@ -1,6 +1,7 @@
 import { supabase } from '../supabase';
 import { translateAuthError } from './authErrors';
 import type { Plan, PlanDbRow, PlanPatch, PlanRows } from './plan';
+import type { SeatNotes } from './seatNote';
 import { resetSteps } from './reset';
 import { plansFromRows } from './plan';
 import type { StretchPayload, StretchPlan, StretchPlanPayload, StretchSide } from './stretch';
@@ -279,7 +280,7 @@ export async function savePlanRows(rows: PlanRows): Promise<Result<null>> {
 }
 
 /**
- * Schickt im Training geänderte Satzzahlen/Aufwärmen an die Planübungen. Es werden nur die
+ * Schickt im Training geänderte Satzzahlen/Aufwärmen/Notizen an die Planübungen. Es werden nur die
  * betroffenen Felder dieser Zeilen geschrieben (kein Upsert des ganzen Plans), ein Wiederholen
  * ist gefahrlos. Fehlgeschlagene bleiben liegen; ein Fehler blockiert nie das Speichern des
  * Trainings, weil das in einem eigenen Ausgangskorb liegt.
@@ -292,9 +293,10 @@ export async function flushPlanPatches(store: Store): Promise<{ sent: number; pe
   let sent = 0;
   let error: string | null = null;
   for (const item of items) {
-    const fields: { sets?: number; warmup?: boolean } = {};
+    const fields: { sets?: number; warmup?: boolean; note?: string | null } = {};
     if (item.sets !== undefined) fields.sets = item.sets;
     if (item.warmup !== undefined) fields.warmup = item.warmup;
+    if (item.note !== undefined) fields.note = item.note.trim() === '' ? null : item.note.trim();
     const { error: err } = await supabase.from('fit_plan_exercises').update(fields).eq('id', item.planExerciseId);
     if (err) {
       remaining.push(item);
@@ -304,6 +306,55 @@ export async function flushPlanPatches(store: Store): Promise<{ sent: number; pe
   }
   if (sent > 0) store.savePlanPatches(remaining);
   return { sent, pending: remaining.length, error };
+}
+
+/** Meldet eine fehlende Migration 0022 verständlich, sonst die Rohmeldung der Datenbank. */
+function seatNotesError(message: string): string {
+  return /schema cache|does not exist|42P01|PGRST205/i.test(message)
+    ? 'Sitzeinstellungen: Migration 0022 fehlt in Supabase (Tabelle fit_exercise_notes).'
+    : `fit_exercise_notes: ${message}`;
+}
+
+/** Alle gespeicherten Sitzeinstellungen, je Übungs-ID. */
+export async function fetchSeatNotes(): Promise<Result<SeatNotes>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { data, error } = await supabase.from('fit_exercise_notes').select('exercise_id, note');
+  if (error) return fail(seatNotesError(error.message));
+  const rows = (data ?? []) as unknown as { exercise_id: string; note: string }[];
+  return { ok: true, data: Object.fromEntries(rows.map((r) => [r.exercise_id, r.note])) };
+}
+
+/**
+ * Schickt geänderte Sitzeinstellungen an die Datenbank (Upsert je Übung, leer = löschen). Ein
+ * Wiederholen ist gefahrlos. Fehlgeschlagene bleiben im Ausgangskorb; wurde eine Notiz währenddessen
+ * erneut geändert, bleibt der neuere Stand stehen.
+ */
+export async function flushSeatNotes(store: Store): Promise<{ sent: number; pending: number; error: string | null }> {
+  const queued = store.loadSeatNotesOutbox();
+  const ids = Object.keys(queued);
+  if (ids.length === 0) return { sent: 0, pending: 0, error: null };
+  if (!supabase) return { sent: 0, pending: ids.length, error: NOT_CONFIGURED };
+  const done: string[] = [];
+  let error: string | null = null;
+  for (const id of ids) {
+    const note = queued[id];
+    const { error: err } =
+      note === ''
+        ? await supabase.from('fit_exercise_notes').delete().eq('exercise_id', id)
+        : await supabase
+            .from('fit_exercise_notes')
+            .upsert({ exercise_id: id, note, updated_at: new Date().toISOString() }, { onConflict: 'exercise_id' });
+    if (err) {
+      error = seatNotesError(err.message);
+      console.error(`flushSeatNotes: ${err.message}`);
+    } else done.push(id);
+  }
+  if (done.length > 0) {
+    const current = store.loadSeatNotesOutbox();
+    for (const id of done) if (current[id] === queued[id]) delete current[id];
+    store.saveSeatNotesOutbox(current);
+  }
+  return { sent: done.length, pending: ids.length - done.length, error };
 }
 
 export async function archivePlan(planId: string): Promise<Result<null>> {
@@ -743,6 +794,7 @@ interface FootballRow {
   note: string | null;
   distance_km: number | null;
   calories: number | null;
+  steps: number | null;
   avg_heart_rate: number | null;
   source: FootballSource;
 }
@@ -753,7 +805,7 @@ export async function fetchFootballHistory(limit = 200): Promise<Result<HistFoot
   const { data, error } = await supabase
     .from('fit_football_sessions')
     .select(
-      'id, played_on, started_at, kind, minutes, rpe, note, distance_km, calories, avg_heart_rate, source',
+      'id, played_on, started_at, kind, minutes, rpe, note, distance_km, calories, steps, avg_heart_rate, source',
     )
     .order('played_on', { ascending: false })
     .limit(limit);
@@ -771,6 +823,7 @@ export async function fetchFootballHistory(limit = 200): Promise<Result<HistFoot
       note: r.note,
       distanceKm: r.distance_km === null ? null : Number(r.distance_km),
       calories: r.calories,
+      steps: r.steps,
       avgHeartRate: r.avg_heart_rate,
       source: r.source,
     })),
@@ -816,9 +869,11 @@ interface WatchRangeRow {
   max_heart_rate: number | null;
   steps: number | null;
   distance_km: number | string | null;
+  energy_kcal: number | null;
 }
 
-const WATCH_RANGE_COLUMNS = 'from_at, to_at, received_at, hr_samples, avg_heart_rate, max_heart_rate, steps, distance_km';
+const WATCH_RANGE_COLUMNS =
+  'from_at, to_at, received_at, hr_samples, avg_heart_rate, max_heart_rate, steps, distance_km, energy_kcal';
 
 function toWatchRange(r: WatchRangeRow): WatchRangeRecord {
   return {
@@ -830,6 +885,7 @@ function toWatchRange(r: WatchRangeRow): WatchRangeRecord {
     maxHeartRate: r.max_heart_rate,
     steps: r.steps,
     distanceKm: r.distance_km === null ? null : Number(r.distance_km),
+    energyKcal: r.energy_kcal ?? null,
   };
 }
 

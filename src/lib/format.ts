@@ -22,6 +22,13 @@ export function fmtPercent(pct: number): string {
   return `${pct > 0 ? '+' : '−'}${num0(Math.abs(pct))} %`;
 }
 
+/** Wie fmtPercent, aber mit einer Nachkommastelle: "+4,3 %" bzw. "−1,2 %". */
+export function fmtPercent1(pct: number): string {
+  const rounded = Math.round(Math.abs(pct) * 10) / 10;
+  if (rounded === 0) return '±0 %';
+  return `${pct > 0 ? '+' : '−'}${num1(rounded)} %`;
+}
+
 /** "Do., 25.09." */
 export function fmtDay(iso: string | number): string {
   return new Date(iso).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });

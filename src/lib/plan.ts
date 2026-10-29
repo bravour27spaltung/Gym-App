@@ -1,4 +1,5 @@
 import type { LoggedSet } from './progression';
+import { resolveSeatNote } from './seatNote';
 import type { ExerciseListItem } from './storage';
 import {
   addExercise,
@@ -490,6 +491,8 @@ export function draftFromPlanDay(
   now: Date,
   /** Stangen-/Maschinengewicht des letzten Trainings je Übung (Vorbelegung). */
   lastEquipment: Record<string, number | null | undefined> = {},
+  /** Gespeicherte Sitzeinstellung je Übung; sie hat Vorrang vor der Notiz der Planübung. */
+  seatNotes: Record<string, string | undefined> = {},
 ): Draft {
   let draft = createDraft(day.name.trim(), day.id, now);
   let first = true;
@@ -511,7 +514,7 @@ export function draftFromPlanDay(
       primaryMuscles: known?.primaryMuscles ?? e.newExercise?.primaryMuscles,
       secondaryMuscles: known?.secondaryMuscles ?? e.newExercise?.secondaryMuscles,
       lastSets: lastSets[e.exerciseId] ?? [],
-      note: e.note.trim() === '' ? undefined : e.note.trim(),
+      note: resolveSeatNote(seatNotes[e.exerciseId], e.note),
     });
     if (e.warmup) {
       // Die erste Übung mit Aufwärmen bekommt die volle Rampe, spätere einen kurzen Satz.

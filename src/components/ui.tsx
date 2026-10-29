@@ -502,3 +502,13 @@ export function StatGrid(props: {
     </div>
   );
 }
+
+/** Erklärtext, standardmäßig eingeklappt (die App ist nur für den Eigengebrauch). */
+export function Info({ title = 'Info', children }: { title?: string; children: ReactNode }) {
+  return (
+    <details className="equipment info">
+      <summary>{title}</summary>
+      {children}
+    </details>
+  );
+}

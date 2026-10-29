@@ -44,8 +44,11 @@ interface Props {
   /** Kurzer Hinweis zu Beginn ("Schwachstelle: …"); null = nichts anzuzeigen. */
   weakSpotHint?: string | null;
   onDismissWeakSpotHint?: () => void;
-  /** Notiz einer Planübung wurde im Training geändert; in den Plan übernehmen. */
-  onPlanNote?: (planExerciseId: string, note: string) => void;
+  /**
+   * Sitzeinstellung / Notiz einer Übung wurde im Training geändert. Sie wird für die Übung selbst
+   * gespeichert (gilt in jedem Training); stammt die Übung aus dem Plan, zusätzlich im Plan.
+   */
+  onExerciseNote?: (exerciseId: string, planExerciseId: string | undefined, note: string) => void;
 }
 
 const REST_STALE_MS = 10 * 60 * 1000;
@@ -117,7 +120,7 @@ export function WorkoutScreen({
   busy,
   weakSpotHint,
   onDismissWeakSpotHint,
-  onPlanNote,
+  onExerciseNote,
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -177,7 +180,9 @@ export function WorkoutScreen({
   async function handlePick(input: ExerciseInput) {
     setAdding(false);
     const last = await loadLast(input.exerciseId, input.isNew);
-    onUpdate((d) => addExercise(d, { ...input, lastSets: last.sets, equipmentKg: last.equipmentKg }));
+    onUpdate((d) =>
+      addExercise(d, { ...input, lastSets: last.sets, equipmentKg: last.equipmentKg, note: input.note ?? last.note }),
+    );
   }
 
   function handleToggle(exId: string, setId: string) {
@@ -296,7 +301,8 @@ export function WorkoutScreen({
             onEquipment={(kg) => onUpdate((d) => updateExercise(d, current.id, { equipmentKg: kg }))}
             onNote={(note) => {
               onUpdate((d) => updateExercise(d, current.id, { note }));
-              if (current.planExerciseId) onPlanNote?.(current.planExerciseId, note);
+              // Auch ohne Plan (freies Training, später hinzugefügte Übung) dauerhaft speichern.
+              onExerciseNote?.(current.exerciseId, current.planExerciseId, note);
             }}
             onRemove={() => {
               onUpdate((d) => removeExercise(d, current.id));

@@ -1,5 +1,6 @@
 import type { Plan, PlanPatch } from './plan';
 import type { LoggedSet } from './progression';
+import type { SeatNotes } from './seatNote';
 import type { HistWorkout } from './stats';
 import type { StretchDraft, StretchPayload, StretchPlan } from './stretch';
 import type { FootballKind, FootballPayload, FootballSource } from './football';
@@ -39,6 +40,8 @@ export interface ExerciseListItem {
 export interface LastInfo {
   sets: LoggedSet[];
   equipmentKg: number | null;
+  /** Gespeicherte Sitzeinstellung / Notiz der Übung (lokaler Stand); fehlt, wenn es keine gibt. */
+  note?: string;
 }
 
 export interface StretchExerciseListItem {
@@ -84,6 +87,8 @@ export interface HistFootballSession {
   note: string | null;
   distanceKm: number | null;
   calories: number | null;
+  /** Seit Migration 0021; ältere gespeicherte Einträge haben das Feld nicht. */
+  steps?: number | null;
   avgHeartRate: number | null;
   source: FootballSource;
 }
@@ -120,6 +125,8 @@ const KEYS = {
   outbox: 'gym.outbox.v1',
   lastSets: 'gym.lastSets.v1',
   lastEquipment: 'gym.lastEquipment.v1',
+  seatNotes: 'gym.seatNotes.v1',
+  seatNotesOutbox: 'gym.seatNotesOutbox.v1',
   history: 'gym.history.v1',
   exercises: 'gym.exercises.v1',
   plans: 'gym.plans.v1',
@@ -218,6 +225,30 @@ export function createStore(storage: KeyValueStorage | null) {
       all[exerciseId] = kg;
       return write(KEYS.lastEquipment, all);
     },
+
+    /**
+     * Sitzeinstellung / Notiz je Übung. Bleibt beim Zurücksetzen der Trainingsdaten erhalten, weil sie
+     * eine Einstellung und kein Log ist. Änderungen stehen zusätzlich im Ausgangskorb, bis sie in der
+     * Datenbank sind ('' = gelöscht).
+     */
+    loadSeatNotes: () => read<SeatNotes>(KEYS.seatNotes, {}),
+    saveSeatNotes: (notes: SeatNotes) => write(KEYS.seatNotes, notes),
+    getSeatNote(exerciseId: string): string | undefined {
+      return read<SeatNotes>(KEYS.seatNotes, {})[exerciseId] || undefined;
+    },
+    setSeatNote(exerciseId: string, note: string): boolean {
+      const text = note.trim();
+      const cache = read<SeatNotes>(KEYS.seatNotes, {});
+      if (text === '') delete cache[exerciseId];
+      else cache[exerciseId] = text;
+      const outbox = read<SeatNotes>(KEYS.seatNotesOutbox, {});
+      outbox[exerciseId] = text;
+      const cached = write(KEYS.seatNotes, cache);
+      const queued = write(KEYS.seatNotesOutbox, outbox);
+      return cached && queued;
+    },
+    loadSeatNotesOutbox: () => read<SeatNotes>(KEYS.seatNotesOutbox, {}),
+    saveSeatNotesOutbox: (notes: SeatNotes) => write(KEYS.seatNotesOutbox, notes),
 
     loadHistory: () => read<HistWorkout[]>(KEYS.history, []),
     saveHistory: (items: HistWorkout[]) => write(KEYS.history, items),
