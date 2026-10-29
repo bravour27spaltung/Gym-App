@@ -201,3 +201,60 @@ describe('Dosierung der Oberkörper- und Unterkörper-Vorlagen', () => {
     expect(dose.totalSeconds).toBe(30 * 2 * 2);
   });
 });
+
+describe('Kurz-Dehnung und Abend-Dehnung', () => {
+  const byName = (name: string) => STRETCH_PLAN_CATALOG.find((p) => p.name === name)!;
+  const KURZ = 'Kurz-Dehnung (5 Min)';
+  const ABEND = 'Dehnen vor dem Schlafen (10 Min)';
+  const musclesOf = (name: string) =>
+    byName(name).items.flatMap((it) => STRETCH_CATALOG.find((s) => s.id === it.stretchId)!.muscles);
+
+  it('gibt es beide Vorlagen genau einmal', () => {
+    expect(STRETCH_PLAN_CATALOG.filter((p) => p.name === KURZ)).toHaveLength(1);
+    expect(STRETCH_PLAN_CATALOG.filter((p) => p.name === ABEND)).toHaveLength(1);
+  });
+
+  it('wiederholt keine Übung innerhalb einer Vorlage', () => {
+    for (const name of [KURZ, ABEND]) {
+      const ids = byName(name).items.map((it) => it.stretchId);
+      expect(new Set(ids).size, name).toBe(ids.length);
+    }
+  });
+
+  it('hält die Kurz-Dehnung bei 3 bis 4,5 min Haltezeit (mit Wechseln ca. 5 min)', () => {
+    const { totalSeconds } = catalogPlanDose(byName(KURZ));
+    expect(totalSeconds).toBeGreaterThanOrEqual(180);
+    expect(totalSeconds).toBeLessThanOrEqual(270);
+  });
+
+  it('deckt in der Kurz-Dehnung Brust, Hüfte, Beinrückseite, Gesäß und Rücken ab', () => {
+    const muscles = musclesOf(KURZ);
+    for (const m of ['chest', 'hip flexors', 'hamstrings', 'glutes', 'lower back']) {
+      expect(muscles).toContain(m);
+    }
+  });
+
+  it('hält die Abend-Dehnung bei höchstens 8 min Haltezeit (Ende deutlich vor dem Einschlafen)', () => {
+    const { totalSeconds } = catalogPlanDose(byName(ABEND));
+    expect(totalSeconds).toBeGreaterThanOrEqual(5 * 60);
+    expect(totalSeconds).toBeLessThanOrEqual(8 * 60);
+  });
+
+  it('läuft in der Abend-Dehnung ruhig: Haltezeiten 30 bis 45 s, höchstens ein Satz', () => {
+    for (const it of byName(ABEND).items) {
+      const ex = STRETCH_CATALOG.find((s) => s.id === it.stretchId)!;
+      if (ex.reps != null) continue;
+      expect(it.holdSeconds, ex.name).toBeGreaterThanOrEqual(30);
+      expect(it.holdSeconds, ex.name).toBeLessThanOrEqual(45);
+      expect(it.sets ?? 1, ex.name).toBe(1);
+    }
+  });
+
+  it('bleibt bei beiden Vorlagen unter 4 min je Muskelgruppe', () => {
+    for (const name of [KURZ, ABEND]) {
+      for (const [m, sec] of Object.entries(catalogPlanDose(byName(name)).perMuscleSeconds)) {
+        expect(sec, `${name}: ${m}`).toBeLessThanOrEqual(240);
+      }
+    }
+  });
+});

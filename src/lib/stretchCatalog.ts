@@ -493,6 +493,29 @@ export const STRETCH_PLAN_CATALOG: CatalogPlan[] = [
       dose(19, 30, 2), dose(20, 30, 2), dose(30, 30, 1),
     ],
   },
+  {
+    // Kurzroutine für zwischendurch: ca. 4 min reine Haltezeit, mit Wechseln ca. 5 min. Sechs
+    // große Bereiche statt aller Muskelgruppen; Haltezeit 20 s (kürzer als die 30 s der langen
+    // Vorlagen, dafür zeitlich begrenzt). Ersetzt keine Wochendosis, siehe Block unten.
+    id: planId(8),
+    name: 'Kurz-Dehnung (5 Min)',
+    items: [
+      dose(6, 20, 1), dose(3, 20, 1), dose(15, 20, 1),
+      dose(17, 20, 1), dose(18, 20, 1), dose(12, 30, 1),
+    ],
+  },
+  {
+    // Entspannte Abendroutine, von sitzend zu liegend: ruhige Haltezeiten, kein Sprung- oder
+    // Kraftanteil, ca. 7 min Haltezeit und mit Wechseln ca. 10 min. Gedacht für das Ende des
+    // Abends, nicht direkt vor dem Einschlafen. Cat-Cow läuft ohne Timer (Wiederholungen).
+    id: planId(9),
+    name: 'Dehnen vor dem Schlafen (10 Min)',
+    items: [
+      dose(1, 30, 1), dose(3, 30, 1), item(26), dose(37, 45, 1),
+      dose(21, 45, 1), dose(16, 30, 1), dose(18, 30, 1),
+      dose(38, 30, 1), dose(12, 45, 1),
+    ],
+  },
 ];
 
 /*
