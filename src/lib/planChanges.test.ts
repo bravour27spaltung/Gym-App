@@ -105,13 +105,15 @@ describe('Änderungen aus dem Training erkennen', () => {
     ]);
   });
 
-  it('alle Aufwärmsätze entfernt schaltet "Aufwärmen" aus, ein einzelner entfernter nicht', () => {
+  it('alle Aufwärmsätze entfernt schaltet "Aufwärmen" aus, ein einzelner entfernter ändert nur die Liste', () => {
     let { d } = start();
     const bench = ex(d, 'bench');
     const warm = bench.sets.filter((s) => s.type === 'warmup');
     expect(warm.length).toBeGreaterThan(1);
     d = removeSet(d, bench.id, warm[0].id);
-    expect(planChangesFromDraft(d)).toEqual([]);
+    const [one] = planChangesFromDraft(d);
+    expect(one.warmup).toBeUndefined();
+    expect(one.warmupSets?.to).toHaveLength(warm.length - 1);
     for (const w of warm.slice(1)) d = removeSet(d, bench.id, w.id);
     expect(planChangesFromDraft(d)).toEqual([
       expect.objectContaining({ name: 'Bankdrücken', warmup: { from: true, to: false } }),
@@ -145,7 +147,7 @@ describe('Änderungen aus dem Training erkennen', () => {
     d = {
       ...d,
       exercises: d.exercises.map((e) => {
-        const { warmupAtStart: _omit, ...rest } = e;
+        const { warmupAtStart: _omit, warmupSetsAtStart: _omitSets, ...rest } = e;
         return rest;
       }),
     };

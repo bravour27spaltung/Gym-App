@@ -132,3 +132,110 @@ fünf Zeilen anzeigt (Format prüfen: Datum mit Uhrzeit und `+02:00`, Pulswert 4
   dabei nichts, wird das frühere Ergebnis durch ein leeres ersetzt; die bereits ins Formular übernommenen Werte bleiben.
 - Bewusst **ohne** x-callback-url: Eine https-Rücksprungadresse würde in Safari statt in der Home-Bildschirm-App landen
   (andere Anmeldung, anderer Speicher).
+
+## Schritte, Distanz und aktive Energie (ab Migration 0021)
+
+Zusätzlich zu `hr` akzeptiert die Funktion die Rohzeilen-Felder `steps`, `distance` und `energy` im Format
+`<Start>|<Ende>|<Wert>|<Quelle>` (je ein Messwert pro Zeile, ISO 8601 mit Offset). Regeln der Funktion:
+
+- Summe über den Zeitraum; Samples an der Grenze zählen anteilig nach Überlappung.
+- Schicken die Zeilen eine Quelle mit und ist eine davon eine „Watch“, zählt **nur die Watch**. Ohne Quelle würden
+  iPhone und Watch Schritte und Distanz doppelt zählen.
+- Einheit steht im Wert: `km` oder `m` bei Distanz, `kcal` oder `kJ` bei Energie (kJ wird umgerechnet).
+- Je Feld braucht der Kurzbefehl eine **eigene** Variable; identische Listen lehnt die Funktion ab.
+- Energie ist die **aktive** Energie (nicht Ruheumsatz), wie schon beim Health-Export-Import der App.
+
+Datenbank vor dem Deploy: `supabase db push` bzw. `0021_watch_energy_steps.sql` im SQL-Editor ausführen
+(sonst scheitert das Speichern an der fehlenden Spalte `energy_kcal`).
+
+Einordnung: Der Puls ist gut belegt. Aktive Energie und Distanz ohne gestartetes Workout sind Schätzungen der Uhr
+(Energie nach Herzfrequenz und Bewegung, Distanz aus Schrittlänge-Modell/GPS nur bei Workout) und für Fußball nicht
+validiert; als grobe Größenordnung behandeln, nicht als Messwert.
+
+## Archiv: Rohwerte automatisch sichern (ab Migration 0022)
+
+**Problem, das das löst:** Der Kurzbefehl erreicht in Health nur die neuesten ~250 Pulswerte (Datumsfilter lieferten auf dem
+iPhone 0 Treffer, siehe oben). Wer den Fußball-Eintrag am Abend vergisst, kam Tage später nicht mehr an die Werte.
+Jetzt sichert ein **automatisch laufender Kurzbefehl** die Rohwerte laufend; der Fußball-Tab rechnet den frei gewählten
+Zeitraum aus diesem Archiv, auch Tage nach der Einheit. Der alte Weg („Apple-Watch-Daten holen“) bleibt als Rückfall.
+
+**Ablauf:** Kurzbefehl `Fussball-Archiv` → `POST …/football-import?archive=1` → Tabelle `fit_health_samples` (Upsert über
+Nutzer/Art/Start/Ende/Quelle, wiederholbare Läufe erzeugen keine Dopplung) → Fußball-Tab zeigt unter „Zusatzwerte“
+„Im Archiv gefunden: …“ mit Knopf „Werte übernehmen“, sobald Datum, Startzeit und Dauer stehen. Es wird nichts ungefragt
+ins Formular geschrieben.
+
+### Einrichtung (Reihenfolge einhalten)
+
+1. `supabase/migrations/0022_health_archive.sql` im SQL-Editor von Supabase ausführen (oder `supabase db push`).
+2. Funktion neu deployen: `supabase functions deploy football-import --no-verify-jwt` (Secrets bleiben unverändert).
+3. Test ohne Speichern (`dry=1` zusätzlich), Zeiten mit Offset:
+   ```sh
+   curl -s -X POST "https://<projekt>.supabase.co/functions/v1/football-import?archive=1&dry=1" \
+     -H "x-import-token: <token>" -H "Content-Type: application/json" \
+     -d '{"hr":"2026-10-29T19:10:00+01:00|128\n2026-10-29T19:15:00+01:00|141","steps":"2026-10-29T19:10:00+01:00|2026-10-29T19:15:00+01:00|312|Apple Watch von Steffen"}'
+   ```
+   Erwartet: `Würde archivieren: 2 Puls · 1 Schritte · 0 Distanz · 0 Energie. Pulswerte von … bis ….`
+4. Kurzbefehl `Fussball-Archiv` anlegen (Prompt für die KI unten) und von Hand einmal laufen lassen. Die Antwort nennt Anzahl
+   und Zeitbereich der gesicherten Pulswerte.
+5. Automation: **Kurzbefehle → Automation → Tageszeit 22:00 → „Sofort ausführen“**.
+
+### Body (`?archive=1`, kein `range`)
+
+| Feld | Inhalt |
+|---|---|
+| `hr` | je Zeile `<Start>\|<Wert>` |
+| `steps`, `distance`, `energy` | je Zeile `<Start>\|<Ende>\|<Wert>\|<Quelle>`; Distanz mit Einheit (`km`/`m`), Energie `kcal`/`kJ` |
+
+Geprüft und **nicht** gespeichert (als `invalid` gezählt): Puls außerhalb 30–220, negative Werte, Distanz über 100 km je
+Sample, Zeitstempel in der Zukunft, Intervalle über 24 h, Datum ohne Zeitzone. Pro Aufruf höchstens 5000 Werte. Identische
+Listen in zwei Feldern lehnt die Funktion wie beim Zeitraum-Weg ab.
+
+**Lückenmeldung:** Liegt der älteste Puls eines Laufs mehr als 30 Minuten nach dem zuletzt archivierten, meldet die Antwort
+„Hinweis: zwischen … und … fehlen Pulswerte“. Daraus lässt sich nicht unterscheiden, ob die Uhr nicht am Handgelenk war oder
+der Kurzbefehl zu selten lief; der Text nennt beides.
+
+### Grenzen und offene Punkte (ehrlich)
+
+- **Auslöser ungeklärt.** iOS hat keinen „beim Entsperren“-Auslöser. Health-Zugriff geht nur bei entsperrtem iPhone. Zwei
+  Erfahrungsberichte (Reddit r/shortcuts „Automation does not run w/ Health action“, Apple Community Thread 254795044,
+  beide Nutzerberichte, keine Apple-Dokumentation) beschreiben, dass Automationen mit Health-Aktionen bei gesperrtem Gerät
+  nicht laufen bzw. bis zum Entsperren warten. Ob die 22-Uhr-Automation bei dir beim nächsten Entsperren nachläuft, muss
+  ein Test auf deinem iPhone zeigen. Läuft sie nicht, ist der Rückfall: Kurzbefehl am Ende des morgendlichen
+  `Recovery-Import` mit aufrufen (dann ist das iPhone entsperrt).
+- **Reichweite pro Lauf ~250 Pulswerte** (grob ein halber bis ganzer Tag). Läuft der Kurzbefehl seltener als täglich,
+  entstehen Lücken (die Antwort meldet sie).
+- **Messdichte unverändert:** ohne gestartete Aufzeichnung misst die Uhr den Puls nur alle paar Minuten (Apple-Whitepaper
+  11/2024, Herstellerangabe, nicht erneut geprüft). Das Archiv macht die Daten verfügbar, nicht dichter.
+- **Speicher:** grob 500 Zeilen pro Tag (Schätzung, nicht gemessen), im niedrigen zweistelligen MB-Bereich pro Jahr;
+  für den Supabase-Gratisplan unkritisch.
+- Datenschutz: Das Archiv enthält ganztägige Pulswerte, nicht nur Fußball. Zugriff nur über RLS (eigener Nutzer);
+  löschen geht über die Tabelle `fit_health_samples` im Supabase-Dashboard.
+
+### Prompt für die KI, die den Kurzbefehl baut
+
+```text
+Baue mir einen iOS-Kurzbefehl namens „Fussball-Archiv“ (Schritt für Schritt, mit den genauen Aktionsnamen der deutschen
+Kurzbefehle-App, iOS 26). Er sichert Apple-Health-Rohwerte in meine Datenbank. Halte dich exakt an diese Vorgaben, weil
+frühere KI-Entwürfe hier wiederholt dieselben Fehler gemacht haben:
+
+1. Fünf Mal „Health-Messungen suchen“, jeweils mit NUR EINEM Filter „Typ ist …“, KEIN Datumsfilter (Datumsfilter liefern bei
+   mir 0 Treffer), Sortieren nach Startdatum absteigend, Beschränken auf 250:
+   a) Herzfrequenz → Variable hr
+   b) Schritte → Variable steps
+   c) Gehen + Laufen Distanz, Einheit Kilometer → Variable distance
+   d) Aktive Energie, Einheit Kilokalorien → Variable energy
+   Jede Suche braucht ihre EIGENE Ergebnisvariable; es dürfen nie zwei Felder dieselbe Variable erhalten.
+2. Zu jeder Suche „Wiederholen mit jedem“ und je Messwert einen Text bauen. Datum immer mit „Datum formatieren“, benutzerdefiniert
+   yyyy-MM-dd'T'HH:mm:ssXXX (ergibt z. B. 2026-10-29T19:14:47+01:00):
+   - Herzfrequenz: <Startdatum>|<Wert>
+   - Schritte, Distanz, Energie: <Startdatum>|<Enddatum>|<Wert>|<Quelle>   (Quelle = Details „Quelle“ der Messung)
+   Danach die Texte je Schleife mit Zeilenumbruch kombinieren und in die passende Variable (hr, steps, distance, energy) legen.
+3. „Inhalte von URL abrufen“: URL https://<PROJEKT>.supabase.co/functions/v1/football-import?archive=1, Methode POST, Header
+   x-import-token = <TOKEN>, Anfragetext JSON mit den vier Feldern hr, steps, distance, energy (jeweils Text, die zugehörige
+   Variable).
+4. „Ergebnis anzeigen“ mit der Antwort (Feld message). Bei Fehlern soll der Kurzbefehl die Antwort trotzdem anzeigen.
+5. Keine weiteren Filter, keine „Statistik berechnen“-Aktion, keine Datumsvariablen als Filter.
+
+Erkläre am Ende, wie ich prüfe, dass vier verschiedene Variablen im Anfragetext stehen, und wie ich die Automation
+„Tageszeit 22:00, Sofort ausführen“ dafür anlege.
+```

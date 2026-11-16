@@ -6,6 +6,8 @@ import { formatClock } from '../lib/timer';
 import { describeLastSets, type ExerciseInput } from '../lib/workout';
 import { lastWorkingWeightKg, suggestProgression } from '../lib/progression';
 import { formatKg } from '../lib/weight';
+import { suggestWarmup, type WarmupSet } from '../lib/warmup';
+import { MAX_WARMUP_SETS } from '../lib/plan';
 import { AddExercise } from './AddExercise';
 import { EquipmentField, Icon, IconButton, NumberInput, Stepper, Switch } from './ui';
 
@@ -241,6 +243,85 @@ export function DayEditor({ exercises, catalog, onUpdate, onMove, onRemove, onAd
                       onChange={(on) => onUpdate(e.id, { warmup: on })}
                     />
                   </div>
+
+                  {e.warmup && (
+                    <div className="field stack warmplan">
+                      <span>
+                        Aufwärmsätze im Plan
+                        <small>
+                          Feste Kilo und Wiederholungen. Ohne Einträge schlägt die App im Training eine Rampe vor.
+                          Aufwärmsätze zählen nicht in die Auswertung.
+                        </small>
+                      </span>
+                      {e.warmupSets.map((w, wi) => {
+                        const change = (next: Partial<WarmupSet>) =>
+                          onUpdate(e.id, {
+                            warmupSets: e.warmupSets.map((x, xi) => (xi === wi ? { ...x, ...next } : x)),
+                          });
+                        return (
+                          <div className="warmrow" key={wi}>
+                            <span className="warmidx">{wi + 1}</span>
+                            <NumberInput
+                              kind="kg"
+                              blankZero
+                              placeholder="0"
+                              label={`${e.name}: Aufwärmsatz ${wi + 1}, Gewicht in kg`}
+                              value={w.weightKg}
+                              onCommit={(kg) => change({ weightKg: kg })}
+                            />
+                            <span className="unit">kg ×</span>
+                            <NumberInput
+                              kind="int"
+                              placeholder="0"
+                              label={`${e.name}: Aufwärmsatz ${wi + 1}, Wiederholungen`}
+                              value={w.reps}
+                              onCommit={(n) => change({ reps: n })}
+                            />
+                            <span className="grow" />
+                            <IconButton
+                              icon="trash"
+                              label={`${e.name}: Aufwärmsatz ${wi + 1} löschen`}
+                              onClick={() =>
+                                onUpdate(e.id, { warmupSets: e.warmupSets.filter((_, xi) => xi !== wi) })
+                              }
+                            />
+                          </div>
+                        );
+                      })}
+                      <div className="warmactions">
+                        <button
+                          type="button"
+                          className="textbtn"
+                          disabled={e.warmupSets.length >= MAX_WARMUP_SETS}
+                          onClick={() => {
+                            const prev = e.warmupSets[e.warmupSets.length - 1];
+                            onUpdate(e.id, {
+                              warmupSets: [...e.warmupSets, { weightKg: prev?.weightKg ?? 0, reps: prev?.reps ?? 5 }],
+                            });
+                          }}
+                        >
+                          <Icon name="plus" size={16} /> Aufwärmsatz
+                        </button>
+                        <button
+                          type="button"
+                          className="textbtn"
+                          disabled={(e.weightKg ?? 0) <= 0}
+                          title={(e.weightKg ?? 0) <= 0 ? 'Erst das Arbeitsgewicht eintragen' : undefined}
+                          onClick={() =>
+                            onUpdate(e.id, {
+                              warmupSets: suggestWarmup({
+                                workingWeightKg: e.weightKg ?? 0,
+                                equipmentKg: e.equipmentKg,
+                                level: 'full',
+                              }),
+                            })
+                          }
+                        >
+                          <Icon name="flame" size={16} /> Vorschlag einfügen
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <label className="field stack">
                     <span>Notiz</span>

@@ -1,5 +1,5 @@
 import { suggestProgression, type LoggedSet, type ProgressionSuggestion } from './progression';
-import { suggestWarmup } from './warmup';
+import { suggestWarmup, type WarmupSet } from './warmup';
 
 /**
  * Zustand eines laufenden Trainings. Alles hier ist reine Logik ohne Browser-
@@ -48,6 +48,11 @@ export interface DraftExercise {
   planExerciseId?: string;
   /** Hatte die Übung beim Start Aufwärmsätze? Vergleichsbasis für "Aufwärmsätze geändert". */
   warmupAtStart?: boolean;
+  /**
+   * Aufwärmsätze (Gewicht, Wdh.) beim Start, nachdem sie aus Plan, letztem Training oder Vorschlag
+   * entstanden sind. Vergleichsbasis, um geänderte Aufwärmsätze am Ende in den Plan zu übernehmen.
+   */
+  warmupSetsAtStart?: WarmupSet[];
   /** Ziel-RIR aus dem Plan (nur Anzeige); null = keine Vorgabe. */
   targetRir: number | null;
   restSeconds: number;
@@ -363,7 +368,39 @@ export function addWarmups(draft: Draft, exId: string, level: 'full' | 'short'):
  * "Aufwärmen" im Plan nicht immer Sätze ergibt (z. B. ohne bekanntes Gewicht).
  */
 export function markWarmupAtStart(draft: Draft, exId: string): Draft {
-  return mapEx(draft, exId, (e) => ({ ...e, warmupAtStart: e.sets.some((s) => s.type === 'warmup') }));
+  return mapEx(draft, exId, (e) => ({
+    ...e,
+    warmupAtStart: e.sets.some((s) => s.type === 'warmup'),
+    warmupSetsAtStart: warmupSetsOf(e),
+  }));
+}
+
+/** Aufwärmsätze der Übung (Gewicht und Wiederholungen), abgehakt oder nicht, in Reihenfolge. */
+export function warmupSetsOf(e: Pick<DraftExercise, 'sets'>): WarmupSet[] {
+  return e.sets.filter((s) => s.type === 'warmup').map((s) => ({ weightKg: s.weightKg, reps: s.reps }));
+}
+
+/**
+ * Setzt die im Plan hinterlegten Aufwärmsätze (feste Kilo) vor die Arbeitssätze. Noch nicht
+ * abgehakte Aufwärmsätze werden ersetzt, abgehakte bleiben. Das Arbeitsgewicht spielt keine Rolle:
+ * Was im Plan steht, wird genau so übernommen.
+ */
+export function applyPlanWarmups(draft: Draft, exId: string, planSets: WarmupSet[]): Draft {
+  return mapEx(draft, exId, (e) => {
+    const valid = planSets.filter((p) => p.weightKg > 0 && p.reps > 0);
+    const kept = e.sets.filter((s) => !(s.type === 'warmup' && !s.done));
+    const doneWarmups = kept.filter((s) => s.type === 'warmup');
+    const working = kept.filter((s) => s.type === 'working');
+    const fresh: DraftSet[] = valid.map((p) => ({
+      id: newId(),
+      type: 'warmup',
+      weightKg: p.weightKg,
+      reps: p.reps,
+      rir: null,
+      done: false,
+    }));
+    return { ...e, sets: [...doneWarmups, ...fresh, ...working] };
+  });
 }
 
 /** Abgehakte Sätze einer Übung im Format der Progressionslogik. */

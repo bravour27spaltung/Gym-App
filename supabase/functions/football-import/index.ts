@@ -9,12 +9,16 @@
 //   {
 //     "range": "<Start>|<Ende>",     // Pflicht: die Kurzbefehl-Eingabe unverändert zurückgeben
 //     "avg_hr": 132, "max_hr": 171, "hr_count": 14,   // fertige Zahlen (bevorzugt)
-//     "steps_total": 6200, "distance_km": 4.2,
-//     "hr": "<Start>|<Ende>|<Wert>\n...", "steps": "...", "distance": "..."   // Rückfall: Rohzeilen
+//     "steps_total": 6200, "distance_km": 4.2, "energy_kcal": 520,
+//     "hr": "<Start>|<Wert>\n...",   // Rohzeilen; steps/distance/energy: "<Start>|<Ende>|<Wert>|<Quelle>"
+//     "steps": "...", "distance": "...", "energy": "..."
 //   }
 //
-// ?ping=1  prüft nur Erreichbarkeit und Token (Stufe 1 des Kurzbefehl-Tests), schreibt nichts.
-// ?dry=1   wertet aus und antwortet, schreibt aber nichts.
+// ?ping=1     prüft nur Erreichbarkeit und Token (Stufe 1 des Kurzbefehl-Tests), schreibt nichts.
+// ?dry=1      wertet aus und antwortet, schreibt aber nichts.
+// ?archive=1  Archiv-Modus (Migration 0022): Rohzeilen hr/steps/distance/energy OHNE "range" dauerhaft in
+//             fit_health_samples ablegen (Upsert, wiederholbar). Für einen automatischen Kurzbefehl, damit die Werte
+//             auch Tage später noch für jeden Zeitraum zur Verfügung stehen.
 //
 // Die Antwort enthält immer `message` (Klartext, im Kurzbefehl mit „Ergebnis anzeigen“ sichtbar).
 //
@@ -27,7 +31,7 @@
 // SUPABASE_URL und SUPABASE_SERVICE_ROLE_KEY stellt Supabase automatisch bereit.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { buildRangeResult, describeRangeResult } from './parse.ts';
+import { archiveGap, buildArchive, buildRangeResult, describeArchive, describeRangeResult } from './parse.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -81,12 +85,53 @@ Deno.serve(async (req: Request) => {
     return fail('Ungültiges JSON (Anfragetext muss ein JSON-Objekt sein)', 400);
   }
 
+  if (url.searchParams.get('archive') === '1') {
+    const arch = buildArchive(body, Date.now());
+    if (!arch.ok) return fail(arch.error, 400, { receivedKeys: Object.keys(body) });
+    const dry = url.searchParams.get('dry') === '1';
+    const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+    // Lücke erkennen: zuletzt gespeicherter Puls vor diesem Aufruf (nur lesen, auch im Probelauf).
+    let lastStoredHrMs: number | null = null;
+    if (arch.oldestHrMs !== null) {
+      const { data, error } = await supabase
+        .from('fit_health_samples')
+        .select('start_at')
+        .eq('user_id', IMPORT_USER_ID)
+        .eq('kind', 'hr')
+        .order('start_at', { ascending: false })
+        .limit(1);
+      if (error) return fail(`Archiv lesen fehlgeschlagen: ${error.message}`, 500);
+      if (data && data.length > 0) lastStoredHrMs = Date.parse(data[0].start_at as string);
+    }
+    const gap = archiveGap(lastStoredHrMs, arch.oldestHrMs);
+    const message = describeArchive(arch, gap, dry);
+    const summary = { counts: arch.counts, invalid: arch.invalid, duplicates: arch.duplicates, gap };
+    if (dry) return json({ ok: true, dry: true, message, ...summary });
+
+    const records = arch.rows.map((r) => ({
+      user_id: IMPORT_USER_ID,
+      kind: r.kind,
+      start_at: new Date(r.startMs).toISOString(),
+      end_at: new Date(r.endMs).toISOString(),
+      value: r.value,
+      source: r.source,
+    }));
+    for (let i = 0; i < records.length; i += 500) {
+      const { error } = await supabase
+        .from('fit_health_samples')
+        .upsert(records.slice(i, i + 500), { onConflict: 'user_id,kind,start_at,end_at,source' });
+      if (error) return fail(`Speichern fehlgeschlagen: ${error.message}`, 500);
+    }
+    return json({ ok: true, dry: false, message, ...summary });
+  }
+
   const built = buildRangeResult(body);
   if (!built.ok) return fail(built.error, 400, { receivedKeys: Object.keys(body) });
 
   // Was der Kurzbefehl tatsächlich geschickt hat (gekürzt): unterscheidet „Feld fehlt“, „leer“ und „falscher Name“.
   const received: Record<string, string> = {};
-  for (const k of ['avg_hr', 'max_hr', 'hr_count', 'steps_total', 'distance_km', 'hr', 'steps', 'distance']) {
+  for (const k of ['avg_hr', 'max_hr', 'hr_count', 'steps_total', 'distance_km', 'energy_kcal', 'hr', 'steps', 'distance', 'energy']) {
     received[k] = body[k] === undefined ? '(fehlt)' : JSON.stringify(body[k]).slice(0, 40);
   }
   const receivedText = Object.entries(received).map(([k, v]) => `${k}=${v}`).join(', ');
@@ -116,6 +161,7 @@ Deno.serve(async (req: Request) => {
       max_heart_rate: built.result.maxHeartRate,
       steps: built.result.steps,
       distance_km: built.result.distanceKm,
+      energy_kcal: built.result.energyKcal,
       source: built.source,
       received_at: new Date().toISOString(),
     },

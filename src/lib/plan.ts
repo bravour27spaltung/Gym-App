@@ -1,12 +1,15 @@
 import type { LoggedSet } from './progression';
 import { resolveSeatNote } from './seatNote';
 import type { ExerciseListItem } from './storage';
+import type { WarmupSet } from './warmup';
 import {
   addExercise,
   addWarmups,
+  applyPlanWarmups,
   createDraft,
   markWarmupAtStart,
   newId,
+  warmupSetsOf,
   type Draft,
   type NewExerciseRow,
 } from './workout';
@@ -35,6 +38,11 @@ export interface PlanExercise {
   equipmentKg: number | null;
   /** true = im Training werden vor den Arbeitssätzen Aufwärmsätze vorgeschlagen. */
   warmup: boolean;
+  /**
+   * Einzelne Aufwärmsätze mit festen Kilo (ohne Stange/Maschine) und Wiederholungen. Nur wirksam
+   * bei `warmup = true`; leer = die App schlägt wie bisher eine Rampe vor.
+   */
+  warmupSets: WarmupSet[];
   /** Freitext, z. B. Sitzeinstellung der Maschine; leer = keine Notiz. */
   note: string;
   /** Nur bei eigenen Übungen, die beim Speichern des Plans erst angelegt werden. */
@@ -85,6 +93,7 @@ export interface PlanExerciseInput {
   targetRir?: number | null;
   restSeconds?: number;
   warmup?: boolean;
+  warmupSets?: WarmupSet[];
   note?: string;
   weightKg?: number | null;
   equipmentKg?: number | null;
@@ -142,7 +151,7 @@ export function summarizePlanExercise(e: PlanExercise): string {
   const m = Math.floor(e.restSeconds / 60);
   const s = e.restSeconds % 60;
   parts.push(`${m}:${String(s).padStart(2, '0')} min`);
-  if (e.warmup) parts.push('Aufwärmen');
+  if (e.warmup) parts.push(e.warmupSets.length > 0 ? `Aufwärmen (${e.warmupSets.length})` : 'Aufwärmen');
   return parts.join(' · ');
 }
 
@@ -201,6 +210,7 @@ export function addPlanExercise(plan: Plan, dayId: string, input: PlanExerciseIn
     targetRir: input.targetRir ?? null,
     restSeconds: input.restSeconds ?? 120,
     warmup: input.warmup ?? false,
+    warmupSets: input.warmupSets ?? [],
     note: input.note ?? '',
     weightKg: input.weightKg ?? null,
     equipmentKg: input.equipmentKg ?? null,
@@ -224,7 +234,16 @@ export function updatePlanExercise(
   patch: Partial<
     Pick<
       PlanExercise,
-      'sets' | 'repMin' | 'repMax' | 'targetRir' | 'restSeconds' | 'warmup' | 'note' | 'weightKg' | 'equipmentKg'
+      | 'sets'
+      | 'repMin'
+      | 'repMax'
+      | 'targetRir'
+      | 'restSeconds'
+      | 'warmup'
+      | 'warmupSets'
+      | 'note'
+      | 'weightKg'
+      | 'equipmentKg'
     >
   >,
 ): Plan {
@@ -256,6 +275,9 @@ export function movePlanExercise(plan: Plan, dayId: string, exId: string, dir: -
 
 // ---------------------------------------------------------------------------
 // Prüfen
+
+/** Obergrenze der Aufwärmsätze je Planübung. */
+export const MAX_WARMUP_SETS = 10;
 
 /** Liefert verständliche Fehlermeldungen; leere Liste = Plan ist speicherbar. */
 export function validatePlan(plan: Plan): string[] {
@@ -289,6 +311,14 @@ export function validatePlan(plan: Plan): string[] {
         errors.push(`${label}, ${e.name}: Ziel-RIR muss zwischen 0 und 5 liegen.`);
       if (!Number.isInteger(e.restSeconds) || e.restSeconds < 1)
         errors.push(`${label}, ${e.name}: Pause muss größer als 0 sein.`);
+      if (e.warmupSets.length > MAX_WARMUP_SETS)
+        errors.push(`${label}, ${e.name}: höchstens ${MAX_WARMUP_SETS} Aufwärmsätze.`);
+      for (const [wi, ws] of e.warmupSets.entries()) {
+        if (!Number.isFinite(ws.weightKg) || ws.weightKg <= 0 || ws.weightKg > 999 || Math.abs(ws.weightKg * 4 - Math.round(ws.weightKg * 4)) > 1e-9)
+          errors.push(`${label}, ${e.name}: Aufwärmsatz ${wi + 1} braucht ein Gewicht über 0 kg (in 0,25-kg-Schritten).`);
+        if (!Number.isInteger(ws.reps) || ws.reps < 1 || ws.reps > 100)
+          errors.push(`${label}, ${e.name}: Aufwärmsatz ${wi + 1} braucht 1 bis 100 Wiederholungen.`);
+      }
       for (const [what, v] of [['Gewicht', e.weightKg], ['Stangen-/Maschinengewicht', e.equipmentKg]] as const) {
         if (v !== null && (!Number.isFinite(v) || v < 0 || v > 999 || Math.abs(v * 4 - Math.round(v * 4)) > 1e-9))
           errors.push(`${label}, ${e.name}: ${what} muss zwischen 0 und 999 kg liegen (in 0,25-kg-Schritten).`);
@@ -316,6 +346,8 @@ export interface PlanRows {
     target_rir: number | null;
     rest_seconds: number;
     warmup: boolean;
+    /** Aufwärmsätze mit festen Kilo; Spalte ab Migration 0023. */
+    warmup_sets: { weight_kg: number; reps: number }[];
     note: string | null;
     weight_kg: number | null;
     equipment_kg: number | null;
@@ -371,6 +403,7 @@ export function planToRows(plan: Plan, now: Date): PlanRows {
         target_rir: ex.targetRir,
         rest_seconds: ex.restSeconds,
         warmup: ex.warmup,
+        warmup_sets: ex.warmupSets.map((w) => ({ weight_kg: w.weightKg, reps: w.reps })),
         note: ex.note.trim() === '' ? null : ex.note.trim(),
         weight_kg: ex.weightKg,
         equipment_kg: ex.equipmentKg,
@@ -405,12 +438,28 @@ export interface PlanDbRow {
       target_rir: number | null;
       rest_seconds: number | null;
       warmup?: boolean | null;
+      /** Fehlt in Datenbanken ohne Migration 0023. */
+      warmup_sets?: unknown;
       note?: string | null;
       weight_kg?: number | string | null;
       equipment_kg?: number | string | null;
       archived_at: string | null;
     }[];
   }[];
+}
+
+/** Liest die Aufwärmsätze aus der Datenbank; alles Ungültige wird übersprungen. */
+export function warmupSetsFromRow(value: unknown): WarmupSet[] {
+  if (!Array.isArray(value)) return [];
+  const out: WarmupSet[] = [];
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) continue;
+    const { weight_kg: w, reps: r } = item as { weight_kg?: unknown; reps?: unknown };
+    const weightKg = Number(w);
+    const reps = Number(r);
+    if (Number.isFinite(weightKg) && weightKg > 0 && Number.isInteger(reps) && reps > 0) out.push({ weightKg, reps });
+  }
+  return out;
 }
 
 /**
@@ -448,6 +497,7 @@ export function plansFromRows(rows: PlanDbRow[], namesById: Record<string, strin
               targetRir: e.target_rir,
               restSeconds: e.rest_seconds ?? 120,
               warmup: e.warmup ?? false,
+              warmupSets: warmupSetsFromRow(e.warmup_sets),
               note: e.note ?? '',
               weightKg: e.weight_kg == null ? null : Number(e.weight_kg),
               equipmentKg: e.equipment_kg == null ? null : Number(e.equipment_kg),
@@ -519,7 +569,11 @@ export function draftFromPlanDay(
     if (e.warmup) {
       // Die erste Übung mit Aufwärmen bekommt die volle Rampe, spätere einen kurzen Satz.
       const added = draft.exercises[draft.exercises.length - 1];
-      draft = addWarmups(draft, added.id, first ? 'full' : 'short');
+      // Reihenfolge: Aufwärmsätze aus dem Plan (feste Kilo) vor dem letzten Training vor dem Vorschlag.
+      draft =
+        e.warmupSets.length > 0
+          ? applyPlanWarmups(draft, added.id, e.warmupSets)
+          : addWarmups(draft, added.id, first ? 'full' : 'short');
       // Vergleichsbasis: nur was hier tatsächlich entstanden ist, zählt später als "unverändert".
       draft = markWarmupAtStart(draft, added.id);
       first = false;
@@ -542,6 +596,8 @@ export interface PlanChange {
   sets?: { from: number; to: number };
   /** Aufwärmsätze vorhanden: beim Start -> beim Beenden. */
   warmup?: { from: boolean; to: boolean };
+  /** Aufwärmsätze (Gewicht, Wdh.): Stand beim Start -> Stand beim Beenden. */
+  warmupSets?: { from: WarmupSet[]; to: WarmupSet[] };
 }
 
 /** Das, was in der Datenbank und im lokalen Plan überschrieben wird. */
@@ -549,6 +605,7 @@ export interface PlanPatch {
   planExerciseId: string;
   sets?: number;
   warmup?: boolean;
+  warmupSets?: WarmupSet[];
   /** Notiz der Planübung (z. B. Sitzeinstellung); leer = Notiz entfernen. */
   note?: string;
 }
@@ -559,8 +616,8 @@ export interface PlanPatch {
  * Aufwärmsätze hinzugefügt oder alle entfernt) – nicht abgehakte Sätze: Wer einen geplanten
  * Satz einfach nicht macht, ändert den Plan nicht, wer ihn mit "Entfernen" löscht, schon.
  *
- * Aufwärmsätze speichert der Plan nur als Ja/Nein ("Aufwärmen"), nicht als Anzahl; die
- * Rampe wird beim Start neu vorgeschlagen.
+ * Aufwärmsätze speichert der Plan einzeln (Gewicht in kg, Wiederholungen); jede Änderung im
+ * Training überschreibt die Liste. Ohne Liste schlägt die App beim Start eine Rampe vor.
  */
 export function planChangesFromDraft(draft: Draft): PlanChange[] {
   const changes: PlanChange[] = [];
@@ -579,9 +636,19 @@ export function planChangesFromDraft(draft: Draft): PlanChange[] {
       if (hasWarmup !== e.warmupAtStart) change.warmup = { from: e.warmupAtStart, to: hasWarmup };
     }
 
-    if (change.sets || change.warmup) changes.push(change);
+    // Einzelne Aufwärmsätze: jede Änderung an Gewicht, Wiederholungen oder Anzahl zählt.
+    if (e.warmupSetsAtStart !== undefined) {
+      const now = warmupSetsOf(e);
+      if (!sameWarmupSets(e.warmupSetsAtStart, now)) change.warmupSets = { from: e.warmupSetsAtStart, to: now };
+    }
+
+    if (change.sets || change.warmup || change.warmupSets) changes.push(change);
   }
   return changes;
+}
+
+function sameWarmupSets(a: WarmupSet[], b: WarmupSet[]): boolean {
+  return a.length === b.length && a.every((x, i) => x.weightKg === b[i].weightKg && x.reps === b[i].reps);
 }
 
 export function patchesFromChanges(changes: PlanChange[]): PlanPatch[] {
@@ -589,6 +656,7 @@ export function patchesFromChanges(changes: PlanChange[]): PlanPatch[] {
     planExerciseId: c.planExerciseId,
     ...(c.sets ? { sets: c.sets.to } : {}),
     ...(c.warmup ? { warmup: c.warmup.to } : {}),
+    ...(c.warmupSets ? { warmupSets: c.warmupSets.to } : {}),
   }));
 }
 
@@ -597,6 +665,7 @@ export function describePlanChange(c: PlanChange): string {
   const parts: string[] = [];
   if (c.sets) parts.push(`${c.sets.from} → ${c.sets.to} Sätze`);
   if (c.warmup) parts.push(c.warmup.to ? 'Aufwärmen an' : 'Aufwärmen aus');
+  else if (c.warmupSets) parts.push('Aufwärmsätze angepasst');
   return `${c.name}: ${parts.join(', ')}`;
 }
 
@@ -624,6 +693,7 @@ export function applyPlanPatches(plans: Plan[], patches: PlanPatch[]): Plan[] {
           ...ex,
           ...(patch.sets !== undefined ? { sets: patch.sets } : {}),
           ...(patch.warmup !== undefined ? { warmup: patch.warmup } : {}),
+          ...(patch.warmupSets !== undefined ? { warmupSets: patch.warmupSets } : {}),
           ...(patch.note !== undefined ? { note: patch.note } : {}),
         };
       }),

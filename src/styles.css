@@ -3903,3 +3903,89 @@ h1 {
   font-size: 0.8rem;
   line-height: 1.25;
 }
+
+/* ---------- Lesbarkeit auf Hero-Karten, Ampel, Info-Einklappen ---------- */
+
+.hero .muted,
+.hero small,
+.hero li,
+.hero .reasons {
+  color: inherit;
+}
+
+.hero .reasons {
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.hero-ok {
+  --hero-bg: #136b3a;
+  --hero-text: #ffffff;
+  --hero-muted: #d6f0e0;
+  --hero-chip: rgba(255, 255, 255, 0.18);
+}
+
+.hero-watch {
+  --hero-bg: #f6c945;
+  --hero-text: #2b2100;
+  --hero-muted: #4a3a00;
+  --hero-chip: rgba(0, 0, 0, 0.09);
+}
+
+.hero-reduced {
+  --hero-bg: #b3261e;
+  --hero-text: #ffffff;
+  --hero-muted: #ffe3df;
+  --hero-chip: rgba(255, 255, 255, 0.18);
+}
+
+details.info {
+  margin: 12px 0 0;
+}
+
+details.info > summary {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+details.info > p {
+  margin: 8px 0 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.hero details.info > p,
+.hero details.info > summary {
+  color: inherit;
+}
+
+.screen,
+main {
+  scroll-padding-bottom: 120px;
+}
+
+/* Aufwärmsätze im Plan-Editor */
+.warmplan .warmrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.warmplan .warmrow .cellinput {
+  width: 80px;
+}
+
+.warmplan .warmidx {
+  width: 20px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.warmplan .warmactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-top: 4px;
+}

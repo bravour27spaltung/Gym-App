@@ -8,6 +8,7 @@ import type { StretchPayload, StretchPlan, StretchPlanPayload, StretchSide } fro
 import { STRETCH_CATALOG, STRETCH_PLAN_CATALOG, type CatalogPlanItem } from './stretchCatalog';
 import type { FootballKind, FootballPayload, FootballSource } from './football';
 import type { WatchRangeRecord } from './footballWatch';
+import { summarizeArchive, type ArchiveLookup, type ArchiveRow } from './healthArchive';
 import type { RecoveryPayload, RecoverySource } from './recovery';
 import type { RecoveryInboxRow } from './recoveryInbox';
 import type { HistWorkout } from './stats';
@@ -240,6 +241,7 @@ export async function fetchPlans(
   // Neueste Spalten zuerst. Fehlt eine Migration, wird mit dem älteren Spaltensatz geladen,
   // damit die Pläne trotzdem erscheinen (Speichern meldet dann klar, was fehlt).
   const variants = [
+    ['kind, ', ', warmup, warmup_sets, note, weight_kg, equipment_kg'],
     ['kind, ', ', warmup, note, weight_kg, equipment_kg'],
     ['kind, ', ', warmup, note'],
     ['', ''],
@@ -274,9 +276,16 @@ export async function savePlanRows(rows: PlanRows): Promise<Result<null>> {
   for (const [table, list] of steps) {
     if (list.length === 0) continue;
     const { error } = await supabase.from(table).upsert(list, { onConflict: 'id' });
-    if (error) return fail(`${table}: ${error.message}`);
+    if (error) return fail(table === 'fit_plan_exercises' ? planRowsError(error.message) : `${table}: ${error.message}`);
   }
   return { ok: true, data: null };
+}
+
+/** Meldet eine fehlende Migration 0023 verständlich, sonst die Rohmeldung der Datenbank. */
+function planRowsError(message: string): string {
+  return /warmup_sets/i.test(message)
+    ? 'Aufwärmsätze im Plan: Migration 0023 fehlt in Supabase (Spalte warmup_sets in fit_plan_exercises).'
+    : `fit_plan_exercises: ${message}`;
 }
 
 /**
@@ -293,11 +302,29 @@ export async function flushPlanPatches(store: Store): Promise<{ sent: number; pe
   let sent = 0;
   let error: string | null = null;
   for (const item of items) {
-    const fields: { sets?: number; warmup?: boolean; note?: string | null } = {};
+    const fields: {
+      sets?: number;
+      warmup?: boolean;
+      warmup_sets?: { weight_kg: number; reps: number }[];
+      note?: string | null;
+    } = {};
     if (item.sets !== undefined) fields.sets = item.sets;
     if (item.warmup !== undefined) fields.warmup = item.warmup;
+    if (item.warmupSets !== undefined) {
+      fields.warmup_sets = item.warmupSets.map((w) => ({ weight_kg: w.weightKg, reps: w.reps }));
+    }
     if (item.note !== undefined) fields.note = item.note.trim() === '' ? null : item.note.trim();
-    const { error: err } = await supabase.from('fit_plan_exercises').update(fields).eq('id', item.planExerciseId);
+    let { error: err } = await supabase.from('fit_plan_exercises').update(fields).eq('id', item.planExerciseId);
+    if (err && fields.warmup_sets !== undefined && /warmup_sets/i.test(err.message)) {
+      // Migration 0023 fehlt: Sätze, Aufwärmen und Notiz gehen trotzdem durch, die Meldung sagt, was fehlt.
+      const rest = { ...fields };
+      delete rest.warmup_sets;
+      error = planRowsError(err.message);
+      err = null;
+      if (Object.keys(rest).length > 0) {
+        ({ error: err } = await supabase.from('fit_plan_exercises').update(rest).eq('id', item.planExerciseId));
+      }
+    }
     if (err) {
       remaining.push(item);
       error = `fit_plan_exercises: ${err.message}`;
@@ -919,6 +946,38 @@ export async function fetchLatestWatchRange(): Promise<Result<WatchRangeRecord |
   if (error) return fail(error.message);
   const rows = (data ?? []) as unknown as WatchRangeRow[];
   return { ok: true, data: rows.length > 0 ? toWatchRange(rows[0]) : null };
+}
+
+/**
+ * Werte für einen Zeitraum aus dem Health-Archiv (fit_health_samples, Migration 0022): Samples, die den Zeitraum
+ * überlappen, plus der Zeitpunkt des neuesten archivierten Pulses (für die Erklärung, falls nichts da ist).
+ */
+export async function fetchArchiveLookup(fromMs: number, toMs: number): Promise<Result<ArchiveLookup>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const PAGE = 1000;
+  const rows: ArchiveRow[] = [];
+  for (let page = 0; page < 10; page++) {
+    const { data, error } = await supabase
+      .from('fit_health_samples')
+      .select('kind,start_at,end_at,value,source')
+      .lt('start_at', new Date(toMs).toISOString())
+      .gte('end_at', new Date(fromMs).toISOString())
+      .order('start_at', { ascending: true })
+      .range(page * PAGE, page * PAGE + PAGE - 1);
+    if (error) return fail(error.message);
+    const batch = (data ?? []) as unknown as ArchiveRow[];
+    rows.push(...batch);
+    if (batch.length < PAGE) break;
+  }
+  const { data: last, error: lastError } = await supabase
+    .from('fit_health_samples')
+    .select('start_at')
+    .eq('kind', 'hr')
+    .order('start_at', { ascending: false })
+    .limit(1);
+  if (lastError) return fail(lastError.message);
+  const lastHrAt = last && last.length > 0 ? ((last[0] as { start_at: string }).start_at) : null;
+  return { ok: true, data: { summary: summarizeArchive(rows, fromMs, toMs), lastHrAt } };
 }
 
 /** Löscht einen Fußball-Eintrag endgültig. */

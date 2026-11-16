@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { summarizeAppleHealthWindow } from '../lib/appleHealthImport';
 import { fmtDay, todayIso } from '../lib/format';
 import type { Result } from '../lib/api';
+import { describeArchiveMiss, type ArchiveLookup } from '../lib/healthArchive';
 import {
+  describeRangeSummary,
   diagnoseWatchRange,
+  hasWatchValues,
   WATCH_CLOCK_TOLERANCE_MS,
   watchShortcutUrl,
   type WatchRangeRecord,
@@ -23,6 +26,8 @@ import { Icon, IconButton, MetricField } from './ui';
 
 interface Props {
   history: HistFootballSession[];
+  /** Werte für einen Zeitraum aus dem Health-Archiv (automatisch gesicherte Apple-Watch-Rohwerte). */
+  onLoadArchive: (fromMs: number, toMs: number) => Promise<Result<ArchiveLookup>>;
   /** Apple-Watch-Ergebnis für genau diesen Zeitraum (null: dafür ist nichts angekommen). */
   onLoadWatchRange: (fromMs: number, toMs: number) => Promise<Result<WatchRangeRecord | null>>;
   /** Zuletzt eingegangenes Apple-Watch-Ergebnis überhaupt, für die Fehlersuche. */
@@ -49,6 +54,7 @@ const DEFAULT_MINUTES = 90;
  */
 export function FootballScreen({
   history,
+  onLoadArchive,
   onLoadWatchRange,
   onLoadLatestWatchRange,
   pending,
@@ -68,6 +74,7 @@ export function FootballScreen({
 
   const [distanceKm, setDistanceKm] = useState<number | null>(null);
   const [calories, setCalories] = useState<number | null>(null);
+  const [steps, setSteps] = useState<number | null>(null);
   const [avgHeartRate, setAvgHeartRate] = useState<number | null>(null);
   const [source, setSource] = useState<FootballSource>('manual');
   const [watchRangeBusy, setWatchRangeBusy] = useState(false);
@@ -86,6 +93,11 @@ export function FootballScreen({
     return () => document.removeEventListener('visibilitychange', onVisible);
   });
 
+  /** Stand der Archiv-Abfrage für den gewählten Zeitraum: Treffer, oder eine Erklärung, warum nichts da ist. */
+  const [archive, setArchive] = useState<
+    { state: 'idle' | 'loading' } | { state: 'hit'; lookup: ArchiveLookup } | { state: 'miss'; text: string }
+  >({ state: 'idle' });
+
   const [healthXml, setHealthXml] = useState<string | null>(null);
   const [healthFileName, setHealthFileName] = useState<string | null>(null);
   const [healthBusy, setHealthBusy] = useState(false);
@@ -95,6 +107,34 @@ export function FootballScreen({
   const rangeFromMs = new Date(`${playedOn}T${startedAtTime}:00`).getTime();
   const rangeReady = startedAtTime.trim() !== '' && minutes > 0 && Number.isFinite(rangeFromMs);
 
+  // Sobald ein Zeitraum steht, im Archiv nachsehen (kurz verzögert, damit Tippen in Zeitfeldern nicht jede Ziffer abfragt).
+  // Das Ergebnis wird nur vorgeschlagen, nie ungefragt ins Formular geschrieben.
+  const minutesKey = Number.isFinite(minutes) ? minutes : 0;
+  useEffect(() => {
+    if (!rangeReady) {
+      setArchive({ state: 'idle' });
+      return;
+    }
+    let cancelled = false;
+    setArchive({ state: 'loading' });
+    const timer = window.setTimeout(() => {
+      void onLoadArchive(rangeFromMs, rangeFromMs + minutesKey * 60_000).then((res) => {
+        if (cancelled) return;
+        if (!res.ok) {
+          setArchive({ state: 'miss', text: `Archiv nicht abrufbar: ${res.error}` });
+        } else if (hasWatchValues(res.data.summary)) {
+          setArchive({ state: 'hit', lookup: res.data });
+        } else {
+          setArchive({ state: 'miss', text: describeArchiveMiss(res.data, rangeFromMs) });
+        }
+      });
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [rangeReady, rangeFromMs, minutesKey, onLoadArchive]);
+
   function resetForm() {
     setKind('training');
     setMinutes(DEFAULT_MINUTES);
@@ -103,6 +143,7 @@ export function FootballScreen({
     setStartedAtTime('');
     setDistanceKm(null);
     setCalories(null);
+    setSteps(null);
     setAvgHeartRate(null);
     setSource('manual');
     setWatchRangeNotice(null);
@@ -120,6 +161,7 @@ export function FootballScreen({
       note,
       distanceKm,
       calories,
+      steps,
       avgHeartRate,
       source,
     });
@@ -160,12 +202,25 @@ export function FootballScreen({
     if (diag.kind === 'ok' && match) {
       setAvgHeartRate(match.avgHeartRate);
       setDistanceKm(match.distanceKm);
-      setCalories(null);
+      setCalories(match.energyKcal);
+      setSteps(match.steps);
       setSource('apple_health');
       setWatchRangeNotice(`${diag.text} Bei Bedarf unten anpassen.`);
       return;
     }
     setWatchRangeNotice(diag.text);
+  }
+
+  /** Übernimmt die Archiv-Werte für den gewählten Zeitraum ins Formular. */
+  function applyArchive() {
+    if (archive.state !== 'hit') return;
+    const r = archive.lookup.summary;
+    setAvgHeartRate(r.avgHeartRate);
+    setDistanceKm(r.distanceKm);
+    setCalories(r.energyKcal);
+    setSteps(r.steps);
+    setSource('apple_health');
+    setWatchRangeNotice('Aus dem Archiv übernommen. Bei Bedarf unten anpassen.');
   }
 
   function handleHealthFile(file: File) {
@@ -191,6 +246,7 @@ export function FootballScreen({
         const res = summarizeAppleHealthWindow(healthXml, startedAt, minutes);
         setDistanceKm(res.distanceKm);
         setCalories(res.calories);
+        setSteps(null);
         setAvgHeartRate(res.avgHeartRate);
         setSource('apple_health');
         if (res.distanceKm === null && res.calories === null && res.avgHeartRate === null) {
@@ -332,6 +388,19 @@ export function FootballScreen({
         <details className="equipment" open>
           <summary>Zusatzwerte (Distanz, Ø Puls) – optional, aus Apple Watch oder Health-Export</summary>
 
+          {archive.state === 'loading' && <p className="muted">Suche im Archiv …</p>}
+          {archive.state === 'hit' && (
+            <div className="row wrap">
+              <span>
+                Im Archiv gefunden: {describeRangeSummary(archive.lookup.summary)}.
+              </span>
+              <button type="button" className="btn compact primary" onClick={applyArchive}>
+                <Icon name="heart" size={16} /> Werte übernehmen
+              </button>
+            </div>
+          )}
+          {archive.state === 'miss' && <p className="muted">{archive.text}</p>}
+
           <div className="row wrap">
             {rangeReady ? (
               <a
@@ -358,7 +427,8 @@ export function FootballScreen({
             </button>
           </div>
           <p className="muted newex-hint">
-            Stelle oben Datum und Zeitraum (Von/Bis oder Dauer) frei ein und tippe auf „Apple-Watch-Daten holen“: Der
+            Läuft der automatische Archiv-Kurzbefehl, findest du die Werte oben im Archiv, auch Tage später. Fehlt dort
+            etwas, stelle Datum und Zeitraum (Von/Bis oder Dauer) frei ein und tippe auf „Apple-Watch-Daten holen“: Der
             Kurzbefehl liest nur diesen Zeitraum aus Health (iPhone entsperrt lassen). Danach kommst du über den
             Rücksprung-Link oben links in der Statusleiste zurück, die App holt Ø-Puls und Distanz dann automatisch.
             Ohne gestartete Aufzeichnung misst die Uhr die Herzfrequenz nur alle paar Minuten, Ø und Max beruhen daher auf
@@ -402,7 +472,8 @@ export function FootballScreen({
           {healthNotice && <p className="muted">{healthNotice}</p>}
 
           <MetricField label="Distanz" unit="km" step={0.1} value={distanceKm} onChange={setDistanceKm} />
-          <MetricField label="Kalorien" unit="kcal" value={calories} onChange={setCalories} />
+          <MetricField label="Aktive Energie" unit="kcal" value={calories} onChange={setCalories} />
+          <MetricField label="Schritte" unit="" value={steps} onChange={setSteps} />
           <MetricField label="Ø Herzfrequenz" unit="bpm" value={avgHeartRate} onChange={setAvgHeartRate} />
         </details>
 
@@ -424,7 +495,9 @@ export function FootballScreen({
                     </strong>
                     <small>
                       {s.minutes} min · RPE {s.rpe} · Belastung {footballLoad(s.minutes, s.rpe)}
-                      {s.distanceKm !== null ? ` · ${s.distanceKm.toFixed(1)} km` : ''}
+                      {s.distanceKm !== null ? ` · ${s.distanceKm.toFixed(s.distanceKm < 1 ? 2 : 1)} km` : ''}
+                      {s.steps != null ? ` · ${s.steps.toLocaleString('de-DE')} Schritte` : ''}
+                      {s.calories !== null ? ` · ${s.calories} kcal` : ''}
                       {s.avgHeartRate !== null ? ` · Ø ${s.avgHeartRate} bpm` : ''}
                       {s.note ? ` · ${s.note}` : ''}
                     </small>

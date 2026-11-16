@@ -1,7 +1,7 @@
 import { fmtDayLong, fmtKg, fmtPercent, fmtTime, fmtVolume, num0 } from '../lib/format';
 import type { ExerciseSummary, WorkoutSummary } from '../lib/stats';
 import { MuscleVolume } from './MuscleVolume';
-import { Icon, StatGrid } from './ui';
+import { Icon, StatGrid, Info } from './ui';
 
 interface Props {
   summary: WorkoutSummary;
@@ -131,12 +131,12 @@ export function WorkoutSummaryScreen({ summary, onDone }: Props) {
         </>
       )}
 
-      <p className="evidence">
+      <Info title="Datenlage"><p className="evidence">
         Das 1RM ist eine Schätzung nach Epley (Last × (1 + Wiederholungen ÷ 30)), nur bis 12
         Wiederholungen und am genauesten bei wenigen. Der Richtwert für Wochensätze stammt aus
         einer Meta-Analyse (Schoenfeld, Ogborn &amp; Krieger 2017, J Sports Sci); Evidenz: mittel,
         die Studien dauerten meist nur wenige Wochen.
-      </p>
+      </p></Info>
 
       <button type="button" className="btn primary block" onClick={onDone}>
         Fertig

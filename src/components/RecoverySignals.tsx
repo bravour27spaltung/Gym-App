@@ -1,4 +1,3 @@
-import type { CSSProperties } from 'react';
 import { footballKindLabel } from '../lib/football';
 import { fmtDay, fmtTime, num0, num1 } from '../lib/format';
 import {
@@ -13,6 +12,7 @@ import {
   type TrendSignal,
 } from '../lib/recoveryAnalysis';
 import { prsAnchor } from '../lib/recovery';
+import { Info } from './ui';
 
 const LEVEL_TEXT: Record<RecoveryLevel, { color: string; title: string; sub: string }> = {
   ok: { color: 'var(--accent)', title: 'Unauffällig', sub: 'Deine Signale liegen im Rahmen deines Normalbereichs.' },
@@ -81,7 +81,7 @@ function trendLines(t: TrendSignal, unit: 'ms' | 'bpm'): string[] {
 export function RecoveryHero({ a, loggedToday }: { a: RecoveryAssessment; loggedToday: boolean }) {
   const level = a.level ? LEVEL_TEXT[a.level] : null;
   return (
-    <section className="hero" style={{ '--accent': level?.color ?? 'var(--muted)' } as CSSProperties}>
+    <section className={`hero${a.level ? ` hero-${a.level}` : ''}`}>
       <p className="eyebrow">
         Erholungsstatus · {fmtDay(a.asOf)}
         {!loggedToday ? ' · heute noch kein Eintrag' : ''}
@@ -99,11 +99,11 @@ export function RecoveryHero({ a, loggedToday }: { a: RecoveryAssessment; logged
           ))}
         </ul>
       )}
-      <p className="muted newex-hint">
+      <Info title="Grundlage"><p className="newex-hint">
         Grundlage: {a.signals} von 5 Signalen{a.lows + a.watches > 0 ? `, davon ${a.lows} auffällig und ${a.watches} zu beobachten` : ''}. Regel: gelb bei einem
         deutlich oder zwei leicht abweichenden Signalen, rot bei mindestens zwei deutlich abweichenden. Das ist eine
         einfache Heuristik, keine Diagnose und keine Vorhersage von Leistung oder Verletzungen.
-      </p>
+      </p></Info>
     </section>
   );
 }
@@ -221,13 +221,13 @@ export function TrainingContextCard({ ctx }: { ctx: TrainingContext }) {
           </li>
         ))}
       </ul>
-      <p className="muted newex-hint">
+      <Info title="Belastung"><p className="newex-hint">
         Letzte 7 Tage: {gym.sessions7d} Krafttraining{gym.sessions7d === 1 ? '' : 's'}, {football.sessions7d} Fußball-Einheit
         {football.sessions7d === 1 ? '' : 'en'} mit {num0(football.load7d)} AU (Dauer × RPE).
         {football.within72h
           ? ' Nach Spielen kann die neuromuskuläre Erholung bis etwa 72 Stunden dauern (Silva et al. 2018); niedrige Werte heute sind dann nicht ungewöhnlich.'
           : ''}
-      </p>
+      </p></Info>
     </div>
   );
 }

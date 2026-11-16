@@ -27,6 +27,7 @@ import {
   deleteRecoveryEntry,
   fetchExercises,
   fetchFootballHistory,
+  fetchArchiveLookup,
   fetchLatestWatchRange,
   fetchWatchRange,
   fetchHistory,
@@ -1142,6 +1143,7 @@ export function App() {
           pending={footballPending}
           busy={footballBusy}
           notice={notice}
+          onLoadArchive={fetchArchiveLookup}
           onLoadWatchRange={fetchWatchRange}
           onLoadLatestWatchRange={fetchLatestWatchRange}
           onSave={(input) => void saveFootball(input)}

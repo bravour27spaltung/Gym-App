@@ -7,6 +7,8 @@ import {
   parseRange,
   parseSamples,
   summarizeRange,
+  sumInRange,
+  type RangeResult,
   type Sample,
 } from '../../supabase/functions/football-import/parse';
 import {
@@ -169,6 +171,7 @@ describe('summarizeRange (Rückfall: Rohzeilen)', () => {
     const steps = [s(10, 300, 2), s(60, 450, 2), s(-5, 999, 2)];
     const distance = [s(10, 0.25, 2), s(60, 0.35, 2)];
     expect(summarizeRange(hr, steps, distance, from, to)).toEqual({
+      energyKcal: null,
       hrSamples: 3,
       avgHeartRate: 133,
       maxHeartRate: 150,
@@ -179,6 +182,7 @@ describe('summarizeRange (Rückfall: Rohzeilen)', () => {
 
   it('lässt Felder ohne Werte im Zeitraum null (kein Raten)', () => {
     expect(summarizeRange([s(200, 140)], [], [], from, to)).toEqual({
+      energyKcal: null,
       hrSamples: 0,
       avgHeartRate: null,
       maxHeartRate: null,
@@ -210,7 +214,7 @@ describe('buildRangeResult', () => {
       toMs: Date.parse(TO),
       source: 'values',
       invalid: 0,
-      result: { hrSamples: 14, avgHeartRate: 132, maxHeartRate: 171, steps: 6200, distanceKm: 4.2 },
+      result: { hrSamples: 14, avgHeartRate: 132, maxHeartRate: 171, steps: 6200, distanceKm: 4.2, energyKcal: null },
     });
   });
 
@@ -240,7 +244,7 @@ describe('buildRangeResult', () => {
     expect(r).toMatchObject({
       ok: true,
       source: 'raw',
-      result: { hrSamples: 2, avgHeartRate: 134, maxHeartRate: 150, steps: null, distanceKm: 0.3 },
+      result: { hrSamples: 2, avgHeartRate: 134, maxHeartRate: 150, steps: null, distanceKm: 0.3, energyKcal: null },
     });
   });
 
@@ -259,7 +263,7 @@ describe('buildRangeResult', () => {
     expect(r).toMatchObject({
       ok: true,
       source: 'none',
-      result: { hrSamples: 0, avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null },
+      result: { hrSamples: 0, avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null, energyKcal: null },
     });
   });
 
@@ -302,8 +306,8 @@ describe('buildRangeResult', () => {
 });
 
 describe('describeRangeResult / describeRangeSummary', () => {
-  const full = { hrSamples: 7, avgHeartRate: 135, maxHeartRate: 168, steps: 6200, distanceKm: 5.12 };
-  const empty = { hrSamples: 0, avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null };
+  const full = { hrSamples: 7, avgHeartRate: 135, maxHeartRate: 168, steps: 6200, distanceKm: 5.12, energyKcal: null };
+  const empty = { hrSamples: 0, avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null, energyKcal: null };
 
   it('beschreibt nur vorhandene Werte', () => {
     expect(describeRangeSummary(full)).toBe('Ø 135 / max 168 bpm (7 Messwerte) · 5,1 km · 6.200 Schritte');
@@ -336,6 +340,7 @@ describe('diagnoseWatchRange', () => {
     maxHeartRate: 166,
     steps: 5100,
     distanceKm: 4.1,
+    energyKcal: null,
     ...over,
   });
   const since = Date.parse('2026-10-01T18:36:00Z');
@@ -347,7 +352,7 @@ describe('diagnoseWatchRange', () => {
   });
 
   it('empty: Kurzbefehl lief, Health lieferte nichts', () => {
-    const empty = rec({ hrSamples: 0, avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null });
+    const empty = rec({ hrSamples: 0, avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null, energyKcal: null });
     const d = diagnoseWatchRange(empty, empty, from, to, now, since);
     expect(d.kind).toBe('empty');
     expect(d.text).toContain('Health hat');
@@ -361,7 +366,7 @@ describe('diagnoseWatchRange', () => {
   });
 
   it('stale: ein alter Leer-Eintrag überdeckt keinen neuen Lauf', () => {
-    const oldEmpty = rec({ receivedAt: '2026-10-01T10:00:00Z', avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null, hrSamples: 0 });
+    const oldEmpty = rec({ receivedAt: '2026-10-01T10:00:00Z', avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: null, energyKcal: null, hrSamples: 0 });
     expect(diagnoseWatchRange(oldEmpty, oldEmpty, from, to, now, since).kind).toBe('stale');
   });
 
@@ -388,5 +393,73 @@ describe('diagnoseWatchRange', () => {
     const d = diagnoseWatchRange(null, null, from, to, now, since);
     expect(d.kind).toBe('none');
     expect(d.text).toContain('Stufe 1');
+  });
+});
+
+describe('Schritte, Distanz und aktive Energie aus Rohzeilen', () => {
+  const from = T0;
+  const to = T0 + 90 * MIN;
+  const iso = (offMin: number) => new Date(T0 + offMin * MIN).toISOString();
+
+  it('liest „Start|Ende|Wert|Quelle“ und „Start|Wert|Quelle“', () => {
+    const r = parseSamples(`${iso(0)}|${iso(5)}|120 kcal|Apple Watch von Steffen\n${iso(10)}|40|iPhone`, 'energy');
+    expect(r.invalid).toBe(0);
+    expect(r.samples).toHaveLength(2);
+    expect(r.samples[0]).toMatchObject({ value: 120, source: 'Apple Watch von Steffen' });
+    expect(r.samples[1]).toMatchObject({ value: 40, source: 'iPhone', startMs: r.samples[1].endMs });
+  });
+
+  it('rechnet Kilojoule in Kilokalorien um', () => {
+    const r = parseSamples(`${iso(0)}|${iso(5)}|418,4 kJ`, 'energy');
+    expect(r.samples[0].value).toBeCloseTo(100, 5);
+  });
+
+  it('zählt bei vorhandener Watch-Quelle nur die Watch (kein Doppelzählen mit dem iPhone)', () => {
+    const mk = (o: number, v: number, source: string): Sample => ({
+      startMs: T0 + o * MIN, endMs: T0 + (o + 5) * MIN, value: v, source,
+    });
+    const samples = [mk(0, 100, 'Apple Watch von Steffen'), mk(0, 90, 'iPhone von Steffen'), mk(10, 50, 'Apple Watch von Steffen')];
+    expect(sumInRange(samples, from, to)).toBe(150);
+    // ohne Watch-Quelle zählt alles
+    expect(sumInRange([mk(0, 10, 'iPhone'), mk(10, 5, 'iPhone')], from, to)).toBe(15);
+  });
+
+  it('rechnet Samples an der Zeitraumgrenze anteilig', () => {
+    // 10-Minuten-Sample, nur die zweiten 5 Minuten liegen im Zeitraum: halber Wert
+    const sample: Sample = { startMs: T0 - 5 * MIN, endMs: T0 + 5 * MIN, value: 200 };
+    expect(sumInRange([sample], from, to)).toBe(100);
+    expect(sumInRange([{ ...sample, startMs: T0 + 100 * MIN, endMs: T0 + 110 * MIN }], from, to)).toBeNull();
+  });
+
+  it('buildRangeResult: Energie, Schritte und Distanz aus Rohzeilen, Einheit „Meter“ wird erkannt', () => {
+    const r = buildRangeResult({
+      range: `${new Date(from).toISOString()}|${new Date(to).toISOString()}`,
+      hr: `${iso(10)}|130`,
+      steps: `${iso(10)}|${iso(15)}|400 count|Apple Watch`,
+      distance: `${iso(10)}|${iso(15)}|0,3 km|Apple Watch`,
+      energy: `${iso(10)}|${iso(15)}|35 kcal|Apple Watch`,
+    });
+    expect(r).toMatchObject({ ok: true, source: 'raw', result: { steps: 400, distanceKm: 0.3, energyKcal: 35, avgHeartRate: 130 } });
+    expect(describeRangeResult((r as unknown as { result: RangeResult }).result)).toContain('35 kcal aktiv');
+  });
+
+  it('buildRangeResult: fertige energy_kcal haben Vorrang, Unplausibles wird gezählt statt gespeichert', () => {
+    const range = `${new Date(from).toISOString()}|${new Date(to).toISOString()}`;
+    expect(buildRangeResult({ range, energy_kcal: 480 })).toMatchObject({ ok: true, source: 'values', result: { energyKcal: 480 } });
+    expect(buildRangeResult({ range, energy_kcal: 99999 })).toMatchObject({ ok: true, invalid: 1, result: { energyKcal: null } });
+  });
+
+  it('lehnt identische Zeilenlisten für zwei Felder ab (doppelt belegte Variable)', () => {
+    const r = buildRangeResult({ range: `${FROM}|${TO}`, steps: `${iso(1)}|5`, energy: `${iso(1)}|5` });
+    expect(r.ok).toBe(false);
+    expect(summarizeRange([], [], [], from, to).energyKcal).toBeNull();
+  });
+});
+
+describe('Anzeige kleiner Distanzen', () => {
+  it('zeigt unter 1 km zwei Nachkommastellen statt 0 km', () => {
+    const r = { hrSamples: 0, avgHeartRate: null, maxHeartRate: null, steps: null, distanceKm: 0.04, energyKcal: null };
+    expect(describeRangeResult(r)).toContain('0,04 km');
+    expect(describeRangeSummary(r)).toBe('0,04 km');
   });
 });

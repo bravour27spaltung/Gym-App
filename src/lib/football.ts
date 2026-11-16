@@ -72,6 +72,7 @@ export interface FootballEntryInput {
   /** Aus einem Apple-Health-Export übernommen oder manuell eingetragen; alle optional. */
   distanceKm?: number | null;
   calories?: number | null;
+  steps?: number | null;
   avgHeartRate?: number | null;
   source?: FootballSource;
 }
@@ -87,6 +88,7 @@ export interface FootballPayload {
     note: string | null;
     distance_km: number | null;
     calories: number | null;
+    steps: number | null;
     avg_heart_rate: number | null;
     source: FootballSource;
   };
@@ -132,6 +134,7 @@ export function buildFootballPayload(input: FootballEntryInput): FootballPayload
       note: input.note.trim() === '' ? null : input.note.trim(),
       distance_km: nonNegOrNull(input.distanceKm),
       calories: nonNegOrNull(input.calories) === null ? null : Math.round(nonNegOrNull(input.calories)!),
+      steps: nonNegOrNull(input.steps) === null ? null : Math.round(nonNegOrNull(input.steps)!),
       avg_heart_rate: heartRateOrNull(input.avgHeartRate),
       source: input.source ?? 'manual',
     },

@@ -18,17 +18,19 @@ export interface WatchRangeRecord {
   maxHeartRate: number | null;
   steps: number | null;
   distanceKm: number | null;
+  /** Aktive Energie in kcal. */
+  energyKcal: number | null;
 }
 
 /** Ø/Max-Puls, Schritte, Distanz (ohne Zeitangaben), zum Anzeigen und Übernehmen. */
 export type WatchRangeSummary = Pick<
   WatchRangeRecord,
-  'hrSamples' | 'avgHeartRate' | 'maxHeartRate' | 'steps' | 'distanceKm'
+  'hrSamples' | 'avgHeartRate' | 'maxHeartRate' | 'steps' | 'distanceKm' | 'energyKcal'
 >;
 
 /** Hat das Ergebnis überhaupt einen Wert, den die App übernehmen kann? */
 export function hasWatchValues(r: WatchRangeSummary): boolean {
-  return r.avgHeartRate !== null || r.distanceKm !== null || r.steps !== null;
+  return r.avgHeartRate !== null || r.distanceKm !== null || r.steps !== null || r.energyKcal !== null;
 }
 
 /** "Ø 135 / max 168 bpm (7 Messwerte) · 5,1 km · 6.200 Schritte" (nur vorhandene Werte). */
@@ -38,8 +40,9 @@ export function describeRangeSummary(r: WatchRangeSummary): string {
     const max = r.maxHeartRate !== null ? ` / max ${r.maxHeartRate}` : '';
     parts.push(`Ø ${r.avgHeartRate}${max} bpm (${r.hrSamples} Messwerte)`);
   }
-  if (r.distanceKm !== null) parts.push(`${r.distanceKm.toLocaleString('de-DE', { maximumFractionDigits: 1 })} km`);
+  if (r.distanceKm !== null) parts.push(`${r.distanceKm.toLocaleString('de-DE', { maximumFractionDigits: r.distanceKm < 1 ? 2 : 1 })} km`);
   if (r.steps !== null) parts.push(`${r.steps.toLocaleString('de-DE')} Schritte`);
+  if (r.energyKcal !== null) parts.push(`${r.energyKcal.toLocaleString('de-DE')} kcal aktiv`);
   return parts.join(' · ');
 }
 

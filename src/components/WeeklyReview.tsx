@@ -1,7 +1,7 @@
 import { fmtDay, fmtKg, fmtVolume, num0 } from '../lib/format';
 import type { ExerciseProgressLine, WeeklyReview } from '../lib/weeklyReview';
 import { MuscleVolume } from './MuscleVolume';
-import { Icon, StatGrid } from './ui';
+import { Icon, StatGrid, Info } from './ui';
 
 interface Props {
   review: WeeklyReview;
@@ -96,7 +96,7 @@ export function WeeklyReviewScreen({ review, onDone }: Props) {
         </>
       )}
 
-      <p className="evidence">
+      <Info title="Datenlage"><p className="evidence">
         Zeitraum: die letzten 7 Tage bis zu diesem Training, nicht die Kalenderwoche. Der
         Richtwert 10–20 Sätze pro Muskel und Woche stammt aus einer Meta-Analyse (Schoenfeld,
         Ogborn &amp; Krieger 2017, J Sports Sci); Evidenz: mittel, die Studien dauerten meist nur
@@ -105,7 +105,7 @@ export function WeeklyReviewScreen({ review, onDone }: Props) {
         auf den Muskelaufbau laut Meta-Analysen klein bis unklar (Schoenfeld, Ogborn &amp; Krieger
         2016, Sports Med). „Steigern"/„Halten" folgt derselben Double-Progression-Regel wie nach
         jedem Training, aus der jüngsten Einheit dieser Woche.
-      </p>
+      </p></Info>
 
       <button type="button" className="btn primary block" onClick={onDone}>
         Fertig

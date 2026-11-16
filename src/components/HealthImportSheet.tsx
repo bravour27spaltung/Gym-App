@@ -10,7 +10,7 @@ import {
 } from '../lib/healthImport';
 import type { HistWorkout } from '../lib/stats';
 import type { HistFootballSession, HistRecoveryEntry, HistStretchSession } from '../lib/storage';
-import { Icon, IconButton, type IconName } from './ui';
+import { Icon, IconButton, type IconName, Info } from './ui';
 
 interface Props {
   workouts: HistWorkout[];
@@ -160,7 +160,7 @@ export function HealthImportSheet({ workouts, stretches, footballs, recoveries, 
 
       <div className="sheet-scroll">
         <div className="card">
-          <p className="muted newex-hint">
+          <Info title="Anleitung"><p className="newex-hint">
             Ergänzt Kalorien, Ø Herzfrequenz (bei Fußball zusätzlich die Distanz, bei Recovery HRV,
             Ruhepuls und Schlafdauer) für bereits gespeicherte Einträge in Training, Stretching,
             Fußball und Recovery – anhand des jeweils bekannten Zeitfensters. Bereits vorhandene Werte
@@ -169,7 +169,7 @@ export function HealthImportSheet({ workouts, stretches, footballs, recoveries, 
             „Alle Gesundheitsdaten exportieren“, ZIP entpacken und hier die enthaltene{' '}
             <code>export.xml</code> wählen. Die Datei kann mehrere hundert MB groß sein; das Verarbeiten
             dauert dann einen Moment.
-          </p>
+          </p></Info>
 
           <div className="row wrap">
             <label className="btn compact" style={{ cursor: 'pointer' }}>
