@@ -105,6 +105,7 @@ import {
 } from './lib/stats';
 import { muscleLabel } from './lib/muscles';
 import { num1, todayIso } from './lib/format';
+import { filterByRange, PROGRESS_RANGES, type ProgressRange } from './lib/progressRange';
 import { inboxPatchFor, shouldPromptRecovery } from './lib/recoveryInbox';
 import { normalizeThresholds, type RecoveryThresholds } from './lib/recoveryAnalysis';
 import {
@@ -183,6 +184,7 @@ export function App() {
   const [stretchPlanEditor, setStretchPlanEditor] = useState<StretchPlan | 'new' | null>(null);
   const stretchLoaded = useRef(false);
   // Verlauf: Gym-Einheiten (Default), Dehnen, Fußball, Recovery oder alles gemeinsam.
+  const [historyRange, setHistoryRange] = useState<ProgressRange>('all');
   const [historyFilter, setHistoryFilter] = useState<'gym' | 'stretch' | 'cardio' | 'recovery' | 'all'>('gym');
   // Einheit, die der Gym-Verlauf beim Öffnen direkt zeigt (Sprung aus dem Reiter „Alle").
   const [historyOpenWorkout, setHistoryOpenWorkout] = useState<string | null>(null);
@@ -1181,6 +1183,23 @@ export function App() {
   }
 
   if (screen === 'history') {
+    const now = Date.now();
+    const workoutsInRange = filterByRange(mergedHistory, historyRange, now, (w) => w.startedAt);
+    const stretchInRange = filterByRange(stretchHistory, historyRange, now, (s) => s.startedAt);
+    const cardioInRange = filterByRange(cardioHistory, historyRange, now, (c) => c.playedOn);
+    const recoveryInRange = filterByRange(recoveryHistory, historyRange, now, (r) => r.date);
+    // Gibt es Einträge, aber keinen im gewählten Zeitraum, wäre "Noch nichts gespeichert" irreführend.
+    const [inRangeCount, totalCount] =
+      historyFilter === 'stretch'
+        ? [stretchInRange.length, stretchHistory.length]
+        : historyFilter === 'cardio'
+          ? [cardioInRange.length, cardioHistory.length]
+          : historyFilter === 'recovery'
+            ? [recoveryInRange.length, recoveryHistory.length]
+            : historyFilter === 'all'
+              ? [workoutsInRange.length + stretchInRange.length + cardioInRange.length, mergedHistory.length + stretchHistory.length + cardioHistory.length]
+              : [1, 1];
+    const nothingInRange = inRangeCount === 0 && totalCount > 0;
     return (
       <main>
         <div className="screen" style={{ paddingBottom: 0 }}>
@@ -1217,6 +1236,21 @@ export function App() {
               </button>
             ))}
           </nav>
+          {historyFilter !== 'gym' && (
+            <div className="chips sm rangechips" role="group" aria-label="Zeitraum">
+              {PROGRESS_RANGES.map((r) => (
+                <button
+                  key={r.key}
+                  type="button"
+                  className={historyRange === r.key ? 'chip on' : 'chip'}
+                  aria-pressed={historyRange === r.key}
+                  onClick={() => setHistoryRange(r.key)}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {historyFilter === 'gym' && (
           <HistoryScreen
@@ -1226,16 +1260,17 @@ export function App() {
             openWorkoutId={historyOpenWorkout}
           />
         )}
-        {historyFilter === 'stretch' && (
-          <StretchHistoryScreen sessions={stretchHistory} nameOf={stretchNameOf} />
+        {nothingInRange && <p className="muted" style={{ padding: '0 16px' }}>Keine Einträge in diesem Zeitraum.</p>}
+        {!nothingInRange && historyFilter === 'stretch' && (
+          <StretchHistoryScreen sessions={stretchInRange} nameOf={stretchNameOf} />
         )}
-        {historyFilter === 'cardio' && <CardioHistoryScreen sessions={cardioHistory} />}
-        {historyFilter === 'recovery' && <RecoveryHistoryScreen entries={recoveryHistory} thresholds={recoveryThresholds} />}
-        {historyFilter === 'all' && (
+        {!nothingInRange && historyFilter === 'cardio' && <CardioHistoryScreen sessions={cardioInRange} />}
+        {!nothingInRange && historyFilter === 'recovery' && <RecoveryHistoryScreen entries={recoveryInRange} thresholds={recoveryThresholds} />}
+        {!nothingInRange && historyFilter === 'all' && (
           <CombinedHistoryScreen
-            workouts={mergedHistory}
-            stretches={stretchHistory}
-            cardios={cardioHistory}
+            workouts={workoutsInRange}
+            stretches={stretchInRange}
+            cardios={cardioInRange}
             onOpenWorkout={(id) => {
               setHistoryOpenWorkout(id);
               setHistoryFilter('gym');

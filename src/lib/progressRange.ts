@@ -7,11 +7,12 @@
  * Woche" (das wäre bei ein bis zwei Einheiten pro Woche meist leer oder irreführend).
  */
 
-export type ProgressRange = 'week' | 'month' | 'year' | 'all';
+export type ProgressRange = 'week' | 'month' | 'quarter' | 'year' | 'all';
 
 export const PROGRESS_RANGES: { key: ProgressRange; label: string; days: number | null }[] = [
   { key: 'week', label: 'Woche', days: 7 },
   { key: 'month', label: 'Monat', days: 30 },
+  { key: 'quarter', label: 'Quartal', days: 90 },
   { key: 'year', label: 'Jahr', days: 365 },
   { key: 'all', label: 'Gesamt', days: null },
 ];
@@ -63,4 +64,14 @@ export function rangeChange<T extends SeriesPoint>(full: T[], start: number | nu
   const base = before ?? inRange[0];
   if (base === last) return null;
   return { base, last, abs: last.value - base.value, pct: pctChange(base.value, last.value) };
+}
+
+/** Schneidet Einträge auf den Zeitraum zu (`at`: Zeitpunkt oder Datum des Eintrags); "Gesamt" lässt alles durch. */
+export function filterByRange<T>(items: T[], range: ProgressRange, now: number, at: (item: T) => string): T[] {
+  const start = rangeStart(range, now);
+  if (start === null) return items;
+  return items.filter((i) => {
+    const ms = new Date(at(i)).getTime();
+    return Number.isFinite(ms) && ms >= start;
+  });
 }

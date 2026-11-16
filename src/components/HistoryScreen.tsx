@@ -61,9 +61,10 @@ const SECTIONS: { key: Section; label: string }[] = [
 
 /** Zeitraum der Übersicht in Tagen. */
 const RANGES = [
-  { days: 7, label: '7 Tage', title: 'Letzte 7 Tage' },
-  { days: 28, label: '4 Wochen', title: 'Letzte 4 Wochen' },
-  { days: 90, label: '3 Monate', title: 'Letzte 3 Monate' },
+  { days: 7, label: 'Woche', title: 'Letzte 7 Tage' },
+  { days: 30, label: 'Monat', title: 'Letzte 30 Tage' },
+  { days: 90, label: 'Quartal', title: 'Letzte 90 Tage' },
+  { days: 365, label: 'Jahr', title: 'Letzte 365 Tage' },
 ] as const;
 
 type View =

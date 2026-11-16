@@ -1,9 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { pctChange, rangeChange, rangeStart, withPctToPrevious } from './progressRange';
+import { filterByRange, pctChange, rangeChange, rangeStart, withPctToPrevious } from './progressRange';
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 9, 29, 12);
 const p = (daysAgo: number, value: number) => ({ at: NOW - daysAgo * DAY, value });
+
+describe('filterByRange', () => {
+  const items = [{ d: new Date(NOW - 3 * DAY).toISOString() }, { d: new Date(NOW - 40 * DAY).toISOString() }, { d: new Date(NOW - 200 * DAY).toISOString() }];
+  it('schneidet nach Zeitraum zu, Gesamt lässt alles durch', () => {
+    expect(filterByRange(items, 'week', NOW, (i) => i.d)).toHaveLength(1);
+    expect(filterByRange(items, 'month', NOW, (i) => i.d)).toHaveLength(1);
+    expect(filterByRange(items, 'quarter', NOW, (i) => i.d)).toHaveLength(2);
+    expect(filterByRange(items, 'year', NOW, (i) => i.d)).toHaveLength(3);
+    expect(filterByRange(items, 'all', NOW, (i) => i.d)).toHaveLength(3);
+  });
+});
 
 describe('rangeStart', () => {
   it('rechnet Woche, Monat und Jahr zurück, Gesamt schneidet nicht zu', () => {

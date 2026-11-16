@@ -39,7 +39,6 @@ export function CardioHistoryScreen({ sessions }: Props) {
 
   return (
     <div className="screen">
-
       <StatGrid
         columns={3}
         items={[
