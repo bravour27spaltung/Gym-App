@@ -1,7 +1,8 @@
-import { footballLoad, type FootballKind } from './football';
+import { cardioLoad } from './cardio';
+import type { FootballKind } from './football';
 import { sleepMidpointMinutes } from './sleep';
 import type { HistWorkout } from './stats';
-import type { HistFootballSession, HistRecoveryEntry } from './storage';
+import type { HistCardioSession, HistRecoveryEntry } from './storage';
 
 /**
  * Recovery-Auswertung: mehrere Signale, je gegen die EIGENE Baseline eingeordnet, und eine
@@ -550,7 +551,7 @@ export interface TrainingContext {
 }
 
 /** Beginn einer Fußballeinheit in ms; ohne Startzeit näherungsweise Mittag des Spieltags. */
-function footballStartMs(f: HistFootballSession): number {
+function footballStartMs(f: HistCardioSession): number {
   return f.startedAt ? Date.parse(f.startedAt) : new Date(`${f.playedOn}T12:00:00`).getTime();
 }
 
@@ -562,7 +563,7 @@ function footballStartMs(f: HistFootballSession): number {
  */
 export function trainingContext(
   workouts: HistWorkout[],
-  footballs: HistFootballSession[],
+  cardios: HistCardioSession[],
   nowMs: number,
 ): TrainingContext {
   const week = 7 * DAY_MS;
@@ -574,7 +575,9 @@ export function trainingContext(
     .filter((x) => Number.isFinite(x.ms) && x.ms <= nowMs)
     .sort((a, b) => b.ms - a.ms);
 
-  const games = footballs
+  // Nur Fußball mit RPE geht in die Belastungseinordnung ein (Session-RPE-Last braucht beides).
+  const games = cardios
+    .filter((c) => c.activity === 'football' && c.rpe !== null)
     .map((f) => ({ f, ms: footballStartMs(f) }))
     .filter((x) => Number.isFinite(x.ms) && x.ms <= nowMs)
     .sort((a, b) => b.ms - a.ms);
@@ -590,8 +593,8 @@ export function trainingContext(
     football: {
       hoursSinceLast: lastGame ? hoursSince(lastGame.ms) : null,
       lastKind: lastGame?.f.kind ?? null,
-      lastLoad: lastGame ? footballLoad(lastGame.f.minutes, lastGame.f.rpe) : null,
-      load7d: recentGames.reduce((s, x) => s + footballLoad(x.f.minutes, x.f.rpe), 0),
+      lastLoad: lastGame ? cardioLoad(lastGame.f.minutes, lastGame.f.rpe) : null,
+      load7d: recentGames.reduce((s, x) => s + (cardioLoad(x.f.minutes, x.f.rpe) ?? 0), 0),
       sessions7d: recentGames.length,
       within72h: lastGame ? hoursSince(lastGame.ms) < 72 : false,
     },

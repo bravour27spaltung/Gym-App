@@ -3,7 +3,9 @@ import type { LoggedSet } from './progression';
 import type { SeatNotes } from './seatNote';
 import type { HistWorkout } from './stats';
 import type { StretchDraft, StretchPayload, StretchPlan } from './stretch';
-import type { FootballKind, FootballPayload, FootballSource } from './football';
+import { parseCardioActivity, type CardioActivity, type CardioPayload, type CardioSource } from './cardio';
+import type { FootballKind } from './football';
+import { normalizeZonePrefs, type ZonePrefs } from './zones';
 import type { RecoveryPayload, RecoverySource } from './recovery';
 import { normalizeThresholds, type RecoveryThresholds } from './recoveryAnalysis';
 import type { Draft, WorkoutPayload } from './workout';
@@ -76,21 +78,27 @@ export interface HistStretchSession {
   avgHeartRate?: number | null;
 }
 
-export interface HistFootballSession {
+export interface HistCardioSession {
   id: string;
+  /** Seit Migration 0024; ältere gespeicherte Einträge haben das Feld nicht und gelten als Fußball. */
+  activity: CardioActivity;
   /** "YYYY-MM-DD". */
   playedOn: string;
   startedAt: string | null;
-  kind: FootballKind;
+  /** Alter Untertyp, nur bei älteren Fußball-Einträgen gesetzt. */
+  kind: FootballKind | null;
   minutes: number;
-  rpe: number;
+  /** Subjektive Belastung; beim Laufen und Radfahren optional. */
+  rpe: number | null;
   note: string | null;
   distanceKm: number | null;
   calories: number | null;
   /** Seit Migration 0021; ältere gespeicherte Einträge haben das Feld nicht. */
   steps?: number | null;
   avgHeartRate: number | null;
-  source: FootballSource;
+  /** Seit Migration 0024; fehlt in älteren gespeicherten Einträgen. */
+  maxHeartRate?: number | null;
+  source: CardioSource;
 }
 
 export interface HistRecoveryEntry {
@@ -121,6 +129,7 @@ export interface HistRecoveryEntry {
 
 const KEYS = {
   recoveryThresholds: 'gym.recoveryThresholds.v1',
+  zonePrefs: 'gym.zonePrefs.v1',
   draft: 'gym.draft.v1',
   outbox: 'gym.outbox.v1',
   lastSets: 'gym.lastSets.v1',
@@ -138,7 +147,8 @@ const KEYS = {
   stretchHistory: 'gym.stretchHistory.v1',
   stretchPlans: 'gym.stretchPlans.v1',
   footballOutbox: 'gym.footballOutbox.v1',
-  footballHistory: 'gym.footballHistory.v1',
+  // Schlüsselwerte bleiben bewusst unverändert, damit der lokale Zwischenspeicher beim Umbau auf Cardio erhalten bleibt.
+  cardioHistory: 'gym.footballHistory.v1',
   recoveryOutbox: 'gym.recoveryOutbox.v1',
   recoveryHistory: 'gym.recoveryHistory.v1',
   recoveryPromptDate: 'gym.recoveryPromptDate.v1',
@@ -301,18 +311,30 @@ export function createStore(storage: KeyValueStorage | null) {
     saveStretchPlans: (items: StretchPlan[]) => write(KEYS.stretchPlans, items),
 
     // Fußball: eigener, einfacher Bereich (kein Draft, nur Ausgangskorb plus Verlauf).
-    loadFootballOutbox: () => read<FootballPayload[]>(KEYS.footballOutbox, []),
-    saveFootballOutbox: (items: FootballPayload[]) => write(KEYS.footballOutbox, items),
-    enqueueFootball(p: FootballPayload): boolean {
-      const items = read<FootballPayload[]>(KEYS.footballOutbox, []).filter(
+    loadCardioOutbox: (): CardioPayload[] =>
+      read<CardioPayload[]>(KEYS.footballOutbox, []).map((p) => ({
+        session: {
+          ...p.session,
+          activity: parseCardioActivity((p.session as { activity?: unknown }).activity),
+        },
+      })),
+    saveCardioOutbox: (items: CardioPayload[]) => write(KEYS.footballOutbox, items),
+    enqueueCardio(p: CardioPayload): boolean {
+      const items = read<CardioPayload[]>(KEYS.footballOutbox, []).filter(
         (x) => x.session.id !== p.session.id,
       );
       items.push(p);
       return write(KEYS.footballOutbox, items);
     },
 
-    loadFootballHistory: () => read<HistFootballSession[]>(KEYS.footballHistory, []),
-    saveFootballHistory: (items: HistFootballSession[]) => write(KEYS.footballHistory, items),
+    loadCardioHistory: (): HistCardioSession[] =>
+      read<HistCardioSession[]>(KEYS.cardioHistory, []).map((s) => ({
+        ...s,
+        activity: parseCardioActivity((s as { activity?: unknown }).activity),
+        kind: s.kind ?? null,
+        rpe: s.rpe ?? null,
+      })),
+    saveCardioHistory: (items: HistCardioSession[]) => write(KEYS.cardioHistory, items),
 
     // Recovery: eigener, einfacher Bereich (kein Draft, ein Eintrag pro Tag), gleiches
     // Muster wie Fußball.
@@ -331,6 +353,8 @@ export function createStore(storage: KeyValueStorage | null) {
     setRecoveryPromptDate: (d: string) => write(KEYS.recoveryPromptDate, d),
 
     /** Persönliche Recovery-Schwellen (nur auf diesem Gerät); ungültige Werte werden korrigiert. */
+    loadZonePrefs: (): ZonePrefs => normalizeZonePrefs(read<unknown>(KEYS.zonePrefs, null)),
+    saveZonePrefs: (p: ZonePrefs) => write(KEYS.zonePrefs, normalizeZonePrefs(p)),
     loadRecoveryThresholds: (): RecoveryThresholds =>
       normalizeThresholds(read<Partial<RecoveryThresholds> | null>(KEYS.recoveryThresholds, null)),
     saveRecoveryThresholds: (t: RecoveryThresholds) => write(KEYS.recoveryThresholds, normalizeThresholds(t)),

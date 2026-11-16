@@ -9,13 +9,13 @@ import {
   type HealthImportMatch,
 } from '../lib/healthImport';
 import type { HistWorkout } from '../lib/stats';
-import type { HistFootballSession, HistRecoveryEntry, HistStretchSession } from '../lib/storage';
+import type { HistCardioSession, HistRecoveryEntry, HistStretchSession } from '../lib/storage';
 import { Icon, IconButton, type IconName, Info } from './ui';
 
 interface Props {
   workouts: HistWorkout[];
   stretches: HistStretchSession[];
-  footballs: HistFootballSession[];
+  cardios: HistCardioSession[];
   recoveries: HistRecoveryEntry[];
   onClose: () => void;
   /** Übernimmt die ausgewählten Treffer (schreibt in die Datenbank) und synchronisiert danach. */
@@ -25,7 +25,7 @@ interface Props {
 const KIND_ICON: Record<HealthImportKind, IconName> = {
   workout: 'dumbbell',
   stretch: 'flame',
-  football: 'football',
+  cardio: 'pulse',
   recovery: 'heart',
 };
 
@@ -77,7 +77,7 @@ function formatValue(field: PatchField, value: number): string {
  * die Nacht, die am Eintragsdatum endet, siehe summarizeRecoveryDay). Bereits vorhandene
  * Werte werden nie überschrieben, außer älteren Schlafwerten ohne Nachtfenster.
  */
-export function HealthImportSheet({ workouts, stretches, footballs, recoveries, onClose, onApply }: Props) {
+export function HealthImportSheet({ workouts, stretches, cardios, recoveries, onClose, onApply }: Props) {
   const [fileName, setFileName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +99,7 @@ export function HealthImportSheet({ workouts, stretches, footballs, recoveries, 
       window.setTimeout(() => {
         try {
           const records: HealthRecord[] = parseRelevantRecords(xml);
-          const candidates = buildHealthImportCandidates(workouts, stretches, footballs, recoveries);
+          const candidates = buildHealthImportCandidates(workouts, stretches, cardios, recoveries);
           const found = withData(matchHealthImportCandidates(records, candidates));
           setMatches(found);
           setSelected(new Set(found.map(matchKey)));

@@ -44,7 +44,7 @@ describe('Recovery-Bildschirme (Smoke-Test)', () => {
         thresholds={DEFAULT_RECOVERY_THRESHOLDS}
         onThresholdsChange={noop}
         workouts={[]}
-        footballs={[]}
+        cardios={[]}
         pending={0}
         busy={false}
         notice={null}
@@ -63,7 +63,7 @@ describe('Recovery-Bildschirme (Smoke-Test)', () => {
 
   it('Recovery-Tab ohne Einträge zeigt die Erfassung und kein Urteil', () => {
     const html = renderToString(
-      <RecoveryScreen history={[]} thresholds={DEFAULT_RECOVERY_THRESHOLDS} onThresholdsChange={noop} workouts={[]} footballs={[]} pending={0} busy={false} notice={null} onSave={noop} onSync={noop} onDelete={noop} />,
+      <RecoveryScreen history={[]} thresholds={DEFAULT_RECOVERY_THRESHOLDS} onThresholdsChange={noop} workouts={[]} cardios={[]} pending={0} busy={false} notice={null} onSave={noop} onSync={noop} onDelete={noop} />,
     );
     expect(html).toContain('Noch kein Urteil');
     expect(html).toContain('Eintrag speichern');

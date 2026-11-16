@@ -199,9 +199,9 @@ export function TrainingContextCard({ ctx }: { ctx: TrainingContext }) {
   if (gym.hoursSinceLast !== null) {
     lines.push(`Letztes Krafttraining ${hoursText(gym.hoursSinceLast)}${gym.lastName ? ` (${gym.lastName})` : ''}`);
   }
-  if (football.hoursSinceLast !== null && football.lastKind) {
+  if (football.hoursSinceLast !== null) {
     lines.push(
-      `Letzte Fußball-Einheit ${hoursText(football.hoursSinceLast)} (${footballKindLabel(football.lastKind)}, Last ${num0(football.lastLoad ?? 0)} AU)`,
+      `Letzte Fußball-Einheit ${hoursText(football.hoursSinceLast)} (${football.lastKind ? footballKindLabel(football.lastKind) : 'Fußball'}, Last ${num0(football.lastLoad ?? 0)} AU)`,
     );
   }
   if (lines.length === 0) return null;

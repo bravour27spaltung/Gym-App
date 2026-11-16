@@ -177,3 +177,8 @@ export function cardioWindow(startedAt: string | null, minutes: number): { fromM
   if (!Number.isFinite(fromMs) || !Number.isFinite(minutes) || minutes <= 0) return null;
   return { fromMs, toMs: fromMs + minutes * 60_000 };
 }
+
+/** Name des Symbols in der Icon-Bibliothek (siehe components/ui.tsx). */
+export function cardioIconName(activity: CardioActivity): 'football' | 'run' | 'bike' {
+  return activity === 'running' ? 'run' : activity === 'cycling' ? 'bike' : 'football';
+}

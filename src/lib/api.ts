@@ -6,7 +6,9 @@ import { resetSteps } from './reset';
 import { plansFromRows } from './plan';
 import type { StretchPayload, StretchPlan, StretchPlanPayload, StretchSide } from './stretch';
 import { STRETCH_CATALOG, STRETCH_PLAN_CATALOG, type CatalogPlanItem } from './stretchCatalog';
-import type { FootballKind, FootballPayload, FootballSource } from './football';
+import { parseCardioActivity, type CardioActivity, type CardioPayload, type CardioSource } from './cardio';
+import type { FootballKind } from './football';
+import { hrPointsFromArchive, type HrPoint } from './zones';
 import type { WatchRangeRecord } from './footballWatch';
 import { summarizeArchive, type ArchiveLookup, type ArchiveRow } from './healthArchive';
 import type { RecoveryPayload, RecoverySource } from './recovery';
@@ -14,7 +16,7 @@ import type { RecoveryInboxRow } from './recoveryInbox';
 import type { HistWorkout } from './stats';
 import type {
   ExerciseListItem,
-  HistFootballSession,
+  HistCardioSession,
   HistRecoveryEntry,
   HistStretchSession,
   LastInfo,
@@ -811,40 +813,43 @@ export async function importStretchCatalog(
 // ---------------------------------------------------------------------------
 // Fußball: eigener, einfacher Bereich (eine Zeile pro Einheit/Spiel, kein Draft).
 
-interface FootballRow {
+interface CardioRow {
   id: string;
+  activity: CardioActivity | null;
   played_on: string;
   started_at: string | null;
-  kind: FootballKind;
+  kind: FootballKind | null;
   minutes: number;
-  rpe: number;
+  rpe: number | null;
   note: string | null;
   distance_km: number | null;
   calories: number | null;
   steps: number | null;
   avg_heart_rate: number | null;
-  source: FootballSource;
+  max_heart_rate: number | null;
+  source: CardioSource;
 }
 
-/** Fußball-Einträge, neueste zuerst. */
-export async function fetchFootballHistory(limit = 200): Promise<Result<HistFootballSession[]>> {
+/** Cardio-Einträge (Fußball, Laufen, Radfahren), neueste zuerst. */
+export async function fetchCardioHistory(limit = 200): Promise<Result<HistCardioSession[]>> {
   if (!supabase) return fail(NOT_CONFIGURED);
   const { data, error } = await supabase
-    .from('fit_football_sessions')
+    .from('fit_cardio_sessions')
     .select(
-      'id, played_on, started_at, kind, minutes, rpe, note, distance_km, calories, steps, avg_heart_rate, source',
+      'id, activity, played_on, started_at, kind, minutes, rpe, note, distance_km, calories, steps, avg_heart_rate, max_heart_rate, source',
     )
     .order('played_on', { ascending: false })
     .limit(limit);
   if (error) return fail(error.message);
-  const rows = (data ?? []) as unknown as FootballRow[];
+  const rows = (data ?? []) as unknown as CardioRow[];
   return {
     ok: true,
     data: rows.map((r) => ({
       id: r.id,
+      activity: parseCardioActivity(r.activity),
       playedOn: r.played_on,
       startedAt: r.started_at,
-      kind: r.kind,
+      kind: r.kind ?? null,
       minutes: r.minutes,
       rpe: r.rpe,
       note: r.note,
@@ -852,38 +857,39 @@ export async function fetchFootballHistory(limit = 200): Promise<Result<HistFoot
       calories: r.calories,
       steps: r.steps,
       avgHeartRate: r.avg_heart_rate,
+      maxHeartRate: r.max_heart_rate,
       source: r.source,
     })),
   };
 }
 
 /**
- * Schreibt einen Fußball-Eintrag. Upsert über die Client-ID, ein Sync-Versuch kann
+ * Schreibt einen Cardio-Eintrag. Upsert über die Client-ID, ein Sync-Versuch kann
  * deshalb gefahrlos wiederholt werden.
  */
-export async function syncFootballPayload(p: FootballPayload): Promise<Result<null>> {
+export async function syncCardioPayload(p: CardioPayload): Promise<Result<null>> {
   if (!supabase) return fail(NOT_CONFIGURED);
-  const { error } = await supabase.from('fit_football_sessions').upsert([p.session], { onConflict: 'id' });
-  if (error) return fail(`fit_football_sessions: ${error.message}`);
+  const { error } = await supabase.from('fit_cardio_sessions').upsert([p.session], { onConflict: 'id' });
+  if (error) return fail(`fit_cardio_sessions: ${error.message}`);
   return { ok: true, data: null };
 }
 
-/** Versucht alle Fußball-Einträge im Ausgangskorb zu senden; Fehlgeschlagene bleiben liegen. */
-export async function flushFootballOutbox(store: Store): Promise<{ sent: number; pending: number; error: string | null }> {
-  const items = store.loadFootballOutbox();
-  const remaining: FootballPayload[] = [];
+/** Versucht alle Cardio-Einträge im Ausgangskorb zu senden; Fehlgeschlagene bleiben liegen. */
+export async function flushCardioOutbox(store: Store): Promise<{ sent: number; pending: number; error: string | null }> {
+  const items = store.loadCardioOutbox();
+  const remaining: CardioPayload[] = [];
   let sent = 0;
   let error: string | null = null;
   for (const item of items) {
-    const res = await syncFootballPayload(item);
+    const res = await syncCardioPayload(item);
     if (res.ok) sent += 1;
     else {
       remaining.push(item);
       error = res.error;
-      console.error(`flushFootballOutbox: ${res.error}`);
+      console.error(`flushCardioOutbox: ${res.error}`);
     }
   }
-  if (sent > 0) store.saveFootballOutbox(remaining);
+  if (sent > 0) store.saveCardioOutbox(remaining);
   return { sent, pending: remaining.length, error };
 }
 
@@ -935,6 +941,31 @@ export async function fetchWatchRange(fromMs: number, toMs: number): Promise<Res
   return { ok: true, data: rows.length > 0 ? toWatchRange(rows[0]) : null };
 }
 
+/**
+ * Pulswerte des Health-Archivs für einen Zeitraum (für die Pulszonen einer Einheit), älteste zuerst.
+ * Leer, wenn für den Zeitraum nichts archiviert ist.
+ */
+export async function fetchArchiveHr(fromMs: number, toMs: number): Promise<Result<HrPoint[]>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const PAGE = 1000;
+  const points: HrPoint[] = [];
+  for (let page = 0; page < 10; page++) {
+    const { data, error } = await supabase
+      .from('fit_health_samples')
+      .select('kind,start_at,end_at,value')
+      .eq('kind', 'hr')
+      .lt('start_at', new Date(toMs).toISOString())
+      .gte('end_at', new Date(fromMs).toISOString())
+      .order('start_at', { ascending: true })
+      .range(page * PAGE, page * PAGE + PAGE - 1);
+    if (error) return fail(error.message);
+    const batch = (data ?? []) as unknown as Array<{ kind: string; start_at: string; end_at: string; value: number | string }>;
+    points.push(...hrPointsFromArchive(batch));
+    if (batch.length < PAGE) break;
+  }
+  return { ok: true, data: points };
+}
+
 /** Das zuletzt eingegangene Apple-Watch-Ergebnis überhaupt (für die Fehlersuche), oder null. */
 export async function fetchLatestWatchRange(): Promise<Result<WatchRangeRecord | null>> {
   if (!supabase) return fail(NOT_CONFIGURED);
@@ -980,10 +1011,10 @@ export async function fetchArchiveLookup(fromMs: number, toMs: number): Promise<
   return { ok: true, data: { summary: summarizeArchive(rows, fromMs, toMs), lastHrAt } };
 }
 
-/** Löscht einen Fußball-Eintrag endgültig. */
-export async function deleteFootballSession(id: string): Promise<Result<null>> {
+/** Löscht einen Cardio-Eintrag endgültig. */
+export async function deleteCardioSession(id: string): Promise<Result<null>> {
   if (!supabase) return fail(NOT_CONFIGURED);
-  const { error } = await supabase.from('fit_football_sessions').delete().eq('id', id);
+  const { error } = await supabase.from('fit_cardio_sessions').delete().eq('id', id);
   if (error) return fail(error.message);
   return { ok: true, data: null };
 }
@@ -1024,8 +1055,8 @@ export async function updateStretchHealth(
   return { ok: true, data: null };
 }
 
-/** Ergänzt Distanz/Kalorien/Ø Puls eines bestehenden Fußball-Eintrags; nur übergebene Felder werden gesetzt. */
-export async function updateFootballHealth(
+/** Ergänzt Distanz/Kalorien/Ø Puls eines bestehenden Cardio-Eintrags; nur übergebene Felder werden gesetzt. */
+export async function updateCardioHealth(
   id: string,
   patch: { distanceKm?: number; calories?: number; avgHeartRate?: number },
 ): Promise<Result<null>> {
@@ -1034,7 +1065,7 @@ export async function updateFootballHealth(
   if (patch.distanceKm !== undefined) row.distance_km = patch.distanceKm;
   if (patch.calories !== undefined) row.calories = patch.calories;
   if (patch.avgHeartRate !== undefined) row.avg_heart_rate = patch.avgHeartRate;
-  const { error } = await supabase.from('fit_football_sessions').update(row).eq('id', id);
+  const { error } = await supabase.from('fit_cardio_sessions').update(row).eq('id', id);
   if (error) return fail(error.message);
   return { ok: true, data: null };
 }

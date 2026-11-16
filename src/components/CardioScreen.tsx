@@ -13,19 +13,21 @@ import {
 } from '../lib/footballWatch';
 import {
   addMinutesToTime,
-  FOOTBALL_KINDS,
+  CARDIO_ACTIVITIES,
+  cardioActivityLabel,
+  cardioIconName,
+  cardioLoad,
   minutesBetweenTimes,
-  footballKindLabel,
-  footballLoad,
-  type FootballEntryInput,
-  type FootballKind,
-  type FootballSource,
-} from '../lib/football';
-import type { HistFootballSession } from '../lib/storage';
+  rpeRequired,
+  type CardioActivity,
+  type CardioEntryInput,
+  type CardioSource,
+} from '../lib/cardio';
+import type { HistCardioSession } from '../lib/storage';
 import { Icon, IconButton, MetricField } from './ui';
 
 interface Props {
-  history: HistFootballSession[];
+  history: HistCardioSession[];
   /** Werte für einen Zeitraum aus dem Health-Archiv (automatisch gesicherte Apple-Watch-Rohwerte). */
   onLoadArchive: (fromMs: number, toMs: number) => Promise<Result<ArchiveLookup>>;
   /** Apple-Watch-Ergebnis für genau diesen Zeitraum (null: dafür ist nichts angekommen). */
@@ -35,7 +37,7 @@ interface Props {
   pending: number;
   busy: boolean;
   notice: string | null;
-  onSave: (input: FootballEntryInput) => void;
+  onSave: (input: CardioEntryInput) => void;
   onSync: () => void;
   onDelete: (id: string) => void;
 }
@@ -44,15 +46,15 @@ const DEFAULT_RPE = 5;
 const DEFAULT_MINUTES = 90;
 
 /**
- * Fußball: eigener, einfacher Bereich – anders als Training/Stretching kein Live-Timer,
- * sondern ein Formular, das nach der Einheit ausgefüllt wird (Dauer, Typ, subjektive
- * Belastung/RPE, Notiz). Optional lassen sich Distanz, Kalorien und Ø Herzfrequenz aus
+ * Cardio (Fußball, Laufen, Radfahren): eigener, einfacher Bereich – anders als Training/Stretching
+ * kein Live-Timer, sondern ein Formular, das nach der Einheit ausgefüllt wird (Aktivität, Dauer,
+ * subjektive Belastung/RPE, Notiz). RPE ist nur bei Fußball Pflicht. Optional lassen sich Distanz, Kalorien und Ø Herzfrequenz aus
  * einem Apple-Health-Export für den Zeitraum der Einheit übernehmen (Apple Health
  * sammelt diese Werte auch ohne eine aktiv gestartete Aufzeichnung auf der Uhr). Die
  * letzten Einträge stehen darunter zum Nachschauen und Löschen; die volle Auswertung
  * mit Diagramm ist im Verlauf-Tab.
  */
-export function FootballScreen({
+export function CardioScreen({
   history,
   onLoadArchive,
   onLoadWatchRange,
@@ -66,9 +68,9 @@ export function FootballScreen({
 }: Props) {
   const [playedOn, setPlayedOn] = useState(() => todayIso());
   const [startedAtTime, setStartedAtTime] = useState('');
-  const [kind, setKind] = useState<FootballKind>('training');
+  const [activity, setActivity] = useState<CardioActivity>('football');
   const [minutes, setMinutes] = useState(DEFAULT_MINUTES);
-  const [rpe, setRpe] = useState(DEFAULT_RPE);
+  const [rpe, setRpe] = useState<number | null>(DEFAULT_RPE);
   const [note, setNote] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -76,7 +78,8 @@ export function FootballScreen({
   const [calories, setCalories] = useState<number | null>(null);
   const [steps, setSteps] = useState<number | null>(null);
   const [avgHeartRate, setAvgHeartRate] = useState<number | null>(null);
-  const [source, setSource] = useState<FootballSource>('manual');
+  const [maxHeartRate, setMaxHeartRate] = useState<number | null>(null);
+  const [source, setSource] = useState<CardioSource>('manual');
   const [watchRangeBusy, setWatchRangeBusy] = useState(false);
   const [watchRangeNotice, setWatchRangeNotice] = useState<string | null>(null);
   /** Zeitpunkt des Antippens von „Apple-Watch-Daten holen“, solange der Kurzbefehl läuft; null sonst. */
@@ -103,7 +106,7 @@ export function FootballScreen({
   const [healthBusy, setHealthBusy] = useState(false);
   const [healthNotice, setHealthNotice] = useState<string | null>(null);
 
-  const valid = playedOn.trim() !== '' && minutes > 0;
+  const valid = playedOn.trim() !== '' && minutes > 0 && (!rpeRequired(activity) || rpe !== null);
   const rangeFromMs = new Date(`${playedOn}T${startedAtTime}:00`).getTime();
   const rangeReady = startedAtTime.trim() !== '' && minutes > 0 && Number.isFinite(rangeFromMs);
 
@@ -136,15 +139,15 @@ export function FootballScreen({
   }, [rangeReady, rangeFromMs, minutesKey, onLoadArchive]);
 
   function resetForm() {
-    setKind('training');
     setMinutes(DEFAULT_MINUTES);
-    setRpe(DEFAULT_RPE);
+    setRpe(rpeRequired(activity) ? DEFAULT_RPE : null);
     setNote('');
     setStartedAtTime('');
     setDistanceKm(null);
     setCalories(null);
     setSteps(null);
     setAvgHeartRate(null);
+    setMaxHeartRate(null);
     setSource('manual');
     setWatchRangeNotice(null);
     setHealthNotice(null);
@@ -154,8 +157,8 @@ export function FootballScreen({
     if (!valid) return;
     onSave({
       playedOn,
+      activity,
       startedAtTime,
-      kind,
       minutes,
       rpe,
       note,
@@ -163,6 +166,7 @@ export function FootballScreen({
       calories,
       steps,
       avgHeartRate,
+      maxHeartRate,
       source,
     });
     resetForm();
@@ -201,6 +205,7 @@ export function FootballScreen({
     const diag = diagnoseWatchRange(match, latest.ok ? latest.data : null, fromMs, toMs, Date.now(), since);
     if (diag.kind === 'ok' && match) {
       setAvgHeartRate(match.avgHeartRate);
+      setMaxHeartRate(match.maxHeartRate);
       setDistanceKm(match.distanceKm);
       setCalories(match.energyKcal);
       setSteps(match.steps);
@@ -216,6 +221,7 @@ export function FootballScreen({
     if (archive.state !== 'hit') return;
     const r = archive.lookup.summary;
     setAvgHeartRate(r.avgHeartRate);
+    setMaxHeartRate(r.maxHeartRate);
     setDistanceKm(r.distanceKm);
     setCalories(r.energyKcal);
     setSteps(r.steps);
@@ -248,6 +254,7 @@ export function FootballScreen({
         setCalories(res.calories);
         setSteps(null);
         setAvgHeartRate(res.avgHeartRate);
+        setMaxHeartRate(null);
         setSource('apple_health');
         if (res.distanceKm === null && res.calories === null && res.avgHeartRate === null) {
           setHealthNotice('Keine passenden Health-Daten in diesem Zeitfenster gefunden.');
@@ -265,7 +272,7 @@ export function FootballScreen({
   return (
     <div className="screen">
       <header className="pagehead">
-        <h1>Fußball</h1>
+        <h1>Cardio</h1>
       </header>
 
       {notice && (
@@ -275,7 +282,7 @@ export function FootballScreen({
       )}
       {pending > 0 && (
         <p className="notice" role="status">
-          {pending} Fußball-Eintrag/Einträge noch nicht gespeichert. Sie werden gesendet, sobald eine
+          {pending} Cardio-Eintrag/Einträge noch nicht gespeichert. Sie werden gesendet, sobald eine
           Verbindung besteht.{' '}
           <button type="button" className="link" onClick={onSync}>
             Jetzt versuchen
@@ -326,17 +333,21 @@ export function FootballScreen({
         </div>
 
         <div className="field stack">
-          <span>Art der Einheit</span>
-          <div className="chips" role="group" aria-label="Art der Einheit">
-            {FOOTBALL_KINDS.map((k) => (
+          <span>Aktivität</span>
+          <div className="chips" role="group" aria-label="Aktivität">
+            {CARDIO_ACTIVITIES.map((a) => (
               <button
-                key={k}
+                key={a}
                 type="button"
-                className={kind === k ? 'chip on' : 'chip'}
-                aria-pressed={kind === k}
-                onClick={() => setKind(k)}
+                className={activity === a ? 'chip on' : 'chip'}
+                aria-pressed={activity === a}
+                onClick={() => {
+                  setActivity(a);
+                  // Fußball braucht RPE: nie ohne Wert stehen lassen.
+                  if (rpeRequired(a) && rpe === null) setRpe(DEFAULT_RPE);
+                }}
               >
-                {footballKindLabel(k)}
+                <Icon name={cardioIconName(a)} size={16} /> {cardioActivityLabel(a)}
               </button>
             ))}
           </div>
@@ -364,8 +375,20 @@ export function FootballScreen({
         </div>
 
         <div className="feeling">
-          <span className="feeling-label">Subjektive Belastung (RPE 0–10)</span>
+          <span className="feeling-label">
+            Subjektive Belastung (RPE 0–10){rpeRequired(activity) ? '' : ' – optional'}
+          </span>
           <div className="chips" role="group" aria-label="Subjektive Belastung (RPE)">
+            {!rpeRequired(activity) && (
+              <button
+                type="button"
+                className={rpe === null ? 'chip on' : 'chip'}
+                aria-pressed={rpe === null}
+                onClick={() => setRpe(null)}
+              >
+                –
+              </button>
+            )}
             {Array.from({ length: 11 }, (_, i) => i).map((n) => (
               <button
                 key={n}
@@ -491,10 +514,11 @@ export function FootballScreen({
                 <div className="exrow static">
                   <span className="exrow-text">
                     <strong>
-                      {fmtDay(s.playedOn)} · {footballKindLabel(s.kind)}
+                      {fmtDay(s.playedOn)} · {cardioActivityLabel(s.activity)}
                     </strong>
                     <small>
-                      {s.minutes} min · RPE {s.rpe} · Belastung {footballLoad(s.minutes, s.rpe)}
+                      {s.minutes} min
+                      {s.rpe !== null ? ` · RPE ${s.rpe} · Belastung ${cardioLoad(s.minutes, s.rpe)}` : ''}
                       {s.distanceKm !== null ? ` · ${s.distanceKm.toFixed(s.distanceKm < 1 ? 2 : 1)} km` : ''}
                       {s.steps != null ? ` · ${s.steps.toLocaleString('de-DE')} Schritte` : ''}
                       {s.calories !== null ? ` · ${s.calories} kcal` : ''}
@@ -511,7 +535,7 @@ export function FootballScreen({
                 </div>
                 {confirmDeleteId === s.id && (
                   <div className="banner" role="alertdialog" aria-label="Eintrag löschen">
-                    <p>Diesen Fußball-Eintrag endgültig löschen?</p>
+                    <p>Diesen Eintrag endgültig löschen?</p>
                     <div className="row">
                       <button
                         type="button"

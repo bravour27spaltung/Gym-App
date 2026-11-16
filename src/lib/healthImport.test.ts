@@ -8,7 +8,7 @@ import {
 } from './healthImport';
 import type { HealthRecord } from './appleHealthImport';
 import type { HistWorkout } from './stats';
-import type { HistFootballSession, HistRecoveryEntry, HistStretchSession } from './storage';
+import type { HistCardioSession, HistRecoveryEntry, HistStretchSession } from './storage';
 
 function workout(over: Partial<HistWorkout> = {}): HistWorkout {
   return {
@@ -34,10 +34,11 @@ function stretch(over: Partial<HistStretchSession> = {}): HistStretchSession {
   };
 }
 
-function football(over: Partial<HistFootballSession> = {}): HistFootballSession {
+function football(over: Partial<HistCardioSession> = {}): HistCardioSession {
   return {
     id: 'f1',
     playedOn: '2026-09-23',
+    activity: 'football',
     startedAt: null,
     kind: 'training',
     minutes: 90,

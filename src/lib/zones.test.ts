@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   averageRestHr,
+  DEFAULT_ZONE_PREFS,
+  normalizeZonePrefs,
   hrPointsFromArchive,
   intensityShares,
   observedMaxHr,
@@ -155,5 +157,19 @@ describe('intensityShares', () => {
   it('rechnet Zeit unter Zone 1 zu locker', () => {
     const s = intensityShares({ seconds: [0, 0, 0, 0, 0], belowSeconds: 600, coveredSeconds: 600 });
     expect(s).toEqual({ easy: 1, moderate: 0, hard: 0 });
+  });
+});
+
+describe('normalizeZonePrefs', () => {
+  it('nutzt Standardwerte bei fehlenden oder kaputten Daten', () => {
+    expect(normalizeZonePrefs(null)).toEqual(DEFAULT_ZONE_PREFS);
+    expect(normalizeZonePrefs('x')).toEqual(DEFAULT_ZONE_PREFS);
+    expect(normalizeZonePrefs({ model: 'quatsch', maxHrOverride: 'abc' })).toEqual(DEFAULT_ZONE_PREFS);
+  });
+
+  it('übernimmt gültige Werte und verwirft einen unmöglichen Maximalpuls', () => {
+    expect(normalizeZonePrefs({ model: 'max', maxHrOverride: 188.4 })).toEqual({ model: 'max', maxHrOverride: 188 });
+    expect(normalizeZonePrefs({ model: 'hrr', maxHrOverride: 20 }).maxHrOverride).toBeNull();
+    expect(normalizeZonePrefs({ model: 'hrr', maxHrOverride: 300 }).maxHrOverride).toBeNull();
   });
 });

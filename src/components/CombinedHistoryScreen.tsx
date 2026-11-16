@@ -1,14 +1,14 @@
 import { fmtDay, fmtTime } from '../lib/format';
 import { combineHistory, groupEntriesByMonth } from '../lib/combinedHistory';
-import { footballKindLabel, footballLoad } from '../lib/football';
+import { cardioActivityLabel, cardioIconName, cardioLoad } from '../lib/cardio';
 import type { HistWorkout } from '../lib/stats';
-import type { HistFootballSession, HistStretchSession } from '../lib/storage';
+import type { HistCardioSession, HistStretchSession } from '../lib/storage';
 import { Icon } from './ui';
 
 interface Props {
   workouts: HistWorkout[];
   stretches: HistStretchSession[];
-  footballs: HistFootballSession[];
+  cardios: HistCardioSession[];
   /** Öffnet die Einheit im Gym-Verlauf. Stretching und Fußball haben keine Detailansicht. */
   onOpenWorkout?: (id: string) => void;
 }
@@ -32,8 +32,8 @@ function workoutSets(w: HistWorkout): number {
  * keine Muskel-Auswertung — die bleibt exklusiv im Gym-Verlauf (HistoryScreen), damit
  * Stretching-Einheiten die Sätze-pro-Muskel-Statistik nicht verfälschen.
  */
-export function CombinedHistoryScreen({ workouts, stretches, footballs, onOpenWorkout }: Props) {
-  const entries = combineHistory(workouts, stretches, footballs);
+export function CombinedHistoryScreen({ workouts, stretches, cardios, onOpenWorkout }: Props) {
+  const entries = combineHistory(workouts, stretches, cardios);
   const months = groupEntriesByMonth(entries);
 
   if (entries.length === 0) {
@@ -62,9 +62,9 @@ export function CombinedHistoryScreen({ workouts, stretches, footballs, onOpenWo
               const id = e.kind === 'workout' ? e.workout.id : e.session.id;
               const body = (
                 <>
-                  <Icon name={e.kind === 'workout' ? 'dumbbell' : e.kind === 'stretch' ? 'flame' : 'football'} size={18} />
+                  <Icon name={e.kind === 'workout' ? 'dumbbell' : e.kind === 'stretch' ? 'flame' : cardioIconName(e.session.activity)} size={18} />
                   <span className="exrow-text">
-                    <strong>{e.kind === 'football' ? fmtDay(e.at) : `${fmtDay(e.at)} · ${fmtTime(e.at)}`}</strong>
+                    <strong>{e.kind === 'cardio' ? fmtDay(e.at) : `${fmtDay(e.at)} · ${fmtTime(e.at)}`}</strong>
                     <small>
                       {e.kind === 'workout' &&
                         `${e.workout.name} · ${workoutMinutes(e.workout)} min · ${workoutSets(e.workout)} Sätze`}
@@ -72,11 +72,18 @@ export function CombinedHistoryScreen({ workouts, stretches, footballs, onOpenWo
                         `Stretching · ${stretchMinutes(e.session)} min · ${e.session.items.length} ${
                           e.session.items.length === 1 ? 'Übung' : 'Übungen'
                         }`}
-                      {e.kind === 'football' &&
-                        `${footballKindLabel(e.session.kind)} · ${e.session.minutes} min · Belastung ${footballLoad(
-                          e.session.minutes,
-                          e.session.rpe,
-                        )}`}
+                      {e.kind === 'cardio' &&
+                        [
+                          cardioActivityLabel(e.session.activity),
+                          `${e.session.minutes} min`,
+                          cardioLoad(e.session.minutes, e.session.rpe) !== null
+                            ? `Belastung ${cardioLoad(e.session.minutes, e.session.rpe)}`
+                            : e.session.avgHeartRate !== null
+                              ? `Ø ${e.session.avgHeartRate} bpm`
+                              : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
                     </small>
                   </span>
                   {e.kind === 'workout' && onOpenWorkout && <Icon name="forward" size={20} />}

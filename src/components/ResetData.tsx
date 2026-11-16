@@ -31,7 +31,7 @@ export function ResetData({ onReset, onClose }: Props) {
       <div className="modal-card reset-card">
         <h2>Testdaten zurücksetzen</h2>
         <p className="muted">
-          Löscht alle Trainings mit Sätzen, den Verlauf und Fußball-Einträge dauerhaft – in der
+          Löscht alle Trainings mit Sätzen, den Verlauf und Cardio-Einträge dauerhaft – in der
           Datenbank und auf diesem Gerät. Es lässt sich nicht rückgängig machen.
         </p>
         <p className="muted">Deine Pläne, Vorlagen und eigenen Übungen bleiben erhalten.</p>

@@ -1,7 +1,7 @@
 import { THEMES, type ThemeId } from '../lib/theme';
 import { Icon, type IconName } from './ui';
 
-type Area = 'stretch' | 'football' | 'recovery';
+type Area = 'stretch' | 'cardio' | 'recovery';
 
 interface Props {
   email: string;
@@ -14,7 +14,7 @@ interface Props {
 
 const AREAS: { key: Area; title: string; sub: string; icon: IconName }[] = [
   { key: 'stretch', title: 'Stretching', sub: 'Dehnprogramme mit Haltezeit', icon: 'flame' },
-  { key: 'football', title: 'Fußball', sub: 'Dauer, Belastung und Watch-Import', icon: 'football' },
+  { key: 'cardio', title: 'Cardio', sub: 'Fußball, Laufen, Radfahren mit Pulszonen', icon: 'pulse' },
   { key: 'recovery', title: 'Recovery', sub: 'Schlaf, HRV und Ruhepuls', icon: 'heart' },
 ];
 

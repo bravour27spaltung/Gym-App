@@ -61,6 +61,20 @@ const PATHS = {
       <path d="M12 6.8V3.5M15.4 9.3l3.3-1.1M14.1 13.4l2 3.3M9.9 13.4l-2 3.3M8.6 9.3l-3.3-1.1" />
     </>
   ),
+  run: (
+    <>
+      <circle cx="14.5" cy="4.5" r="1.8" />
+      <path d="m9 21 2.5-5.5L9 13l1.5-4.5 3.5 1.5 2.5 3M6 12l2-3.5M12.5 16.5 15 21" />
+    </>
+  ),
+  bike: (
+    <>
+      <circle cx="6" cy="16" r="3.5" />
+      <circle cx="18" cy="16" r="3.5" />
+      <path d="M6 16 9.5 8H14l4 8M9.5 8H8M11.5 12.5h5" />
+    </>
+  ),
+  pulse: <path d="M3 12h4l2.5-6 4 12 2.5-6H21" />,
   dots: (
     <>
       <circle cx="5" cy="12" r="1.4" />
@@ -206,10 +220,10 @@ export function AppBar(props: {
   );
 }
 
-export type Tab = 'home' | 'history' | 'plans' | 'more' | 'stretch' | 'football' | 'recovery';
+export type Tab = 'home' | 'history' | 'plans' | 'more' | 'stretch' | 'cardio' | 'recovery';
 
 /** Bereiche, die unter "Mehr" liegen: In der Navigation bleibt dann "Mehr" markiert. */
-const MORE_TABS: Tab[] = ['more', 'stretch', 'football', 'recovery'];
+const MORE_TABS: Tab[] = ['more', 'stretch', 'cardio', 'recovery'];
 
 /** Untere Navigation als schwebende Pille: Training / Verlauf / Pläne / Mehr. */
 export function TabBar(props: { active: Tab; onChange: (tab: Tab) => void }) {

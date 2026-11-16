@@ -12,7 +12,7 @@ export interface ResetStep {
 }
 
 export function resetSteps(): ResetStep[] {
-  return [{ table: 'fit_workouts' }, { table: 'fit_football_sessions' }, { table: 'fit_recovery_entries' }];
+  return [{ table: 'fit_workouts' }, { table: 'fit_cardio_sessions' }, { table: 'fit_recovery_entries' }];
 }
 
 /** Wort, das zur Bestätigung eingetippt werden muss. */

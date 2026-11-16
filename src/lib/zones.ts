@@ -202,3 +202,20 @@ export function intensityShares(d: Pick<ZoneDistribution, 'seconds' | 'belowSeco
   const hard = (d.seconds[3] + d.seconds[4]) / d.coveredSeconds;
   return { easy, moderate, hard };
 }
+
+/** Gespeicherte Wahl der Zonenberechnung (nur die Einstellung, nicht die berechneten Zonen). */
+export interface ZonePrefs {
+  model: ZoneModel;
+  /** Eigener Maximalpuls; null = höchster gemessener Wert aus den Einträgen. */
+  maxHrOverride: number | null;
+}
+
+export const DEFAULT_ZONE_PREFS: ZonePrefs = { model: 'hrr', maxHrOverride: null };
+
+/** Macht aus gespeicherten (evtl. veralteten oder beschädigten) Werten gültige Einstellungen. */
+export function normalizeZonePrefs(raw: unknown): ZonePrefs {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<Record<keyof ZonePrefs, unknown>>;
+  const model: ZoneModel = r.model === 'max' ? 'max' : 'hrr';
+  const o = typeof r.maxHrOverride === 'number' ? Math.round(r.maxHrOverride) : null;
+  return { model, maxHrOverride: o !== null && validHr(o) ? o : null };
+}

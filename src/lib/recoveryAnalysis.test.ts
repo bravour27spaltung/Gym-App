@@ -12,7 +12,7 @@ import {
   wellnessScore,
 } from './recoveryAnalysis';
 import type { HistWorkout } from './stats';
-import type { HistFootballSession, HistRecoveryEntry } from './storage';
+import type { HistCardioSession, HistRecoveryEntry } from './storage';
 
 function entry(date: string, over: Partial<HistRecoveryEntry> = {}): HistRecoveryEntry {
   return {
@@ -250,10 +250,11 @@ describe('trainingContext', () => {
   function workout(finishedAt: string, name = 'Pull'): HistWorkout {
     return { id: finishedAt, name, startedAt: finishedAt, finishedAt, exercises: [] };
   }
-  function football(startedAt: string, minutes: number, rpe: number): HistFootballSession {
+  function football(startedAt: string, minutes: number, rpe: number): HistCardioSession {
     return {
       id: startedAt,
       playedOn: startedAt.slice(0, 10),
+      activity: 'football',
       startedAt,
       kind: 'match',
       minutes,

@@ -1,8 +1,9 @@
+import { cardioActivityLabel } from './cardio';
 import type { HealthRecord, HealthWindowSummary } from './appleHealthImport';
 import { summarizeWindow } from './appleHealthImport';
 import { sleepNightForDate } from './sleep';
 import type { HistWorkout } from './stats';
-import type { HistFootballSession, HistRecoveryEntry, HistStretchSession } from './storage';
+import type { HistCardioSession, HistRecoveryEntry, HistStretchSession } from './storage';
 
 /**
  * Bereichsübergreifender Apple-Health-Import: findet zu Training, Stretching, Fußball
@@ -16,7 +17,7 @@ import type { HistFootballSession, HistRecoveryEntry, HistStretchSession } from 
  * Recovery hat kein Sessionfenster, sondern einen Tag (siehe recoveryWindowForDate).
  */
 
-export type HealthImportKind = 'workout' | 'stretch' | 'football' | 'recovery';
+export type HealthImportKind = 'workout' | 'stretch' | 'cardio' | 'recovery';
 
 interface ExistingValues {
   distanceKm: number | null;
@@ -66,7 +67,7 @@ function isMissingSomething(existing: ExistingValues, includeDistance: boolean):
 export function buildHealthImportCandidates(
   workouts: HistWorkout[],
   stretches: HistStretchSession[],
-  footballs: HistFootballSession[],
+  cardios: HistCardioSession[],
   recoveries: HistRecoveryEntry[] = [],
 ): HealthImportCandidate[] {
   const candidates: HealthImportCandidate[] = [];
@@ -99,15 +100,15 @@ export function buildHealthImportCandidates(
     });
   }
 
-  for (const f of footballs) {
+  for (const f of cardios) {
     if (!f.startedAt) continue; // ohne Startzeit ist kein Zeitfenster bekannt
     const existing: ExistingValues = { distanceKm: f.distanceKm, calories: f.calories, avgHeartRate: f.avgHeartRate };
     if (!isMissingSomething(existing, true)) continue;
     const fromMs = new Date(f.startedAt).getTime();
     candidates.push({
-      kind: 'football',
+      kind: 'cardio',
       id: f.id,
-      label: 'Fußball',
+      label: cardioActivityLabel(f.activity),
       fromMs,
       toMs: fromMs + f.minutes * 60_000,
       existing,

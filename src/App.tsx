@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { CombinedHistoryScreen } from './components/CombinedHistoryScreen';
-import { FootballHistoryScreen } from './components/FootballHistoryScreen';
-import { FootballScreen } from './components/FootballScreen';
+import { CardioHistoryScreen } from './components/CardioHistoryScreen';
+import { CardioScreen } from './components/CardioScreen';
 import { HealthImportSheet } from './components/HealthImportSheet';
 import { HomeAreas } from './components/HomeAreas';
 import { MoreScreen } from './components/MoreScreen';
@@ -23,10 +23,10 @@ import { WeeklyReviewScreen } from './components/WeeklyReview';
 import {
   archivePlan,
   archiveStretchPlan,
-  deleteFootballSession,
+  deleteCardioSession,
   deleteRecoveryEntry,
   fetchExercises,
-  fetchFootballHistory,
+  fetchCardioHistory,
   fetchArchiveLookup,
   fetchLatestWatchRange,
   fetchWatchRange,
@@ -41,7 +41,7 @@ import {
   fetchStretchExercises,
   fetchStretchHistory,
   fetchStretchPlans,
-  flushFootballOutbox,
+  flushCardioOutbox,
   flushOutbox,
   flushPlanPatches,
   flushRecoveryOutbox,
@@ -54,12 +54,12 @@ import {
   sendLoginLink,
   signIn,
   signOut,
-  syncFootballPayload,
+  syncCardioPayload,
   syncPayload,
   syncRecoveryPayload,
   syncStretchPayload,
   syncStretchPlan,
-  updateFootballHealth,
+  updateCardioHealth,
   updateRecoveryHealth,
   updateStretchHealth,
   updateWorkoutHealth,
@@ -80,7 +80,7 @@ import {
 } from './lib/plan';
 import { mergeSeatNotes } from './lib/seatNote';
 import { beep } from './lib/sound';
-import { buildFootballPayload, type FootballEntryInput } from './lib/football';
+import { buildCardioPayload, type CardioEntryInput } from './lib/cardio';
 import type { HealthImportMatch } from './lib/healthImport';
 import { buildRecoveryPayload, type RecoveryEntryInput } from './lib/recovery';
 import { normalizeCode } from './lib/authErrors';
@@ -110,7 +110,7 @@ import { normalizeThresholds, type RecoveryThresholds } from './lib/recoveryAnal
 import {
   browserStore,
   type ExerciseListItem,
-  type HistFootballSession,
+  type HistCardioSession,
   type HistRecoveryEntry,
   type HistStretchSession,
   type LastInfo,
@@ -183,16 +183,16 @@ export function App() {
   const [stretchPlanEditor, setStretchPlanEditor] = useState<StretchPlan | 'new' | null>(null);
   const stretchLoaded = useRef(false);
   // Verlauf: Gym-Einheiten (Default), Dehnen, Fußball, Recovery oder alles gemeinsam.
-  const [historyFilter, setHistoryFilter] = useState<'gym' | 'stretch' | 'football' | 'recovery' | 'all'>('gym');
+  const [historyFilter, setHistoryFilter] = useState<'gym' | 'stretch' | 'cardio' | 'recovery' | 'all'>('gym');
   // Einheit, die der Gym-Verlauf beim Öffnen direkt zeigt (Sprung aus dem Reiter „Alle").
   const [historyOpenWorkout, setHistoryOpenWorkout] = useState<string | null>(null);
 
   // Fußball: eigener, einfacher Bereich (kein Draft, nur Formular plus Ausgangskorb).
-  const [footballHistory, setFootballHistory] = useState<HistFootballSession[]>(() =>
-    store.loadFootballHistory(),
+  const [cardioHistory, setCardioHistory] = useState<HistCardioSession[]>(() =>
+    store.loadCardioHistory(),
   );
-  const [footballPending, setFootballPending] = useState(() => store.loadFootballOutbox().length);
-  const [footballBusy, setFootballBusy] = useState(false);
+  const [cardioPending, setCardioPending] = useState(() => store.loadCardioOutbox().length);
+  const [cardioBusy, setCardioBusy] = useState(false);
 
   // Recovery: eigener, einfacher Bereich (kein Draft, ein Eintrag pro Tag).
   const [recoveryHistory, setRecoveryHistory] = useState<HistRecoveryEntry[]>(() =>
@@ -323,14 +323,14 @@ export function App() {
     }
 
     // Fußball: eigener Bereich, eigener Sync (gleiches Muster wie oben).
-    const footballRes = await flushFootballOutbox(store);
-    setFootballPending(footballRes.pending);
-    if (footballRes.sent > 0) setNotice(`${footballRes.sent} Fußball-Eintrag/Einträge gespeichert.`);
+    const footballRes = await flushCardioOutbox(store);
+    setCardioPending(footballRes.pending);
+    if (footballRes.sent > 0) setNotice(`${footballRes.sent} Cardio-Eintrag/Einträge gespeichert.`);
     if (footballRes.error) setSyncError((prev) => prev ?? footballRes.error);
-    const footballHist = await fetchFootballHistory();
+    const footballHist = await fetchCardioHistory();
     if (footballHist.ok) {
-      setFootballHistory(footballHist.data);
-      store.saveFootballHistory(footballHist.data);
+      setCardioHistory(footballHist.data);
+      store.saveCardioHistory(footballHist.data);
     }
 
     // Recovery: eigener Bereich, eigener Sync (gleiches Muster wie Fußball).
@@ -622,35 +622,35 @@ export function App() {
   }
 
   /** Speichert einen Fußball-Eintrag: offline in den Ausgangskorb, sonst direkt senden. */
-  async function saveFootball(input: FootballEntryInput) {
-    const payload = buildFootballPayload(input);
+  async function saveCardio(input: CardioEntryInput) {
+    const payload = buildCardioPayload(input);
     if (!payload) return;
-    setFootballBusy(true);
-    let saved = store.enqueueFootball(payload);
+    setCardioBusy(true);
+    let saved = store.enqueueCardio(payload);
     if (!saved) {
-      const res = await syncFootballPayload(payload);
+      const res = await syncCardioPayload(payload);
       saved = res.ok;
     }
     if (!saved) {
-      setFootballBusy(false);
+      setCardioBusy(false);
       setNotice('Speichern fehlgeschlagen. Bitte später erneut versuchen.');
       return;
     }
-    setFootballPending(store.loadFootballOutbox().length);
-    setFootballBusy(false);
+    setCardioPending(store.loadCardioOutbox().length);
+    setCardioBusy(false);
     void sync();
   }
 
   /** Löscht einen Fußball-Eintrag endgültig. */
-  async function handleDeleteFootball(id: string) {
-    const res = await deleteFootballSession(id);
+  async function handleDeleteCardio(id: string) {
+    const res = await deleteCardioSession(id);
     if (!res.ok) {
       setNotice(`Löschen fehlgeschlagen: ${res.error}`);
       return;
     }
-    const next = footballHistory.filter((s) => s.id !== id);
-    setFootballHistory(next);
-    store.saveFootballHistory(next);
+    const next = cardioHistory.filter((s) => s.id !== id);
+    setCardioHistory(next);
+    store.saveCardioHistory(next);
   }
 
   /** Speichert einen Recovery-Eintrag: offline in den Ausgangskorb, sonst direkt senden. */
@@ -703,7 +703,7 @@ export function App() {
       let res: { ok: boolean; error?: string };
       if (m.candidate.kind === 'workout') res = await updateWorkoutHealth(m.candidate.id, patch);
       else if (m.candidate.kind === 'stretch') res = await updateStretchHealth(m.candidate.id, patch);
-      else if (m.candidate.kind === 'football') res = await updateFootballHealth(m.candidate.id, patch);
+      else if (m.candidate.kind === 'cardio') res = await updateCardioHealth(m.candidate.id, patch);
       else res = await updateRecoveryHealth(m.candidate.id, patch);
       if (!res.ok) errors.push(res.error ?? 'unbekannter Fehler');
     }
@@ -845,12 +845,12 @@ export function App() {
     setHistory([]);
     setPending(0);
     setLastPlanDayId(null);
-    // resetRemoteData löscht serverseitig auch fit_football_sessions/fit_recovery_entries
+    // resetRemoteData löscht serverseitig auch fit_cardio_sessions/fit_recovery_entries
     // (siehe resetSteps).
-    store.saveFootballHistory([]);
-    store.saveFootballOutbox([]);
-    setFootballHistory([]);
-    setFootballPending(0);
+    store.saveCardioHistory([]);
+    store.saveCardioOutbox([]);
+    setCardioHistory([]);
+    setCardioPending(0);
     store.saveRecoveryHistory([]);
     store.saveRecoveryOutbox([]);
     setRecoveryHistory([]);
@@ -1135,20 +1135,20 @@ export function App() {
     );
   }
 
-  if (screen === 'football') {
+  if (screen === 'cardio') {
     return (
       <main>
-        <FootballScreen
-          history={footballHistory}
-          pending={footballPending}
-          busy={footballBusy}
+        <CardioScreen
+          history={cardioHistory}
+          pending={cardioPending}
+          busy={cardioBusy}
           notice={notice}
           onLoadArchive={fetchArchiveLookup}
           onLoadWatchRange={fetchWatchRange}
           onLoadLatestWatchRange={fetchLatestWatchRange}
-          onSave={(input) => void saveFootball(input)}
+          onSave={(input) => void saveCardio(input)}
           onSync={() => void sync()}
-          onDelete={(id) => void handleDeleteFootball(id)}
+          onDelete={(id) => void handleDeleteCardio(id)}
         />
         {tabs}
       </main>
@@ -1167,7 +1167,7 @@ export function App() {
             store.saveRecoveryThresholds(next);
           }}
           workouts={mergedHistory}
-          footballs={footballHistory}
+          cardios={cardioHistory}
           pending={recoveryPending}
           busy={recoveryBusy}
           notice={notice}
@@ -1197,7 +1197,7 @@ export function App() {
               [
                 ['gym', 'Gym'],
                 ['stretch', 'Dehnen'],
-                ['football', 'Fußball'],
+                ['cardio', 'Cardio'],
                 ['recovery', 'Recovery'],
                 ['all', 'Alle'],
               ] as const
@@ -1229,13 +1229,13 @@ export function App() {
         {historyFilter === 'stretch' && (
           <StretchHistoryScreen sessions={stretchHistory} nameOf={stretchNameOf} />
         )}
-        {historyFilter === 'football' && <FootballHistoryScreen sessions={footballHistory} />}
+        {historyFilter === 'cardio' && <CardioHistoryScreen sessions={cardioHistory} />}
         {historyFilter === 'recovery' && <RecoveryHistoryScreen entries={recoveryHistory} thresholds={recoveryThresholds} />}
         {historyFilter === 'all' && (
           <CombinedHistoryScreen
             workouts={mergedHistory}
             stretches={stretchHistory}
-            footballs={footballHistory}
+            cardios={cardioHistory}
             onOpenWorkout={(id) => {
               setHistoryOpenWorkout(id);
               setHistoryFilter('gym');
@@ -1246,7 +1246,7 @@ export function App() {
           <HealthImportSheet
             workouts={mergedHistory}
             stretches={stretchHistory}
-            footballs={footballHistory}
+            cardios={cardioHistory}
             recoveries={recoveryHistory}
             onClose={() => setHealthImportOpen(false)}
             onApply={applyHealthImport}
@@ -1360,7 +1360,7 @@ export function App() {
         <HomeAreas
           recovery={recoveryHistory}
           stretches={stretchHistory}
-          footballs={footballHistory}
+          cardios={cardioHistory}
           onOpen={setScreen}
         />
 

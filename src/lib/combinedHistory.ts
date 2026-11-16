@@ -1,10 +1,10 @@
 import type { HistWorkout } from './stats';
-import type { HistFootballSession, HistStretchSession } from './storage';
+import type { HistCardioSession, HistStretchSession } from './storage';
 
 export type CombinedHistoryEntry =
   | { kind: 'workout'; at: string; workout: HistWorkout }
   | { kind: 'stretch'; at: string; session: HistStretchSession }
-  | { kind: 'football'; at: string; session: HistFootballSession };
+  | { kind: 'cardio'; at: string; session: HistCardioSession };
 
 /**
  * Trainings, Stretching-Sessions und Fußball-Einträge rein für eine gemeinsame
@@ -16,12 +16,12 @@ export type CombinedHistoryEntry =
 export function combineHistory(
   workouts: HistWorkout[],
   stretches: HistStretchSession[],
-  footballs: HistFootballSession[] = [],
+  cardios: HistCardioSession[] = [],
 ): CombinedHistoryEntry[] {
   const entries: CombinedHistoryEntry[] = [
     ...workouts.map((w) => ({ kind: 'workout' as const, at: w.startedAt, workout: w })),
     ...stretches.map((s) => ({ kind: 'stretch' as const, at: s.startedAt, session: s })),
-    ...footballs.map((f) => ({ kind: 'football' as const, at: f.playedOn, session: f })),
+    ...cardios.map((f) => ({ kind: 'cardio' as const, at: f.playedOn, session: f })),
   ];
   return entries.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 }
