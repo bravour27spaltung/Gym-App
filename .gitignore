@@ -5,3 +5,4 @@ dist
 backups/
 .DS_Store
 vite.config.ts.timestamp-*.mjs
+supabase/.temp/
