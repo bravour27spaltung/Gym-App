@@ -323,7 +323,7 @@ export function NumberInput(props: {
 }
 
 /** Höhe einer Zeile im Zahlenrad (px), auch in styles.css verwendet (.wheel-track height = 3x). */
-export const WHEEL_ITEM_H = 44;
+export const WHEEL_ITEM_H = 36;
 const WHEEL_VISIBLE = 3;
 const WHEEL_SETTLE_MS = 90;
 
@@ -344,9 +344,11 @@ export function WheelPicker(props: {
   max: number;
   step: number;
   format?: (n: number) => string;
+  /** Zusätzliche CSS-Klasse am Rad, z. B. "wide" für breitere Werte wie "107,5". */
+  className?: string;
   onCommit: (n: number) => void;
 }) {
-  const { label, value, min, max, step, format, onCommit } = props;
+  const { label, value, min, max, step, format, className, onCommit } = props;
   const count = Math.max(1, Math.round((max - min) / step) + 1);
   const valueToIndex = (v: number) => clampIndex(Math.round((v - min) / step), count);
   const indexToValue = (i: number) => Math.round((min + i * step) * 1000) / 1000;
@@ -382,7 +384,7 @@ export function WheelPicker(props: {
   }
 
   return (
-    <div className="wheel" role="group" aria-label={label}>
+    <div className={className ? `wheel ${className}` : 'wheel'} role="group" aria-label={label}>
       <div className="wheel-highlight" aria-hidden="true" />
       <div
         ref={trackRef}

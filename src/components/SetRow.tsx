@@ -3,13 +3,19 @@ import { fmtShortYear } from '../lib/format';
 import type { LoggedSet } from '../lib/progression';
 import type { SetHistoryEntry } from '../lib/stats';
 import { formatClock } from '../lib/timer';
-import { composeWeight, formatKg, kgText, splitWeight, totalLoad, type Fraction } from '../lib/weight';
+import { formatKg, kgText, totalLoad } from '../lib/weight';
 import type { DraftSet } from '../lib/workout';
 import { SetTimer } from './SetTimer';
-import { Icon, NumberInput, WheelPicker } from './ui';
+import { Icon, WheelPicker } from './ui';
 
-/** Nachkommastellen-Optionen als Rad, zweistellig ("00", "25", "50", "75"). */
-const FRACTION_STEPS = { min: 0, max: 75, step: 25 } as const;
+/** Gewichtsrad in halben Kilo: "7,0", "7,5", "8,0" ... */
+const WEIGHT_WHEEL = { min: 0, max: 250, step: 0.5 } as const;
+/** Wiederholungsrad: 0 bis 100. */
+const REPS_WHEEL = { min: 0, max: 100, step: 1 } as const;
+
+function weightWheelText(kg: number): string {
+  return kg.toFixed(1).replace('.', ',');
+}
 
 function setLabel(set: DraftSet, index: number): string {
   return set.type === 'warmup' ? `Aufwärmsatz ${index}` : `Satz ${index}`;
@@ -32,15 +38,6 @@ function historyLine(entry: SetHistoryEntry): string {
   const date = fmtShortYear(new Date(entry.at).getTime());
   if (entry.durationSeconds != null) return `${date} · ${timedText(entry.durationSeconds, entry.weightKg)}`;
   return entry.weightKg > 0 ? `${date} · ${entry.reps} × ${kgText(entry.weightKg)} kg` : `${date} · ${entry.reps}×`;
-}
-
-/** Ganze Kilo und Bruchteil getrennt; Werte außerhalb des 0,25-Rasters fallen auf "ganz" zurück. */
-function safeSplit(kg: number): { wholeKg: number; fraction: Fraction } {
-  try {
-    return splitWeight(kg);
-  } catch {
-    return { wholeKg: Math.floor(kg), fraction: 0 };
-  }
 }
 
 interface LineProps {
@@ -135,7 +132,6 @@ export function SetEditor({
   const warm = set.type === 'warmup';
   const label = setLabel(set, index);
   const prev = previousText(previous);
-  const { wholeKg, fraction } = safeSplit(set.weightKg);
   const timed = set.durationSeconds != null;
   const showTotal = equipmentKg !== null && equipmentKg > 0 && set.weightKg > 0;
 
@@ -162,94 +158,70 @@ export function SetEditor({
         )}
       </div>
 
-      <div className="fx-field">
-        <span className="fx-flabel">Gewicht</span>
-        <div className="fx-weightwheels">
-          <WheelPicker
-            label={`${label}: ganze Kilo`}
-            value={wholeKg}
-            min={0}
-            max={250}
-            step={1}
-            onCommit={(w) => onWeight(composeWeight(w, fraction))}
-          />
-          <span className="wheel-sep" aria-hidden="true">
-            ,
-          </span>
-          <WheelPicker
-            label={`${label}: Nachkommastellen`}
-            value={fraction * 100}
-            min={FRACTION_STEPS.min}
-            max={FRACTION_STEPS.max}
-            step={FRACTION_STEPS.step}
-            format={(n) => String(n).padStart(2, '0')}
-            onCommit={(f) => onWeight(composeWeight(wholeKg, (f / 100) as Fraction))}
-          />
-          <span className="wheel-unit" aria-hidden="true">
-            kg
-          </span>
-        </div>
-        {showTotal && <small className="fx-total">Σ {formatKg(totalLoad(set.weightKg, equipmentKg))} inkl. Stange/Maschine</small>}
-      </div>
-
-      <div className="fx-field">
-        <div className="fx-modehead">
-          <span className="fx-flabel">{timed ? 'Zeit' : 'Wiederholungen'}</span>
-          <div className="chips sm" role="group" aria-label={`${label}: Erfassung`}>
-            <button
-              type="button"
-              className={timed ? 'chip' : 'chip on'}
-              aria-pressed={!timed}
-              onClick={() => timed && onDuration(null)}
-            >
-              Wdh.
-            </button>
-            <button
-              type="button"
-              className={timed ? 'chip on' : 'chip'}
-              aria-pressed={timed}
-              onClick={() => !timed && onDuration(previous?.durationSeconds ?? 30)}
-            >
-              Zeit
-            </button>
+      <div className={timed ? undefined : 'fx-wheelrow'}>
+        <div className="fx-field">
+          <span className="fx-flabel">Gewicht</span>
+          <div className="fx-weightwheels">
+            <WheelPicker
+              className="wide"
+              label={`${label}: Gewicht in kg`}
+              value={set.weightKg}
+              min={WEIGHT_WHEEL.min}
+              max={WEIGHT_WHEEL.max}
+              step={WEIGHT_WHEEL.step}
+              format={weightWheelText}
+              onCommit={onWeight}
+            />
+            <span className="wheel-unit" aria-hidden="true">
+              kg
+            </span>
           </div>
         </div>
-        {timed ? (
-          <SetTimer
-            label={`${label}: Zeit`}
-            seconds={set.durationSeconds ?? 0}
-            targetSeconds={previous?.durationSeconds ?? null}
-            onChange={onDuration}
-          />
-        ) : (
-          <div className="fx-stepper">
-            <button
-              type="button"
-              aria-label={`${label}: eine Wiederholung weniger`}
-              disabled={set.reps <= 0}
-              onClick={() => onReps(Math.max(0, set.reps - 1))}
-            >
-              −
-            </button>
-            <div className="fx-input">
-              <NumberInput
-                kind="int"
-                className="bigin"
+
+        <div className="fx-field">
+          <div className="fx-modehead">
+            {timed && <span className="fx-flabel">Zeit</span>}
+            <div className="chips sm" role="group" aria-label={`${label}: Erfassung`}>
+              <button
+                type="button"
+                className={timed ? 'chip' : 'chip on'}
+                aria-pressed={!timed}
+                onClick={() => timed && onDuration(null)}
+              >
+                Wdh.
+              </button>
+              <button
+                type="button"
+                className={timed ? 'chip on' : 'chip'}
+                aria-pressed={timed}
+                onClick={() => !timed && onDuration(previous?.durationSeconds ?? 30)}
+              >
+                Zeit
+              </button>
+            </div>
+          </div>
+          {timed ? (
+            <SetTimer
+              label={`${label}: Zeit`}
+              seconds={set.durationSeconds ?? 0}
+              targetSeconds={previous?.durationSeconds ?? null}
+              onChange={onDuration}
+            />
+          ) : (
+            <div className="fx-weightwheels">
+              <WheelPicker
                 label={`${label}: Wiederholungen`}
                 value={set.reps}
+                min={REPS_WHEEL.min}
+                max={REPS_WHEEL.max}
+                step={REPS_WHEEL.step}
                 onCommit={onReps}
               />
             </div>
-            <button
-              type="button"
-              aria-label={`${label}: eine Wiederholung mehr`}
-              onClick={() => onReps(Math.min(999, set.reps + 1))}
-            >
-              +
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
+      {showTotal && <small className="fx-total">Σ {formatKg(totalLoad(set.weightKg, equipmentKg))} inkl. Stange/Maschine</small>}
 
       {history.length > 0 && (
         <details className="fx-history">
